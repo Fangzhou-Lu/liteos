@@ -10,11 +10,21 @@
 #include "mock_disk.h"
 #include "host_stubs/los_typedef.h"
 #include "host_stubs/disk.h"
+#include "host_stubs/vnode.h"
+#include "host_stubs/fs/file.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 
 UINT8 *m_aucSysMem0 = (UINT8 *)0xDEADBEEFul;   /* sentinel; LOS_MemAlloc ignores. */
+
+/* g_exfatVops / g_exfatFops live in fs/exfat/exfat_ops.c (production). The
+ * cmocka harness does NOT compile exfat_ops.c (it would drag in Reclaim/Write
+ * which depend on super.c/write.c — outside read-path scope). Lookup only
+ * uses the *address* of these tables (vp->vop / vp->fop), so an empty stub
+ * is sufficient. */
+struct VnodeOps             g_exfatVops;
+struct file_operations_vfs  g_exfatFops;
 
 static uint8_t *g_image = NULL;
 static size_t   g_image_len = 0;

@@ -1,6 +1,94 @@
 /* Host stub for fs/vfs/include/vnode.h.
- * Only the type names are needed to satisfy exfat.h's externs. */
+ * Provides the minimal struct shapes used by VFS callback layer TUs:
+ *   exfat_open_close.c / exfat_attr.c / exfat_lookup.c /
+ *   exfat_file.c / exfat_readdir.c
+ * VFS service functions (VnodeAlloc, VnodeFree, VfsHashInsert) are
+ * stubbed as simple heap wrappers — sufficient for unit-test isolation. */
 #ifndef _HOST_STUB_VNODE_H
 #define _HOST_STUB_VNODE_H
-struct VnodeOps  { int _opaque; };
-#endif
+
+#include <stdint.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+
+/* Minimal doubly-linked list node (used by Vnode struct fields). */
+typedef struct _list_entry { struct _list_entry *pstNext, *pstPrev; } LOS_DL_LIST;
+typedef LOS_DL_LIST LIST_HEAD;
+typedef LOS_DL_LIST LIST_ENTRY;
+
+/* Forward declarations. */
+struct VnodeOps;
+struct file_operations_vfs;
+struct Mount;
+struct page_mapping { int _opaque; };
+
+enum VnodeType {
+    VNODE_TYPE_UNKNOWN = 0,
+    VNODE_TYPE_REG,
+    VNODE_TYPE_DIR,
+    VNODE_TYPE_BLK,
+    VNODE_TYPE_CHR,
+    VNODE_TYPE_FIFO,
+    VNODE_TYPE_LNK,
+};
+
+struct Vnode {
+    enum VnodeType          type;
+    int                     useCount;
+    uint32_t                hash;
+    unsigned int            uid;
+    unsigned int            gid;
+    mode_t                  mode;
+    LIST_HEAD               parentPathCaches;
+    LIST_HEAD               childPathCaches;
+    struct Vnode           *parent;
+    struct VnodeOps        *vop;
+    struct file_operations_vfs *fop;
+    void                   *data;
+    uint32_t                flag;
+    LIST_ENTRY              hashEntry;
+    LIST_ENTRY              actFreeEntry;
+    struct Mount           *originMount;
+    struct Mount           *newMount;
+    char                   *filePath;
+    struct page_mapping     mapping;
+};
+
+struct VnodeOps { int _opaque; };
+
+/* VFS service stubs: allocate a zeroed Vnode from heap (no global lists).
+ * VfsHashInsert is a no-op (returns 0) — sufficient for unit tests that
+ * only verify the callback's own logic, not the VFS hash table. */
+static inline int VnodeAlloc(struct VnodeOps *vop, struct Vnode **out)
+{
+    struct Vnode *vp;
+    (void)vop;
+    if (out == NULL) { return -1; }
+    vp = (struct Vnode *)calloc(1, sizeof(struct Vnode));
+    if (vp == NULL) { return -1; }
+    *out = vp;
+    return 0;
+}
+
+static inline int VnodeFree(struct Vnode *vp)
+{
+    free(vp);
+    return 0;
+}
+
+static inline int VfsHashInsert(struct Vnode *vp, uint32_t hash)
+{
+    (void)vp; (void)hash;
+    return 0;
+}
+
+static inline int VfsHashGet(const struct Mount *mount, uint32_t hash,
+                             struct Vnode **vnode, void *fun, void *arg)
+{
+    (void)mount; (void)hash; (void)fun; (void)arg;
+    if (vnode) { *vnode = NULL; }
+    return 0;
+}
+
+#endif /* _HOST_STUB_VNODE_H */

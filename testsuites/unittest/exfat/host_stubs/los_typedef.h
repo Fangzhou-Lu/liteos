@@ -1,13 +1,34 @@
 /*
  * Host-side stub for kernel/include/los_typedef.h.
  * Compiled only with the exfat cmocka host harness — never linked into the kernel.
+ *
+ * _GNU_SOURCE must be defined before ANY system header to unlock blksize_t /
+ * blkcnt_t / loff_t from glibc <sys/types.h>. Use #ifndef so an outer
+ * -D_GNU_SOURCE on the compiler command line also works.
  */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #ifndef _HOST_STUB_LOS_TYPEDEF_H
 #define _HOST_STUB_LOS_TYPEDEF_H
 
 #include <stdint.h>
 #include <stddef.h>
-#include <sys/types.h>   /* host glibc provides off_t / loff_t / ssize_t */
+#include <sys/types.h>   /* off_t / loff_t / ssize_t */
+#include <unistd.h>      /* SEEK_SET / SEEK_CUR / SEEK_END */
+
+/* blksize_t / blkcnt_t: defined by glibc only under _GNU_SOURCE, which may
+ * arrive too late when <sys/stat.h> is included before our stub headers.
+ * Provide host-only typedefs from the underlying private glibc types. */
+#ifndef __blksize_t_defined
+typedef __blksize_t blksize_t;
+#define __blksize_t_defined
+#endif
+#ifndef __blkcnt_t_defined
+typedef __blkcnt_t blkcnt_t;
+#define __blkcnt_t_defined
+#endif
 
 typedef int32_t  INT32;
 typedef uint32_t UINT32;
