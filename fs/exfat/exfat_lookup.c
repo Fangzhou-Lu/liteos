@@ -38,6 +38,7 @@
 #include "los_printf.h"
 #include "vnode.h"
 #include "fs/mount.h"
+#include <sys/stat.h>
 
 extern UINT8 *m_aucSysMem0;
 
@@ -341,6 +342,15 @@ int VfsExfatLookup(struct Vnode *parent, const char *name, int len,
         vp->originMount = parent->originMount;
         vp->uid = sbi->options.fs_uid;
         vp->gid = sbi->options.fs_gid;
+        /* Permission bits: dir → 0755, file → 0644, ANDed with options
+         * dmask/fmask. Without this VFS open() rejects with EACCES.
+         * exFAT on-disk has no per-file permission; fmask/dmask are the
+         * mount-time policy (Wave A: zero default → 0755/0644 verbatim). */
+        if (attr & ATTR_SUBDIR) {
+            vp->mode = S_IFDIR | (mode_t)(0755 & ~sbi->options.fs_dmask);
+        } else {
+            vp->mode = S_IFREG | (mode_t)(0644 & ~sbi->options.fs_fmask);
+        }
 
         err = VfsHashInsert(vp, (uint32_t)ei->i_pos);
         if (err != 0) {
