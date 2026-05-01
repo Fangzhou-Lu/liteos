@@ -338,6 +338,18 @@ int VfsExfatRewinddir(struct Vnode *vp, struct fs_dirent_s *idir);
  */
 ssize_t VfsExfatRead(struct file *filep, char *buf, size_t len);
 
+/* ---- VFS Write callback — fs/exfat/exfat_write.c (Wave B Stage 1) ----
+ * file_operations_vfs.write handler. In-place overwrite only; clamped to
+ * [filep->f_pos, ei->size). No allocation, no extending, no dentry persistence
+ * (deferred to Wave B2 truncate / B6 fsync). Cluster-level read-modify-write
+ * via los_part_read + memcpy_s + los_part_write. Holds ei->inode_lock for the
+ * entire body (mirrors Linux upper-layer vfs_write's exclusive inode->i_rwsem);
+ * does NOT take sbi->s_lock nor bitmap_lock. Short-write semantics on mid-loop
+ * IO failure (mirror Linux generic_file_write_iter). Wired into g_exfatFops at
+ * static-init in exfat_ops.c. See spec/exfat/interface/exfat_write.spec.
+ */
+ssize_t VfsExfatWrite(struct file *filep, const char *buf, size_t len);
+
 /* ---- VFS Open / Close callbacks — fs/exfat/exfat_open_close.c --------
  * file_operations_vfs.open / .close handlers (Wave A stubs). Mirror Linux
  * exfat's choice of generic_file_open / no .release: no allocation, no lock,

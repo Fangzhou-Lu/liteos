@@ -177,3 +177,6 @@ extern int VfsExfatClose(struct file *filep);
 struct stat;
 extern int   VfsExfatGetattr(struct Vnode *vp, struct stat *st);
 extern off_t VfsExfatSeek(struct file *filep, off_t offset, int whence);
+
+/* write stage exports (Wave B Stage 1; file_operations_vfs.write; static-init in g_exfatFops) */
+extern ssize_t VfsExfatWrite(struct file *filep, const char *buf, size_t len);

@@ -1738,6 +1738,33 @@
         "dirty": false
       },
       "invariants": []
+    },
+    {
+      "id": "write",
+      "stage_name": "write",
+      "depends_on": [],
+      "code": {},
+      "spec": {
+        "files": [
+          "spec/exfat/interface/exfat_write.spec"
+        ],
+        "git_sha": "79940d08985b67e5ecef2e0b1c59145095c51dd9",
+        "linux_source_ref": "/Users/kissa/Codebase/linux/fs/exfat/file.c",
+        "approved_at": "2026-05-01T15:04:19Z",
+        "approval_iterations": 3,
+        "user_clarifications": [
+          {
+            "q": "inode_alloc: LOS_MuxAttr — NULL 默认 vs LOS_MUX_PRIO_INHERIT?",
+            "a": "使用 LOS_MUX_PRIO_INHERIT (优先级继承避免单 inode 锁的优先级反转)。"
+          },
+          {
+            "q": "nls_utf16: UTF-8 → UTF-16 conversion 在哪一层提供？",
+            "a": "在本 stage 一并提供 (对称 API)。即三件套: exfat_uni_to_utf8 + exfat_utf8_to_uni + exfat_uniname_cmp。"
+          }
+        ],
+        "dirty": false
+      },
+      "invariants": []
     }
   ]
 }

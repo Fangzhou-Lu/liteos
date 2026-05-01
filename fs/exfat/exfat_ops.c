@@ -68,6 +68,7 @@ struct file_operations_vfs g_exfatFops = {
     .open  = VfsExfatOpen,
     .close = VfsExfatClose,
     .read  = VfsExfatRead,
+    .write = VfsExfatWrite,
     .seek  = VfsExfatSeek,
 };
 

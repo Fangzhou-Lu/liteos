@@ -44,6 +44,7 @@ kernel_module(module_name) {
     "exfat_ops.c",
     "exfat_readdir.c",
     "exfat_super.c",
+    "exfat_write.c",
     "util/exfat_chksum.c",
     "util/exfat_fat_chain.c",
     "util/exfat_nls_utf16.c",
