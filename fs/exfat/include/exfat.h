@@ -180,6 +180,186 @@ int  exfat_count_used_clusters(const exfat_sb_info *sbi, uint32_t *ret_count);
 int  exfat_find_root_dentry(const exfat_sb_info *sbi, uint8_t type,
                             struct exfat_dentry *out);
 
+/* ---- FAT chain traversal — fs/exfat/util/exfat_fat_chain.c -------------
+ * Public helpers replacing dentry stage's private ReadFatEntry. Read-only,
+ * lock-free. Spinlock-safe ranking:
+ *   exfat_clu_to_sector       — pure compute, spinlock-safe.
+ *   exfat_get_next_cluster    — alloc + IO, NOT spinlock-safe.
+ *   exfat_chain_walk          — calls get_next_cluster, NOT spinlock-safe.
+ * See spec/exfat/util/exfat_fat_chain.spec ## Refine Prompt for full lock contract.
+ */
+
+/* visitor callback contract (used by exfat_chain_walk):
+ *   return 0  → continue to next cluster
+ *   return 1  → stop walk successfully
+ *   return <0 → stop walk, propagate error code
+ */
+typedef int (*exfat_chain_visitor_t)(uint32_t clu, void *ctx);
+
+/* Cluster → partition-relative data sector LBA.
+ *
+ * Pre: sbi != NULL && clu >= EXFAT_FIRST_CLUSTER && sbi->clu_offset and
+ *      sbi->sect_per_clus_bits already populated by exfat_parse_boot_sector.
+ *
+ * Pure compute; safe to call under any lock (incl. spinlock).
+ * Invariant exfat-fat-chain-clu-to-sector-overflow-safe: all arithmetic in
+ * uint64_t to avoid 32-bit wrap into boot/FAT region.
+ */
+static inline uint64_t exfat_clu_to_sector(const exfat_sb_info *sbi,
+                                           uint32_t clu)
+{
+    return (uint64_t)sbi->clu_offset +
+           (uint64_t)(clu - EXFAT_FIRST_CLUSTER) *
+           (uint64_t)(1u << sbi->sect_per_clus_bits);
+}
+
+/* Read FAT[cur_clu]; on success *next_clu ∈ {EXFAT_EOF_CLUSTER} ∪
+ * [EXFAT_FIRST_CLUSTER, sbi->num_clusters). Linux __exfat_ent_get parity:
+ * raw > EXFAT_BAD_CLUSTER mapped to EXFAT_EOF_CLUSTER prior to validation.
+ * Returns 0 / -EIO / -ENOMEM / -EINVAL. fat_buf released on every path.
+ */
+int  exfat_get_next_cluster(const exfat_sb_info *sbi, uint32_t cur_clu,
+                            uint32_t *next_clu);
+
+/* Bounded (≤ sbi->num_clusters) FAT chain walk; visitor invoked per cluster
+ * starting from start_clu. Empty chain (start_clu == EXFAT_EOF_CLUSTER) is
+ * a successful no-op. Bound exceeded → -EIO (FAT cycle defense).
+ */
+int  exfat_chain_walk(const exfat_sb_info *sbi, uint32_t start_clu,
+                      exfat_chain_visitor_t visitor, void *ctx);
+
+/* ---- inode_info lifecycle — fs/exfat/exfat_inode_alloc.c ---------------
+ * Memory-only helpers; no IO, no disk read/write. inode_lock initialised
+ * with LOS_MUX_PRIO_INHERIT protocol to avoid priority inversion on the
+ * per-inode lock. Spinlock-safe ranking:
+ *   exfat_inode_init_dir_chain — pure assignment, spinlock-safe.
+ *   exfat_inode_alloc / _free  — zalloc + LOS_MuxInit/Destroy, NOT spinlock-safe.
+ */
+
+/* Allocate + zero an exfat_inode_info, init inode_lock (PRIO_INHERIT).
+ * Success: 0, *out written. Failure: -ENOMEM / -EIO; *out untouched; no leak.
+ */
+int  exfat_inode_alloc(exfat_inode_info **out);
+
+/* Destroy inode_lock and free heap. NULL-safe (ei == NULL is no-op).
+ * Caller must guarantee inode_lock is currently unlocked.
+ */
+void exfat_inode_free(exfat_inode_info *ei);
+
+/* Set dir.{dir,flags,size}, type, start_clu — five fields — for a freshly
+ * alloced ei representing a directory inode. Pure assignment; no IO/lock.
+ */
+void exfat_inode_init_dir_chain(exfat_inode_info *ei, uint32_t start_clu);
+
+/* ---- dentry iteration — fs/exfat/exfat_dentry_iter.c -------------------
+ * Public dentry IO + dentry-set parsing. All read-only, lock-free. Read of
+ * one dentry-set is bounded by EXFAT_DENTRY_SET_MAX entries. Validate uses
+ * exfat_calc_chksum16(..., CS_DIR_ENTRY) to skip the SetChecksum field per
+ * Microsoft spec. See spec/exfat/dentry/exfat_dentry_iter.spec for the full
+ * contract incl. cluster-boundary correctness rule.
+ */
+#define EXFAT_DENTRY_SET_MAX  19  /* 1 primary + 1 stream + 17 name */
+
+/* Read one 32B dentry at linear index entry_idx in dir's chain. Returns
+ * 0 / -EINVAL / -EIO / -ENOMEM. out_sector may be NULL.
+ */
+int  exfat_get_dentry(const exfat_sb_info *sbi, const exfat_chain *dir,
+                      int entry_idx, struct exfat_dentry *out,
+                      uint64_t *out_sector);
+
+/* Read primary + secondaries of a file dentry-set starting at start_entry.
+ * On success *num_entries = 1 + primary.num_ext. Errors per spec.
+ */
+int  exfat_get_dentry_set(const exfat_sb_info *sbi, const exfat_chain *dir,
+                          int start_entry, struct exfat_dentry *set,
+                          int max_entries, int *num_entries);
+
+/* Pure-compute chksum16 verify of an in-memory dentry-set. Returns 0 if
+ * SetChecksum matches, -EIO if mismatch, -EINVAL if set[0] is not a primary.
+ */
+int  exfat_validate_dentry_set(const struct exfat_dentry *set, int num_entries);
+
+/* ---- UTF-16 / UTF-8 conversion + upcase compare — fs/exfat/util/exfat_nls_utf16.c
+ * Pure compute (spinlock-safe). RFC 3629-strict UTF-8: rejects overlong,
+ * surrogate-half input, > 0x10FFFF. Surrogate pairs in cmp are bit-exact
+ * (Microsoft upcase only covers BMP).
+ */
+int  exfat_uni_to_utf8(const uint16_t *uni, int uni_len,
+                       char *out, int out_max);
+int  exfat_utf8_to_uni(const char *utf8, int utf8_len,
+                       uint16_t *uni, int uni_max, int *uni_len);
+int  exfat_uniname_cmp(const exfat_sb_info *sbi,
+                       const uint16_t *a, int a_len,
+                       const uint16_t *b, int b_len);
+
+/* ---- VFS Lookup callback — fs/exfat/exfat_lookup.c --------------------
+ * Faithful to Linux fs/exfat/namei.c::exfat_lookup: takes sbi->s_lock for
+ * the entire body, no per-inode lock, no bitmap_lock. Decodes UTF-8 name,
+ * walks parent's dentry stream, validates SetChecksum, compares via
+ * sbi->vol_utbl, builds inode + Vnode + VfsHashInsert on match.
+ * Returns 0 / -ENOENT / -EINVAL / -ENAMETOOLONG / -ENOMEM / -EIO. See
+ * spec/exfat/interface/exfat_lookup.spec for the full contract.
+ */
+int VfsExfatLookup(struct Vnode *parent, const char *name, int len,
+                   struct Vnode **vpp);
+
+/* ---- VFS Reclaim — fs/exfat/exfat_super.c ----------------------------
+ * vop->Reclaim handler. Called by VFS framework's VnodeFree() AFTER
+ * VnodePathCacheFree() walks the vnode's path_cache lists and BEFORE the
+ * vnode struct is recycled. Releases FS-private inode_info attached to
+ * vnode->data. Wired into g_exfatVops at static-init in exfat_ops.c.
+ */
+int VfsExfatReclaim(struct Vnode *vnode);
+
+/* ---- VFS Readdir bundle — fs/exfat/exfat_readdir.c --------------------
+ * Four directory-traversal callbacks. Linux-faithful s_lock model: only
+ * Readdir takes sbi->s_lock for the entire body (mirroring exfat_iterate);
+ * Opendir / Closedir / Rewinddir touch only per-DIR fields and take no lock.
+ * Cursor lives in idir->fd_int_offset (entry_idx); idir->u.fs_dir stays NULL
+ * — no per-DIR allocation in this stage. See spec/exfat/interface/
+ * exfat_readdir.spec.
+ */
+struct fs_dirent_s;
+int VfsExfatOpendir(struct Vnode *vp, struct fs_dirent_s *idir);
+int VfsExfatReaddir(struct Vnode *vp, struct fs_dirent_s *idir);
+int VfsExfatClosedir(struct Vnode *vp, struct fs_dirent_s *idir);
+int VfsExfatRewinddir(struct Vnode *vp, struct fs_dirent_s *idir);
+
+/* ---- VFS Read callback — fs/exfat/exfat_file.c ------------------------
+ * file_operations_vfs.read handler. Linux-faithful lock model: holds
+ * ei->inode_lock for the entire body (mirrors Linux upper-layer auto-acquired
+ * inode->i_rwsem); does NOT take sbi->s_lock (Linux exfat_get_block on read
+ * path doesn't either) nor bitmap_lock. Walks fat chain per cluster, stages
+ * IO through one cluster_size buffer, copies into user buf via memcpy_s.
+ * Short-read on mid-loop IO failure mirrors Linux generic_file_read_iter.
+ * Wired into g_exfatFops at static-init in exfat_ops.c. See
+ * spec/exfat/interface/exfat_read.spec.
+ */
+ssize_t VfsExfatRead(struct file *filep, char *buf, size_t len);
+
+/* ---- VFS Open / Close callbacks — fs/exfat/exfat_open_close.c --------
+ * file_operations_vfs.open / .close handlers (Wave A stubs). Mirror Linux
+ * exfat's choice of generic_file_open / no .release: no allocation, no lock,
+ * no IO. Open type-checks the vnode (returns -EISDIR for directories,
+ * -EINVAL for malformed); Close always returns 0. Wired into g_exfatFops at
+ * static-init in exfat_ops.c. See spec/exfat/interface/exfat_open_close.spec.
+ */
+int VfsExfatOpen(struct file *filep);
+int VfsExfatClose(struct file *filep);
+
+/* ---- VFS Getattr / Seek callbacks — fs/exfat/exfat_attr.c ------------
+ * VnodeOps.Getattr fills struct stat from in-memory ei + sbi geometry
+ * (Wave A: timestamps zero, populated in Wave B after dentry CrtTime/MtimeOff
+ * parsing). file_operations_vfs.seek implements POSIX lseek with SEEK_SET /
+ * SEEK_CUR / SEEK_END, allowing seek past EOF; rejects negative new pos with
+ * -EINVAL, off_t overflow with -EOVERFLOW. Both take ei->inode_lock briefly
+ * for ei->size snapshot only; do NOT take sbi->s_lock. See
+ * spec/exfat/interface/exfat_vfs_ops_filled.spec.
+ */
+struct stat;
+int   VfsExfatGetattr(struct Vnode *vp, struct stat *st);
+off_t VfsExfatSeek(struct file *filep, off_t offset, int whence);
+
 #ifdef __cplusplus
 }
 #endif

@@ -116,3 +116,64 @@ typedef struct exfat_inode_info {
 extern struct VnodeOps             g_exfatVops;
 extern struct file_operations_vfs  g_exfatFops;
 extern struct MountOps             g_exfatMountOps;
+
+
+/* auto-synced exports — appended by specfs-port code_gen_approve, then
+ * hand-cleaned of comment-fragment regex misfires. Sorted by stage approval order. */
+extern uint32_t exfat_calc_chksum32(const void *data, uint32_t len, uint32_t chksum, int type);
+extern uint16_t exfat_calc_chksum16(const void *data, int len, uint16_t chksum, int type);
+extern int  exfat_parse_options(const char *data, exfat_mount_options *opts);
+extern int  exfat_parse_boot_sector(exfat_sb_info *sbi, const struct exfat_boot_sector *bs, uint32_t logical_sector_size);
+extern int  exfat_find_root_dentry(const exfat_sb_info *sbi, uint8_t type, struct exfat_dentry *out);
+extern int  exfat_load_bitmap(exfat_sb_info *sbi);
+extern void exfat_free_bitmap(exfat_sb_info *sbi);
+extern int  exfat_count_used_clusters(const exfat_sb_info *sbi, uint32_t *out);
+extern int  exfat_create_upcase_table(exfat_sb_info *sbi);
+extern void exfat_free_upcase_table(exfat_sb_info *sbi);
+
+/* fat_chain stage exports (exfat_clu_to_sector is static inline in fs/exfat/include/exfat.h) */
+typedef int (*exfat_chain_visitor_t)(uint32_t clu, void *ctx);
+extern int  exfat_get_next_cluster(const exfat_sb_info *sbi, uint32_t cur_clu, uint32_t *next_clu);
+extern int  exfat_chain_walk(const exfat_sb_info *sbi, uint32_t start_clu, exfat_chain_visitor_t visitor, void *ctx);
+
+/* inode_alloc stage exports */
+extern int  exfat_inode_alloc(exfat_inode_info **out);
+extern void exfat_inode_free(exfat_inode_info *ei);
+extern void exfat_inode_init_dir_chain(exfat_inode_info *ei, uint32_t start_clu);
+
+/* dentry_iter stage exports */
+#define EXFAT_DENTRY_SET_MAX  19
+extern int  exfat_get_dentry(const exfat_sb_info *sbi, const exfat_chain *dir, int entry_idx, struct exfat_dentry *out, uint64_t *out_sector);
+extern int  exfat_get_dentry_set(const exfat_sb_info *sbi, const exfat_chain *dir, int start_entry, struct exfat_dentry *set, int max_entries, int *num_entries);
+extern int  exfat_validate_dentry_set(const struct exfat_dentry *set, int num_entries);
+
+/* nls_utf16 stage exports */
+extern int  exfat_uni_to_utf8(const uint16_t *uni, int uni_len, char *out, int out_max);
+extern int  exfat_utf8_to_uni(const char *utf8, int utf8_len, uint16_t *uni, int uni_max, int *uni_len);
+extern int  exfat_uniname_cmp(const exfat_sb_info *sbi, const uint16_t *a, int a_len, const uint16_t *b, int b_len);
+
+/* lookup stage exports (VFS callback statically-init in g_exfatVops at fs/exfat/exfat_ops.c) */
+extern int  VfsExfatLookup(struct Vnode *parent, const char *name, int len, struct Vnode **vpp);
+
+/* readdir stage exports (4 VFS dir callbacks; statically-init in g_exfatVops) */
+struct fs_dirent_s;
+extern int  VfsExfatOpendir(struct Vnode *vp, struct fs_dirent_s *idir);
+extern int  VfsExfatReaddir(struct Vnode *vp, struct fs_dirent_s *idir);
+extern int  VfsExfatClosedir(struct Vnode *vp, struct fs_dirent_s *idir);
+extern int  VfsExfatRewinddir(struct Vnode *vp, struct fs_dirent_s *idir);
+
+/* reclaim hook (VFS Reclaim handler; statically-init in g_exfatVops) */
+extern int  VfsExfatReclaim(struct Vnode *vnode);
+
+
+/* read stage exports (file_operations_vfs.read; statically-init in g_exfatFops) */
+extern ssize_t VfsExfatRead(struct file *filep, char *buf, size_t len);
+
+/* open_close stage exports (file_operations_vfs.open/.close; static-init in g_exfatFops) */
+extern int VfsExfatOpen(struct file *filep);
+extern int VfsExfatClose(struct file *filep);
+
+/* vfs_ops_filled stage exports (Vop.Getattr; Fop.seek; static-init in respective tables) */
+struct stat;
+extern int   VfsExfatGetattr(struct Vnode *vp, struct stat *st);
+extern off_t VfsExfatSeek(struct file *filep, off_t offset, int whence);

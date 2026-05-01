@@ -32,11 +32,21 @@ module_switch = defined(LOSCFG_FS_EXFAT)
 module_name = get_path_info(rebase_path("."), "name")
 kernel_module(module_name) {
   sources = [
+    "exfat_attr.c",
     "exfat_balloc.c",
     "exfat_dentry.c",
+    "exfat_dentry_iter.c",
+    "exfat_dir.c",
+    "exfat_file.c",
+    "exfat_inode_alloc.c",
+    "exfat_lookup.c",
+    "exfat_open_close.c",
     "exfat_ops.c",
+    "exfat_readdir.c",
     "exfat_super.c",
     "util/exfat_chksum.c",
+    "util/exfat_fat_chain.c",
+    "util/exfat_nls_utf16.c",
     "util/exfat_options.c",
     "util/exfat_upcase.c",
   ]

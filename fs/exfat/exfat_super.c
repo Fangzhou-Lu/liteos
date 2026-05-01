@@ -66,7 +66,7 @@ static int VfsExfatSync(struct Mount *mount);
  * subsequent VnodePathCacheFree (data_abort far=0x4 — see fix history).
  * Mirrors fatfs's reclaim handling.
  * --------------------------------------------------------------------------- */
-static int VfsExfatReclaim(struct Vnode *vnode)
+int VfsExfatReclaim(struct Vnode *vnode)
 {
     exfat_inode_info *ei = NULL;
     if (vnode == NULL) {
@@ -325,14 +325,6 @@ static int VfsExfatMount(struct Mount *mount, struct Vnode *blk, const void *dat
     inode_info->start_clu = sbi->root_dir;
     inode_info->flags     = ALLOC_FAT_CHAIN;
     inode_info->i_pos     = ((uint64_t)sbi->root_dir << 32) | 0xFFFFFFFFu;
-
-    /* Wire Reclaim handler into the file-scope ops table once (idempotent).
-     * Required so VFS's VnodeFreeAll → VnodeFree → vop->Reclaim can release
-     * inode_info; without this hook, freeing inode_info from VfsExfatUnmount
-     * causes a UAF during the same VnodeFreeAll's path_cache walk. */
-    if (g_exfatVops.Reclaim == NULL) {
-        g_exfatVops.Reclaim = VfsExfatReclaim;
-    }
 
     /* Step 14: allocate root vnode and populate fields BEFORE making it visible. */
     ret = VnodeAlloc(&g_exfatVops, &vp);

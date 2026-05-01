@@ -30,14 +30,45 @@
 #ifdef LOSCFG_FS_EXFAT
 
 /*
- * v1 stub: every callback NULL — LiteOS-A VFS framework returns -ENOSYS for
- * NULL ops, so v1 mount succeeds but lookup/read/write fail safely.
+ * exFAT VFS operations tables — Linux-style static initialization.
  *
- * Subsequent stages (lookup-v1, readdir-v1, open-v1, read-v1, ...) populate
- * specific fields via spec_gen_refine. Symbol identities (g_exfatVops,
- * g_exfatFops) are frozen by Invariant exfat-vfs-stub-symbol-stable.
+ * Mirrors Linux's pattern in fs/exfat/{namei,file,dir}.c::
+ *     const struct inode_operations exfat_dir_inode_operations = {
+ *         .lookup  = exfat_lookup,
+ *         .create  = exfat_create,
+ *         ...
+ *     };
+ *
+ * Slots intentionally left NULL are not yet implemented; LiteOS-A VFS returns
+ * -ENOSYS for NULL ops. NEVER patch these tables at mount-time — that historic
+ * pattern caused the umount panic via NULL Reclaim hook.
+ *
+ * Wave A (read path) populates: Reclaim, Lookup, Opendir, Readdir, Closedir,
+ * Rewinddir. Wave B (write path) will add: Create, Mkdir, Unlink, Rmdir,
+ * Rename, Truncate, Open, Close, Read, Write — by editing this file.
  */
-struct VnodeOps             g_exfatVops = { 0 };
-struct file_operations_vfs  g_exfatFops = { 0 };
+struct VnodeOps g_exfatVops = {
+    .Lookup    = VfsExfatLookup,
+    .Reclaim   = VfsExfatReclaim,
+    .Opendir   = VfsExfatOpendir,
+    .Readdir   = VfsExfatReaddir,
+    .Closedir  = VfsExfatClosedir,
+    .Rewinddir = VfsExfatRewinddir,
+    .Getattr   = VfsExfatGetattr,
+};
+
+/*
+ * exFAT file_operations_vfs — Linux-style static initialization. Mirrors
+ * Linux's `const struct file_operations exfat_file_operations = { ... };`
+ * in fs/exfat/file.c, with read implemented via fat-chain + los_part_read
+ * (no page cache equivalent in LiteOS-A). Other slots filled in subsequent
+ * Wave A stages: open / close (Stage 8), seek (Stage 9 vfs_ops_filled refine).
+ */
+struct file_operations_vfs g_exfatFops = {
+    .open  = VfsExfatOpen,
+    .close = VfsExfatClose,
+    .read  = VfsExfatRead,
+    .seek  = VfsExfatSeek,
+};
 
 #endif /* LOSCFG_FS_EXFAT */
