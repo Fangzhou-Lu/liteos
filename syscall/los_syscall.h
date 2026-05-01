@@ -89,6 +89,7 @@ extern int SysUnshare(int flags);
 extern int SysSetns(int fd, int type);
 extern unsigned int SysGetPID(void);
 extern unsigned int SysGetPPID(void);
+extern int SysSetTidAddress(int *tidptr);
 extern int SysSetGroupID(unsigned int gid);
 extern int SysGetGroupID(void);
 extern int SysGetUserID(void);

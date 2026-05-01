@@ -143,6 +143,7 @@ SYSCALL_HAND_DEF(__NR_clone, SysClone, int, ARG_NUM_5)
 SYSCALL_HAND_DEF(__NR_unshare, SysUnshare, int, ARG_NUM_1)
 SYSCALL_HAND_DEF(__NR_setns, SysSetns, int, ARG_NUM_2)
 SYSCALL_HAND_DEF(__NR_getpid, SysGetPID, unsigned int, ARG_NUM_0)
+SYSCALL_HAND_DEF(__NR_set_tid_address, SysSetTidAddress, int, ARG_NUM_1)
 SYSCALL_HAND_DEF(__NR_pause, SysPause, int, ARG_NUM_0)
 
 SYSCALL_HAND_DEF(__NR_kill, SysKill, int, ARG_NUM_2)

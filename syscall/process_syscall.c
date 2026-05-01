@@ -497,6 +497,23 @@ unsigned int SysGetPID(void)
     return LOS_GetCurrProcessID();
 }
 
+/*
+ * Minimal stub for set_tid_address(int *tidptr).
+ *
+ * musl libc calls this on every process startup to register a futex-cleared
+ * "thread ID address" used by exit handlers. LiteOS-A has no per-thread
+ * clear-on-exit mechanism, but the call must succeed (and return a TID) for
+ * musl to proceed quietly. We accept the pointer, ignore it, and return the
+ * current task ID — same shape as Linux's set_tid_address(2). Without this,
+ * every dynamically linked binary triggers an "Unsupported syscall ID: 256"
+ * warning at startup.
+ */
+int SysSetTidAddress(int *tidptr)
+{
+    (void)tidptr;
+    return (int)LOS_CurTaskIDGet();
+}
+
 int SysSetProcessGroupID(unsigned int pid, unsigned int gid)
 {
     int ret;

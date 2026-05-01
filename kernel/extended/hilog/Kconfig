@@ -10,6 +10,10 @@ config HILOG
 
 config HILOG_BUFFER_SIZE
     int "hilog buffer size"
-    default 4096
+    default 262144
     help
-      Define the default ring buffer size of hilog
+      Define the default ring buffer size of hilog. 256 KiB chosen to retain
+      enough boot/panic context for kernel debugging on QEMU dev trees while
+      remaining tractable on memory-constrained targets (Hi3516 has ~32 MiB
+      RAM, this default uses < 1%). Embedded products may override downward
+      via their product kconfig if memory pressure demands.
