@@ -1,0 +1,118 @@
+los_typedef, errno, securec, los_mux, los_memory, los_printf, vnode, mount, disk, path_cache, exfat_raw
+
+/* ============================================================================
+ * spec/exfat/common.header — 所有 .spec 的 [RELY] 段共享的 frozen 类型与全局
+ *
+ * 写出：mount-v1（首阶段，user-approved 后冻结）。
+ * 后续阶段（lookup/readdir/read/...）只增不减——任何修改必须开新 mount-v2 阶段。
+ * ========================================================================== */
+
+#define EXFAT_SUPER_MAGIC          0x2011BAB0u
+#define EXFAT_ROOT_INO             1u
+#define EXFAT_MAX_NAME_LEN         255
+#define EXFAT_DEFAULT_BLOCKSIZE    512u
+#define EXFAT_HASH_BITS            8
+#define EXFAT_HASH_SIZE            (1u << EXFAT_HASH_BITS)
+#define EXFAT_DENTRIES_PER_CLU(sbi) ((sbi)->cluster_size >> DENTRY_SIZE_BITS)
+#define EXFAT_CLUSTERS_UNTRACKED   (~0u)
+
+/* error policy — 与 Linux struct exfat_mount_options.errors 对齐 */
+enum exfat_error_mode {
+    EXFAT_ERRORS_CONT  = 0,    /* 忽略错误继续运行 */
+    EXFAT_ERRORS_PANIC = 1,    /* 报错时 PRINT_ERR + 视情况 LOS_Panic */
+    EXFAT_ERRORS_RO    = 2,    /* 报错时切只读（v1 无 remount，等同 CONT + read_only=1）*/
+};
+
+/* mount 选项（来自 Linux struct exfat_mount_options，剔除 RCU/NLS/kuid_t）*/
+typedef struct exfat_mount_options {
+    uint32_t fs_uid;                 /* 数值 uid，继承 mount->vnodeBeCovered->uid 兜底 */
+    uint32_t fs_gid;
+    uint16_t fs_fmask;
+    uint16_t fs_dmask;
+    uint16_t allow_utime;            /* 0 = 跟随 dmask；其他值即用户传入 */
+    uint8_t  utf8;                   /* v1 仅 1（UTF-8）；其他字符集留 v2 */
+    uint8_t  discard;                /* v1 解析但忽略，因块层不支持 trim */
+    uint8_t  errors;                 /* enum exfat_error_mode */
+    int32_t  time_offset;            /* 分钟，[-24*60, 24*60] */
+    char    *iocharset;              /* zalloc 字符串；v1 仅接受 "utf8"，其余报错 */
+} exfat_mount_options;
+
+/* 共享 on-disk 类型（薄包装 exfat_raw.h 的 packed 结构）*/
+struct exfat_boot_sector;            /* boot_sector，定义在 exfat_raw.h */
+struct exfat_dentry;                 /* dentry 联合，定义在 exfat_raw.h */
+
+/* 簇链定位（来自 Linux struct exfat_chain，简化）*/
+typedef struct exfat_chain {
+    uint32_t dir;                    /* 起始簇 */
+    uint32_t size;                   /* 簇数量；0 表示按 FAT 走 */
+    uint8_t  flags;                  /* ALLOC_FAT_CHAIN / ALLOC_NO_FAT_CHAIN */
+} exfat_chain;
+
+/* in-memory 超级块（来自 Linux struct exfat_sb_info，剔除 buffer_head/rcu/nls）*/
+typedef struct exfat_sb_info {
+    /* 几何（来自 boot sector，已字节序转换）*/
+    uint8_t  sect_size_bits;
+    uint8_t  sect_per_clus_bits;
+    uint8_t  num_fats;
+    uint64_t partition_offset;       /* LBA */
+    uint64_t vol_length;             /* 卷扇区数 */
+    uint32_t fat_offset;             /* FAT1 起始扇区（部分相对）*/
+    uint32_t fat_length;             /* 单 FAT 扇区数 */
+    uint32_t fat2_offset;            /* num_fats==2 时为 fat_offset+fat_length，否则同 fat_offset */
+    uint32_t clu_offset;             /* 数据区起始扇区（部分相对）*/
+    uint32_t num_clusters;           /* clu_count + EXFAT_RESERVED_CLUSTERS */
+    uint32_t root_dir;               /* root 起始簇 */
+    uint32_t cluster_size;           /* 字节 */
+    uint32_t cluster_size_bits;
+    uint32_t blocksize;              /* 实际逻辑扇区大小（字节）*/
+    uint32_t blocksize_bits;
+    uint32_t dentries_per_clu;
+    uint16_t vol_flags;              /* boot vol_flags 当前值 */
+    uint16_t vol_flags_persistent;   /* VOLUME_DIRTY | MEDIA_FAILURE 持久位 */
+    uint64_t s_maxbytes;             /* 单文件上限 */
+    /* bitmap */
+    uint32_t map_clu;                /* allocation bitmap 起始簇 */
+    uint32_t map_sectors;            /* bitmap 扇区数 */
+    uint8_t *vol_amap;               /* bitmap 内存镜像，大小 map_sectors * blocksize 字节 */
+    /* upcase（v1 从盘上读取）*/
+    uint16_t *vol_utbl;              /* upcase 表，65536 entries (128KB) */
+    uint64_t  vol_utbl_size;         /* upcase dentry 声明的字节数 */
+    uint32_t  vol_utbl_clu;          /* upcase 起始簇 */
+    /* 簇分配状态 */
+    uint32_t clu_srch_ptr;           /* 分配搜索指针 */
+    uint32_t used_clusters;          /* EXFAT_CLUSTERS_UNTRACKED 表示未统计 */
+    /* 锁 */
+    LosMux   s_lock;                 /* 超级块锁，保护 boot_buf/vol_flags 变更 */
+    LosMux   bitmap_lock;            /* bitmap 修改锁 */
+    LosMux   inode_hash_lock;        /* hash 链锁，spin 语义但 LiteOS 用 mux */
+    /* boot 副本（写路径需要 mark dirty）*/
+    uint8_t *boot_buf;               /* 512 字节，blocksize 校准后保留 */
+    /* 设备 */
+    INT32    part_id;                /* los_part->part_id；los_part_read/write 的索引源 */
+    /* 选项 */
+    exfat_mount_options options;
+    /* inode hash 表（Linux 是 hlist_head[EXFAT_HASH_SIZE]，LiteOS v1 用 VfsHash 共享池）*/
+    /* —— v1 留空，inode_hash 直接接 fs/vfs 的全局 hash —— */
+} exfat_sb_info;
+
+/* in-memory inode（来自 Linux struct exfat_inode_info，剔除 rwsem/dcache）*/
+typedef struct exfat_inode_info {
+    exfat_chain dir;                 /* 父目录簇链 */
+    int32_t  entry;                  /* dentry 索引；-1 = root */
+    uint32_t type;                   /* TYPE_DIR / TYPE_FILE */
+    uint16_t attr;
+    uint32_t start_clu;
+    uint8_t  flags;                  /* ALLOC_FAT_CHAIN / ALLOC_NO_FAT_CHAIN */
+    uint64_t size;
+    uint64_t valid_size;
+    uint64_t i_size_ondisk;          /* 物理对齐后大小 */
+    uint64_t i_pos;                  /* (start_clu << 32) | entry，root 用 0xffffffff */
+    uint32_t version;
+    uint32_t num_subdirs;            /* 仅目录有效 */
+    LosMux   inode_lock;             /* 单 inode 串行 */
+} exfat_inode_info;
+
+/* 公开导出（FSMAP_ENTRY 与 g_*Vops/g_*Fops）—— 由 fs/exfat/exfat_super.c 定义 */
+extern struct VnodeOps             g_exfatVops;
+extern struct file_operations_vfs  g_exfatFops;
+extern struct MountOps             g_exfatMountOps;

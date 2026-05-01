@@ -1,0 +1,6 @@
+los_typedef, exfat (common.header)
+
+/* spec/exfat/util/util.header
+ * util/ 子目录下 .spec 共享导入。util/* 一般是无外部依赖的纯函数
+ * （CRC、字符集转换、时间戳转换等），不需要 los_mux / los_memory / disk。
+ */

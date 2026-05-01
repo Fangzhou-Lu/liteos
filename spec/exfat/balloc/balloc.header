@@ -1,0 +1,6 @@
+los_typedef, errno, securec, los_memory, los_printf, disk, exfat (common.header), exfat_raw
+
+/* spec/exfat/balloc/balloc.header
+ * 簇分配位图层共享导入。本层在 mount 期加载 bitmap 镜像到内存并统计已用簇；
+ * v1 不暴露 set_bitmap / clear_bitmap 等写路径接口（留待 v2）。
+ */

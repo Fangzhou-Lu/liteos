@@ -1,0 +1,18 @@
+los_typedef, errno, vnode, mount, exfat_raw, exfat (common.header)
+
+/* spec/exfat/interface/interface.header
+ * VFS 顶层操作 .spec 共享的导入与符号汇总。每份 interface/<op>.spec [RELY]
+ * 段在引用本文件后只需声明该 op 特有依赖。
+ */
+
+/* 真实签名汇总（来自 fs/include/fs/mount.h, fs/vfs/include/vnode.h）*/
+struct MountOps {
+    int (*Mount)(struct Mount *mount, struct Vnode *blk, const void *data);
+    int (*Unmount)(struct Mount *mount, struct Vnode **blkdriver);
+    int (*Statfs)(struct Mount *mount, struct statfs *sbp);
+    int (*Sync)(struct Mount *mount);
+};
+
+/* VFS 注册表条目宏（los_tables.h::LOS_HAL_TABLE_ENTRY 包装）：
+ *   FSMAP_ENTRY(<sym>, "exfat", g_exfatMountOps, FALSE, TRUE);
+ * 链接器在 .liteos.table.fsmap.data 段汇聚成 g_fsmap[]——零注册函数。*/

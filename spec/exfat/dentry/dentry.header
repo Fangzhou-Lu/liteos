@@ -1,0 +1,7 @@
+los_typedef, errno, securec, disk, exfat (common.header), exfat_raw
+
+/* spec/exfat/dentry/dentry.header
+ * dentry/* 层的共享导入。本层涉及 FAT chain walk + dentry 类型扫描，
+ * 因此需要 disk（los_part_read）+ libsec（safe memcpy）。
+ * mount 路径在 sbi 暴露之前调用本层函数，无并发上下文。
+ */

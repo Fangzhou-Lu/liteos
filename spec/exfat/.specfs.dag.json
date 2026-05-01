@@ -1,0 +1,357 @@
+{
+  "module": "exfat",
+  "schema_version": 1,
+  "stages": [
+    {
+      "id": "mount",
+      "stage_name": "mount",
+      "depends_on": [],
+      "spec": {
+        "path": "spec/exfat/interface/exfat_mount.spec",
+        "approved_at": "2026-04-30T20:26:18+00:00",
+        "common_header_path": "spec/exfat/common.header",
+        "dirty": false
+      },
+      "code": {
+        "path": "fs/exfat/exfat_super.c",
+        "approved_at": "2026-04-30T21:04:19+00:00",
+        "dirty": false
+      },
+      "invariants": [
+        {
+          "id": "exfat-mount-readonly-during-mount",
+          "text": "v1 mount path itself never calls los_part_write/los_disk_write."
+        },
+        {
+          "id": "exfat-mount-rollback-lifo",
+          "text": "All failure branches release resources in reverse LIFO via goto-stack."
+        },
+        {
+          "id": "exfat-mount-mount-data-self-consistent",
+          "text": "On success: mount->data == sbi && mount->vnodeCovered->originMount == mount."
+        },
+        {
+          "id": "exfat-mount-vnode-visible-after-init",
+          "text": "Before VfsHashInsert exposes the root vnode, all sbi locks and inode_lock are LOS_MuxInit'd; no half-init window."
+        },
+        {
+          "id": "exfat-mount-fsmap-entry-name",
+          "text": "Generated exfat_super.c must contain FSMAP_ENTRY(exfat_fsmap, \"exfat\", g_exfatMountOps, FALSE, TRUE)."
+        }
+      ],
+      "exports": [
+        {
+          "symbol": "g_exfatVops",
+          "kind": "var"
+        },
+        {
+          "symbol": "g_exfatFops",
+          "kind": "var"
+        },
+        {
+          "symbol": "g_exfatMountOps",
+          "kind": "var"
+        },
+        {
+          "symbol": "exfat_fsmap",
+          "kind": "fsmap"
+        },
+        {
+          "symbol": "VfsExfatMount",
+          "kind": "func"
+        }
+      ]
+    },
+    {
+      "id": "chksum",
+      "stage_name": "chksum",
+      "depends_on": [],
+      "spec": {
+        "path": "spec/exfat/util/exfat_chksum.spec",
+        "approved_at": "2026-04-30T21:01:55+00:00",
+        "dirty": false
+      },
+      "code": {
+        "path": "fs/exfat/util/exfat_chksum.c",
+        "approved_at": "2026-04-30T21:04:19+00:00",
+        "dirty": false
+      },
+      "invariants": [
+        {
+          "id": "exfat-chksum-purity",
+          "text": "Pure function; no globals, IO, alloc, locks."
+        },
+        {
+          "id": "exfat-chksum-byte-order-independence",
+          "text": "Byte-by-byte iteration; LE/BE host produces identical output."
+        },
+        {
+          "id": "exfat-chksum-not-iee-crc",
+          "text": "MUST NOT use IEEE 0x04C11DB7 CRC32 / LOS_Crc32; algorithm is fixed 1-bit ROR + add."
+        },
+        {
+          "id": "exfat-chksum-skip-positions-fixed",
+          "text": "Skip offsets per Microsoft spec: chksum32+CS_BOOT_SECTOR={106,107,112}; chksum16+CS_DIR_ENTRY={2,3}."
+        }
+      ],
+      "exports": [
+        {
+          "symbol": "exfat_calc_chksum32",
+          "kind": "func"
+        },
+        {
+          "symbol": "exfat_calc_chksum16",
+          "kind": "func"
+        }
+      ]
+    },
+    {
+      "id": "options",
+      "stage_name": "options",
+      "depends_on": [],
+      "spec": {
+        "path": "spec/exfat/util/exfat_options.spec",
+        "approved_at": "2026-04-30T21:07:16+00:00",
+        "dirty": false
+      },
+      "code": {
+        "path": "fs/exfat/util/exfat_options.c",
+        "approved_at": "2026-04-30T21:08:09+00:00",
+        "dirty": false
+      },
+      "invariants": [
+        {
+          "id": "exfat-options-no-globals-no-io",
+          "text": "解析过程不读写任何全局变量、不调用 IO 接口、不进行内存分配（iocharset 设为 静态字符串字面量地址，避免堆分配带来的释放责任问题）。"
+        },
+        {
+          "id": "exfat-options-defaults-preserved",
+          "text": "未在 `data` 中显式出现的 key，其对应字段在 opts 中保持**调用方写入的默认值 不变**。这是与 mount.spec Step 4 协作的硬约束——mount 已写好默认，parser 只覆盖显式项。"
+        },
+        {
+          "id": "exfat-options-strict-key-rejection",
+          "text": "未识别的 key 一律返回 `-EINVAL`，绝不\"宽容跳过\"。即使是 Linux 历史上的废弃项 （utf8/debug/namecase/codepage）也不静默接受——v1 简化兼容面。"
+        },
+        {
+          "id": "exfat-options-no-heap-leak",
+          "text": "失败路径上不留下任何已分配的堆内存。这意味着 v1 解析全程不调用 zalloc/LOS_MemAlloc—— iocharset 直接指向静态字符串 `\"utf8\"` 的地址（在 .rodata 段），由调用方在 sbi 释放时**不**调用 LOS_MemFree。"
+        },
+        {
+          "id": "exfat-options-octal-mask-bit-width",
+          "text": "所有 mask 字段（umask/fmask/dmask/allow_utime）按 9-bit 解析（最大 0777）。 解析器拒绝任何高位被置位的值。这与 POSIX 文件权限位一致。"
+        }
+      ],
+      "exports": [
+        {
+          "symbol": "exfat_parse_options",
+          "kind": "func"
+        }
+      ]
+    },
+    {
+      "id": "dentry",
+      "stage_name": "dentry",
+      "depends_on": [],
+      "spec": {
+        "path": "spec/exfat/dentry/exfat_dentry.spec",
+        "approved_at": "2026-04-30T21:11:20+00:00",
+        "dirty": false
+      },
+      "code": {
+        "path": "fs/exfat/exfat_dentry.c",
+        "approved_at": "2026-04-30T21:13:06+00:00",
+        "dirty": false
+      },
+      "invariants": [
+        {
+          "id": "exfat-dentry-parse-no-io",
+          "text": "parse_boot_sector 不调用任何 IO 接口。仅读 *bs，写 sbi。"
+        },
+        {
+          "id": "exfat-dentry-parse-byte-order",
+          "text": "所有从 `bs` 读取的多字节字段都经 `LE*_TO_HOST` 转换。直接 `bs->vol_length` 等用法被禁止。这是 BE host 兼容性的硬约束。"
+        },
+        {
+          "id": "exfat-dentry-find-buf-leak-free",
+          "text": "find_root_dentry 在所有返回路径（成功 + 4 个失败 case）下，由本函数 LOS_MemAlloc 分配的临时缓冲（cluster buf + fat sector buf）都已 LOS_MemFree。 **严格反 LIFO**：先释放 fat_buf，再释放 clu_buf。"
+        },
+        {
+          "id": "exfat-dentry-find-readonly",
+          "text": "find_root_dentry 不调用 los_part_write/los_disk_write，不修改 sbi 任何字段。 只读语义。"
+        },
+        {
+          "id": "exfat-dentry-find-no-locks",
+          "text": "find_root_dentry 不获取/释放/检查任何锁。调用方（mount 路径）保证本函数 被调用时 sbi 尚未对外可见，没有锁竞争问题。"
+        },
+        {
+          "id": "exfat-dentry-fat-traversal-bounded",
+          "text": "FAT 链遍历有上界保护：`max_iter = sbi->num_clusters`；超过即返回 -EIO。 防止恶意/损坏卷构造 FAT 环导致无限循环。"
+        }
+      ],
+      "exports": [
+        {
+          "symbol": "exfat_parse_boot_sector",
+          "kind": "func"
+        },
+        {
+          "symbol": "exfat_find_root_dentry",
+          "kind": "func"
+        }
+      ]
+    },
+    {
+      "id": "balloc",
+      "stage_name": "balloc",
+      "depends_on": [
+        "dentry"
+      ],
+      "spec": {
+        "path": "spec/exfat/balloc/exfat_balloc.spec",
+        "approved_at": "2026-04-30T21:14:52+00:00",
+        "dirty": false
+      },
+      "code": {
+        "path": "fs/exfat/exfat_balloc.c",
+        "approved_at": "2026-04-30T21:16:10+00:00",
+        "dirty": false
+      },
+      "invariants": [
+        {
+          "id": "exfat-balloc-load-leak-free",
+          "text": "load_bitmap 失败路径下不留下任何已分配 heap。具体：vol_amap 在分配后若 IO 失败 必须 LOS_MemFree 并置 NULL。"
+        },
+        {
+          "id": "exfat-balloc-free-idempotent",
+          "text": "free_bitmap 可重复调用、可对未加载 sbi 调用，结果一致：vol_amap → NULL。"
+        },
+        {
+          "id": "exfat-balloc-count-mem-only",
+          "text": "count_used_clusters 不调 IO，不获取锁，不修改 vol_amap 内容。纯计算。"
+        },
+        {
+          "id": "exfat-balloc-bitmap-size-policy",
+          "text": "size 策略与 Linux 等价： - `need_map_size > map_size`：硬错（-EIO）； - `need_map_size < map_size`：PRINT_WARN，继续； - 等于：直接成功。 此策略允许格式化工具的 size padding 而拒绝结构上小到放不下的位图。"
+        },
+        {
+          "id": "exfat-balloc-no-write",
+          "text": "本层任何函数都不调用 los_part_write / los_disk_write。set_bitmap、clear_bitmap 留待 v2 写路径阶段实现。"
+        },
+        {
+          "id": "exfat-balloc-bitmap-tail-mask",
+          "text": "count_used_clusters 在最后一个字节用 `(1u << tail) - 1u` 掩码屏蔽超出 data_cluster_count 的位，避免计入 bitmap padding 的 set 位。"
+        }
+      ],
+      "exports": [
+        {
+          "symbol": "exfat_load_bitmap",
+          "kind": "func"
+        },
+        {
+          "symbol": "exfat_free_bitmap",
+          "kind": "func"
+        },
+        {
+          "symbol": "exfat_count_used_clusters",
+          "kind": "func"
+        }
+      ]
+    },
+    {
+      "id": "upcase",
+      "stage_name": "upcase",
+      "depends_on": [
+        "dentry",
+        "chksum"
+      ],
+      "spec": {
+        "path": "spec/exfat/util/exfat_upcase.spec",
+        "approved_at": "2026-04-30T21:17:50+00:00",
+        "dirty": false
+      },
+      "code": {
+        "path": "fs/exfat/util/exfat_upcase.c",
+        "approved_at": "2026-04-30T21:18:26+00:00",
+        "dirty": false
+      },
+      "invariants": [
+        {
+          "id": "exfat-upcase-no-write",
+          "text": "不调用 los_part_write / los_disk_write。upcase 在 v1 mount 仅读盘。"
+        },
+        {
+          "id": "exfat-upcase-checksum-verified",
+          "text": "任何写入 sbi->vol_utbl 之前必须 chksum 校验通过。chksum mismatch 路径绝不 保留盘数据到 sbi。本 invariant 由 Step 10 强制：mismatch → goto err 释放 buf。"
+        },
+        {
+          "id": "exfat-upcase-byte-order",
+          "text": "upcase 表每 entry 是 LE16；本 v1 在 LE host 上 reinterpret cast 不动数据； 若未来端口到 BE host，本函数必须改为逐 entry `LE16_TO_HOST`。**当前实现 依赖 LE host 假设**——通过 `__LITEOS_A__` 宏保证（ARM-LE）。"
+        },
+        {
+          "id": "exfat-upcase-free-idempotent",
+          "text": "free_upcase_table 可重复调用、可对未加载 sbi 调用，结果一致：vol_utbl → NULL。"
+        },
+        {
+          "id": "exfat-upcase-leak-free",
+          "text": "失败路径下不留下任何已分配 heap。具体：buf 分配后若任意后续步骤失败必须 LOS_MemFree。"
+        },
+        {
+          "id": "exfat-upcase-strict-no-fallback",
+          "text": "v1 不退回内置默认 upcase 表。chksum mismatch / dentry 缺失 / IO 失败都直接 返回错误，导致 mount 失败。这与 Linux nls.c 在 chksum mismatch 时 fallback 不同；v1 选择此严格策略以避免引入 128KB 静态默认表的体积代价。"
+        }
+      ],
+      "exports": [
+        {
+          "symbol": "exfat_create_upcase_table",
+          "kind": "func"
+        },
+        {
+          "symbol": "exfat_free_upcase_table",
+          "kind": "func"
+        }
+      ]
+    },
+    {
+      "id": "vfs_ops_stub",
+      "stage_name": "vfs_ops_stub",
+      "depends_on": [],
+      "spec": {
+        "path": "spec/exfat/interface/exfat_vfs_ops_stub.spec",
+        "approved_at": "2026-04-30T21:19:37+00:00",
+        "dirty": false
+      },
+      "code": {
+        "path": "fs/exfat/exfat_ops.c",
+        "approved_at": "2026-04-30T21:19:53+00:00",
+        "dirty": false
+      },
+      "invariants": [
+        {
+          "id": "exfat-vfs-stub-symbol-stable",
+          "text": "后续阶段（lookup/read/...）通过 spec_gen_refine 在该翻译单元内**修改字段 初值**，但绝**不重命名**符号、**不改变作用域**、**不拆分到多个变量**。 这是 mount.spec exports `g_exfatVops, g_exfatFops` 的 ABI 锚点。"
+        },
+        {
+          "id": "exfat-vfs-stub-null-trap",
+          "text": "v1 阶段所有字段为 NULL；任一 vfs 回调被调用即陷入 -ENOSYS。本约束意味着 v1 mount 之后的任何 lookup/read/write 调用都会优雅失败而非未定义行为。"
+        },
+        {
+          "id": "exfat-vfs-stub-no-runtime-init",
+          "text": "不需要在 mount 路径或其他位置调用任何 init 函数初始化这两个表；它们是 **编译期常量**（最初版本——后续 refine 仍保持 .data 静态初始化语义）。"
+        },
+        {
+          "id": "exfat-vfs-stub-loscfg-gated",
+          "text": "两表的定义包在 `#ifdef LOSCFG_FS_EXFAT ... #endif` 内，与 mount.spec exfat-mount-fsmap-entry-name invariant 配套——LOSCFG 关闭时整个 fs/exfat/ 不参与链接，符号也不存在。"
+        }
+      ],
+      "exports": [
+        {
+          "symbol": "g_exfatVops",
+          "kind": "var"
+        },
+        {
+          "symbol": "g_exfatFops",
+          "kind": "var"
+        }
+      ]
+    }
+  ]
+}
