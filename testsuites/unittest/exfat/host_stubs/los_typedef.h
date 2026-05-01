@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <sys/types.h>   /* host glibc provides off_t / loff_t / ssize_t */
 
 typedef int32_t  INT32;
 typedef uint32_t UINT32;

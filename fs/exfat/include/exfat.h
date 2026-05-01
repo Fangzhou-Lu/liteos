@@ -162,8 +162,9 @@ int  exfat_parse_boot_sector(exfat_sb_info *sbi,
 /* exFAT-specific CRC32 (polynomial 0x04C11DB7 reversed; NOT IEEE) */
 uint32_t exfat_calc_chksum32(const void *data, uint32_t len,
                              uint32_t chksum, int type);
-#define CS_BOOT_SECTOR   1
-#define CS_DEFAULT       2
+/* CRC-16 ('SetChecksum'); CS_DIR_ENTRY skips bytes 2-3 (the chksum field). */
+uint16_t exfat_calc_chksum16(const void *data, int len,
+                             uint16_t chksum, int type);
 
 /* upcase table — fs/exfat/util/exfat_upcase.c */
 int  exfat_create_upcase_table(exfat_sb_info *sbi);

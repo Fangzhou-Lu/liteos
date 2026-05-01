@@ -38,7 +38,7 @@
 #include "los_mux.h"
 #include "los_printf.h"
 #include "vnode.h"
-#include "mount.h"
+#include "fs/mount.h"
 #include "disk.h"
 
 extern UINT8 *m_aucSysMem0;

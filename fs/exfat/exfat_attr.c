@@ -38,7 +38,7 @@
 #include "securec.h"
 #include "los_mux.h"
 #include "vnode.h"
-#include "mount.h"
+#include "fs/mount.h"
 
 /* POSIX st_blocks unit. */
 #define EXFAT_STAT_BLOCK_SIZE 512u
