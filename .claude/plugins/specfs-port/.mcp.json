@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "specfs": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${CLAUDE_PLUGIN_ROOT}/server",
+        "python",
+        "-u",
+        "specfs_server.py"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}

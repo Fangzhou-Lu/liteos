@@ -5,6 +5,20 @@
       "env": {
         "CCLSP_CONFIG_PATH": "/Users/kissa/Codebase/oh-mini/kernel/liteos_a/cclsp.json"
       }
+    },
+    "specfs": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/Users/kissa/Codebase/oh-mini/kernel/liteos_a/.claude/plugins/specfs-port/server",
+        "python",
+        "-u",
+        "specfs_server.py"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
     }
   }
 }

@@ -1,0 +1,28 @@
+{
+  "name": "specfs-port",
+  "version": "0.3.3",
+  "description": "Port Linux kernel filesystem modules to LiteOS-A via SYSSPEC-style spec-first workflow with HITL gates and layered defense (LSP / compile / build+QEMU / SpecEvaluator / user review) plus two-layer regression (cmocka host + QEMU LTP). Self-contained: bundles the same-named specfs-port skill at .claude/skills/specfs-port/ which auto-loads alongside this plugin.",
+  "author": {
+    "name": "Lu Fangzhou"
+  },
+  "license": "BSD-3-Clause",
+  "bundles": {
+    "skills": [
+      "specfs-port"
+    ]
+  },
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "filesystem",
+    "kernel",
+    "liteos-a",
+    "openharmony",
+    "spec-first",
+    "specfs",
+    "hitl",
+    "code-generation",
+    "cmocka",
+    "ltp"
+  ]
+}
