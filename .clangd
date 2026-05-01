@@ -1,0 +1,88 @@
+# clangd 配置：为 LiteOS-A 内核源码（C99）提供仅语法/类型检查级别的诊断。
+# 不追求与目标编译器（arm-none-eabi-gcc）的 ABI 完全一致——只为 IDE 化错误提示
+# 与 specfs-port 的 Layer 0 LSP 检查服务。
+#
+# 关键设定：
+#   --target=arm-linux-gnueabi      允许 ".liteos.table.fsmap.data" 段名（ELF 风格）
+#   -include stdarg.h               补 los_printf.h 缺失的 va_list 隐式 include
+#   绝对路径 -I                     `--check` 模式下相对路径会以 .c 文件目录为基
+
+CompileFlags:
+  Add:
+    - -std=gnu99
+    - --target=arm-linux-gnueabi
+    - -ferror-limit=0
+    - -include
+    - stdarg.h
+    - -Wno-unknown-pragmas
+    - -Wno-pragma-pack
+    - -Wno-implicit-function-declaration
+    - -Wno-incompatible-library-redeclaration
+    - -Wno-attributes
+    - -Wno-section
+
+    # ---- 内核 ----
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/kernel/include
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/kernel/base/include
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/kernel/common
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/kernel/extended/dynload/include
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/kernel/extended/hook/include
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/kernel/extended/vdso/include
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/kernel/user/include
+
+    # ---- 架构 ----
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/arch/arm/include
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/arch/arm/arm/include
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/arch/arm/arm/src/include
+
+    # ---- 兼容层 ----
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/compat/posix/include
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/bsd/arm/include
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/bsd/compat/linuxkpi/include
+
+    # ---- libsec / libscrew ----
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/lib/libsec/include
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/lib/libscrew/include
+
+    # ---- 文件系统 ----
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/fs/include
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/fs/include/fs
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/fs/vfs/include
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/fs/proc/include
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/fs/exfat/include
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/fs/fat/os_adapt
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/fs/fat/virpart/include
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/fs/jffs2/include
+
+    # ---- 块设备 / 字符设备 ----
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/drivers/block/disk/include
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/drivers/char/bch/include
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/drivers/char/mem/include
+    - -I/Users/kissa/Codebase/oh-mini/kernel/liteos_a/drivers/mtd/multi_partition/include
+
+    # ---- 板级（QEMU arm_virt small_system_demo）----
+    - -I/Users/kissa/Codebase/oh-mini/device/qemu/arm_virt/liteos_a_mini/board
+
+    # ---- 三方依赖 ----
+    - -I/Users/kissa/Codebase/oh-mini/third_party/bounds_checking_function/include
+    - -I/Users/kissa/Codebase/oh-mini/third_party/musl/porting/liteos_a/kernel/include
+
+    # ---- 关键宏 ----
+    - -DLOSCFG_FS_EXFAT
+    - -DLOSCFG_FS_FAT
+    - -DLOSCFG_FS_VFS
+    - -DLOSCFG_KERNEL_VM
+    - -D__LITEOS__
+    - -D__LITEOS_A__
+
+  Compiler: clang
+
+Index:
+  Background: Build
+
+Diagnostics:
+  Suppress:
+    - unknown-attribute
+    - unused-function
+    - missing-declarations

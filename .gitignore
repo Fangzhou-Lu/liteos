@@ -22,3 +22,20 @@ tags
 
 # Build temp files
 /out
+.omc
+backup
+
+# Local-only regression reports (exfat regression artifacts)
+docs/test/
+
+# Hierarchical agent docs — kept locally, not committed
+AGENTS.md
+**/AGENTS.md
+
+# python version temp file
+**/uv.lock
+
+# Per-user Claude Code session state (don't commit)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+

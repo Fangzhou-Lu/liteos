@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "cclsp": {
+      "command": "cclsp",
+      "env": {
+        "CCLSP_CONFIG_PATH": "/Users/kissa/Codebase/oh-mini/kernel/liteos_a/cclsp.json"
+      }
+    }
+  }
+}

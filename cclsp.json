@@ -1,0 +1,9 @@
+{
+  "servers": [
+    {
+      "extensions": ["c", "h"],
+      "command": ["clangd", "--background-index", "--clang-tidy=false", "--header-insertion=never"],
+      "rootDir": "."
+    }
+  ]
+}
