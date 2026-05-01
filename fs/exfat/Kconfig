@@ -1,0 +1,8 @@
+config FS_EXFAT
+    bool "Enable exFAT"
+    default y
+    depends on FS_VFS
+    help
+      Answer Y to enable LiteOS-A exFAT filesystem support (read-side v1; mount,
+      lookup, readdir, read paths). Requires LOSCFG_FS_VFS. Generated from
+      Linux fs/exfat/ via the specfs-port plugin (see spec/exfat/).

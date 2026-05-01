@@ -172,6 +172,7 @@ LITEOS_TABLES_FSMAP_LDFLAGS := \
     -uromfs_fsmap \
     -unfs_fsmap \
     -ufat_fsmap \
+    -uexfat_fsmap \
     -ujffs_fsmap \
     -uprocfs_fsmap \
     -ug_fsmap

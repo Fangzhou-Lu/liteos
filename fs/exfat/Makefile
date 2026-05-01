@@ -1,5 +1,4 @@
-# Copyright (c) 2013-2019 Huawei Technologies Co., Ltd. All rights reserved.
-# Copyright (c) 2020-2021 Huawei Device Co., Ltd. All rights reserved.
+# Copyright (c) 2024-2026 Huawei Device Co., Ltd. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without modification,
 # are permitted provided that the following conditions are met:
@@ -27,36 +26,14 @@
 # OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
 # ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import("//kernel/liteos_a/liteos.gni")
+include $(LITEOSTOPDIR)/config.mk
 
-group("fs") {
-  deps = [
-    "exfat",
-    "fat",
-    "fat/virpart",
-    "jffs2",
-    "nfs",
-    "patchfs",
-    "proc",
-    "ramfs",
-    "romfs",
-    "rootfs",
-    "vfs",
-    "vfs/bcache",
-    "zpfs",
-  ]
-}
+MODULE_NAME := $(notdir $(shell pwd))
 
-config("public") {
-  include_dirs = [ "include" ]
-  configs = [
-    "vfs:public",
-    "vfs/bcache:public",
-    "exfat:public",
-    "fat:public",
-    "fat/virpart:public",
-    "proc:public",
-    "patchfs:public",
-    "rootfs:public",
-  ]
-}
+LOCAL_SRCS := $(wildcard *.c) $(wildcard util/*.c)
+
+LOCAL_INCLUDE := -I $(LITEOSTOPDIR)/fs/exfat/include
+
+LOCAL_FLAGS := $(LOCAL_INCLUDE)
+
+include $(MODULE)

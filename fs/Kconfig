@@ -1,5 +1,6 @@
 source "fs/vfs/Kconfig"
 source "fs/fat/Kconfig"
+source "fs/exfat/Kconfig"
 source "fs/ramfs/Kconfig"
 source "fs/romfs/Kconfig"
 source "fs/nfs/Kconfig"

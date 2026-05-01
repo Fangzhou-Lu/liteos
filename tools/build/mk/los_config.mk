@@ -276,6 +276,12 @@ ifeq ($(LOSCFG_FS_FAT), y)
     LITEOS_FAT_INCLUDE += -I $(LITEOSTHIRDPARTY)/FatFs/source
 endif
 
+ifeq ($(LOSCFG_FS_EXFAT), y)
+    LITEOS_BASELIB  += -lexfat
+    LIB_SUBDIRS     += fs/exfat
+    LITEOS_EXFAT_INCLUDE += -I $(LITEOSTOPDIR)/fs/exfat/include
+endif
+
 ifeq ($(LOSCFG_FS_FAT_VIRTUAL_PARTITION), y)
     LITEOS_BASELIB += -lvirpart
     LIB_SUBDIRS += fs/fat/virpart
@@ -535,7 +541,7 @@ LITEOS_COMPAT_INCLUDE      := $(LITEOS_POSIX_INCLUDE) $(LITEOS_LINUX_INCLUDE) \
 LITEOS_FS_INCLUDE          := $(LITEOS_VFS_INCLUDE)        $(LITEOS_FAT_CACHE_INCLUDE) \
                               $(LITEOS_VFS_MTD_INCLUDE)    $(LITEOS_VFS_DISK_INCLUDE) \
                               $(LITEOS_PROC_INCLUDE)       $(LITEOS_FAT_VIRPART_INCLUDE) \
-                              $(LITEOS_FAT_INCLUDE)
+                              $(LITEOS_FAT_INCLUDE)        $(LITEOS_EXFAT_INCLUDE)
 LITEOS_NET_INCLUDE         := $(LITEOS_LWIP_SACK_INCLUDE)
 LITEOS_LIB_INCLUDE         := $(LITEOS_LIBC_INCLUDE)       $(LITEOS_LIBM_INCLUDE) \
                               $(LITEOS_ZLIB_INCLUDE)       $(LITEOS_LIBSCREW_INCLUDE)

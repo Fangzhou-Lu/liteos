@@ -1,0 +1,66 @@
+# LiteOS-A coding-style anchor for fs/exfat/* — ADVISORY, not a hard gate.
+#
+# Used by:
+#   - clang-format --dry-run (manual / pre-commit hint)
+#   - .claude/plugins/specfs-port/ Layer S auto-check (plugin v0.3+) — output
+#     fed into [AUTO CHECKS] segment of the LLM-as-judge prompt, NOT used as a
+#     pass/fail gate.
+#
+# Why advisory: the existing tree (fs/fat/, fs/jffs2/) uses intentional manual
+# whitespace alignment that clang-format cannot perfectly preserve no matter
+# how its options are tuned (e.g. it always normalizes multi-space `=` in
+# designated initializers, multi-space `#define` value columns, comma spacing
+# in dense arrays). LiteOS-A authors deliberately use those alignments for
+# readability — clang-format's normalization is the wrong direction for this
+# tree. Use this file's output as a HINT for layout-class issues; the final
+# verdict on `is_good` belongs to Layer S's LLM self-judge against the 6
+# dimensions in `prompts/style_audit.md`.
+#
+# This config still dictates the must-haves (no tab, 4-indent, K&R, no short
+# blocks) so any new code that violates THOSE will fail dry-run loudly.
+---
+Language: Cpp
+DisableFormat: false
+BasedOnStyle: LLVM
+
+# ─── Must-haves (hard rules) ────────────────────────────────────────────────
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+ColumnLimit: 0                         # disable wrap; author controls width
+BreakBeforeBraces: Linux               # K&R: same line for control flow, next for fn
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+PointerAlignment: Right
+DerivePointerAlignment: false
+
+# ─── Preserve author's intent ───────────────────────────────────────────────
+# Don't rewrap arrays / brace lists / function params; LiteOS-A authors lay
+# them out for grep-friendliness and readability.
+SortIncludes: false
+IncludeBlocks: Preserve
+ReflowComments: false
+Cpp11BracedListStyle: false
+BinPackArguments: true
+BinPackParameters: true
+AllowAllArgumentsOnNextLine: true
+AllowAllParametersOfDeclarationOnNextLine: true
+
+# PRESERVE author's manual alignment.
+# - `AcrossEmptyLinesAndComments` accepts vertical column alignment in #define
+#   value columns, struct designated initializers, and runs of locals.
+# - clang-format does NOT introduce new alignment with these settings; it only
+#   leaves existing alignment alone.
+AlignConsecutiveAssignments: AcrossEmptyLinesAndComments
+AlignConsecutiveDeclarations: AcrossEmptyLinesAndComments
+AlignConsecutiveMacros: AcrossEmptyLinesAndComments
+AlignArrayOfStructures: None
+AlignTrailingComments: false
+
+# Spaces around operators / casts — LLVM defaults are fine.
+SpaceBeforeParens: ControlStatements
+SpaceAfterCStyleCast: false

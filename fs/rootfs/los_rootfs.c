@@ -98,10 +98,37 @@ STATIC INT32 AddEmmcParts(INT32 rootAddr, INT32 rootSize, INT32 userAddr, INT32 
         return LOS_NOK;
     }
 
+    /*
+     * Optional 4th partition: bootarg "exfataddr" (offset in bytes from disk start)
+     * carves the userdata region into [userdata, exfat]. If unspecified, userdata
+     * extends to end of disk (legacy behavior).
+     */
+    CHAR *exfatAddrStr = NULL;
+    UINT64 exfatStartCnt = 0;
+    UINT64 exfatSizeCnt = 0;
+    if (LOS_GetArgValue("exfataddr", &exfatAddrStr) == LOS_OK) {
+        exfatStartCnt = LOS_SizeStrToNum(exfatAddrStr) / EMMC_SEC_SIZE;
+        if (exfatStartCnt > userdataStartCnt && exfatStartCnt < emmcDisk->sector_count) {
+            exfatSizeCnt = emmcDisk->sector_count - exfatStartCnt;
+            userdataSizeCnt = exfatStartCnt - userdataStartCnt;
+        } else {
+            exfatStartCnt = 0;
+            exfatSizeCnt = 0;
+        }
+    }
+
     ret = add_mmc_partition(emmc, userdataStartCnt, userdataSizeCnt);
     if (ret != LOS_OK) {
         PRINT_ERR("Failed to add mmc userdata partition!\n");
         return LOS_NOK;
+    }
+
+    if (exfatSizeCnt != 0) {
+        ret = add_mmc_partition(emmc, exfatStartCnt, exfatSizeCnt);
+        if (ret != LOS_OK) {
+            PRINT_ERR("Failed to add mmc exfat partition!\n");
+            return LOS_NOK;
+        }
     }
 
     LOS_Msleep(10); /* 100, sleep time. waiting for device identification */

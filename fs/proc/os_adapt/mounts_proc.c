@@ -62,6 +62,9 @@ static int ShowType(const char *devPoint, const char *mountPoint, struct statfs 
         case ZPFS_MAGIC:
             type = "zpfs";
             break;
+        case 0x2011BAB0u:                 /* EXFAT_SUPER_MAGIC, matches Linux fs/exfat */
+            type = "exfat";
+            break;
         default:
             return 0;
     }

@@ -1,5 +1,4 @@
-# Copyright (c) 2013-2019 Huawei Technologies Co., Ltd. All rights reserved.
-# Copyright (c) 2020-2021 Huawei Device Co., Ltd. All rights reserved.
+# Copyright (c) 2024-2026 Huawei Device Co., Ltd. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without modification,
 # are permitted provided that the following conditions are met:
@@ -29,34 +28,24 @@
 
 import("//kernel/liteos_a/liteos.gni")
 
-group("fs") {
-  deps = [
-    "exfat",
-    "fat",
-    "fat/virpart",
-    "jffs2",
-    "nfs",
-    "patchfs",
-    "proc",
-    "ramfs",
-    "romfs",
-    "rootfs",
-    "vfs",
-    "vfs/bcache",
-    "zpfs",
+module_switch = defined(LOSCFG_FS_EXFAT)
+module_name = get_path_info(rebase_path("."), "name")
+kernel_module(module_name) {
+  sources = [
+    "exfat_balloc.c",
+    "exfat_dentry.c",
+    "exfat_ops.c",
+    "exfat_super.c",
+    "util/exfat_chksum.c",
+    "util/exfat_options.c",
+    "util/exfat_upcase.c",
   ]
+
+  include_dirs = [ "include" ]
+
+  public_configs = [ ":public" ]
 }
 
 config("public") {
   include_dirs = [ "include" ]
-  configs = [
-    "vfs:public",
-    "vfs/bcache:public",
-    "exfat:public",
-    "fat:public",
-    "fat/virpart:public",
-    "proc:public",
-    "patchfs:public",
-    "rootfs:public",
-  ]
 }
