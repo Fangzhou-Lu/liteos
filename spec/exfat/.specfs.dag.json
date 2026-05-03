@@ -103,7 +103,20 @@
           "symbol": "exfat_calc_chksum16",
           "kind": "func"
         }
-      ]
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_chksum.c"
+        ],
+        "git_sha": "35d4d91c95af6e7f4295e320d55b502fea39dbb2",
+        "approved_at": "2026-05-01T16:42:28Z",
+        "approval_iterations": 1,
+        "testpoints": 8,
+        "test_array_name": "test_chksum_tests",
+        "dirty": false,
+        "reverse_filled": true,
+        "reverse_fill_note": "v0.3.4 reverse-fill — cmocka tests authored before Layer T was wired (commit 149487a9)"
+      }
     },
     {
       "id": "options",
@@ -146,7 +159,20 @@
           "symbol": "exfat_parse_options",
           "kind": "func"
         }
-      ]
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_options.c"
+        ],
+        "git_sha": "f76905c44ab2803591d4e0b44bc7de76b3380e4d",
+        "approved_at": "2026-05-01T16:42:28Z",
+        "approval_iterations": 1,
+        "testpoints": 18,
+        "test_array_name": "test_options_tests",
+        "dirty": false,
+        "reverse_filled": true,
+        "reverse_fill_note": "v0.3.4 reverse-fill — cmocka tests authored before Layer T was wired (commit 149487a9)"
+      }
     },
     {
       "id": "dentry",
@@ -197,7 +223,20 @@
           "symbol": "exfat_find_root_dentry",
           "kind": "func"
         }
-      ]
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_dentry.c"
+        ],
+        "git_sha": "12cee93e9efb860b51381947b18f379baa3a53e7",
+        "approved_at": "2026-05-01T16:42:28Z",
+        "approval_iterations": 1,
+        "testpoints": 10,
+        "test_array_name": "test_dentry_tests",
+        "dirty": false,
+        "reverse_filled": true,
+        "reverse_fill_note": "v0.3.4 reverse-fill — cmocka tests authored before Layer T was wired (commit 149487a9)"
+      }
     },
     {
       "id": "balloc",
@@ -254,7 +293,20 @@
           "symbol": "exfat_count_used_clusters",
           "kind": "func"
         }
-      ]
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_balloc.c"
+        ],
+        "git_sha": "bf23945a23328a4d3ac2c4b57a74f14a27c8c6bd",
+        "approved_at": "2026-05-01T16:42:28Z",
+        "approval_iterations": 1,
+        "testpoints": 8,
+        "test_array_name": "test_balloc_tests",
+        "dirty": false,
+        "reverse_filled": true,
+        "reverse_fill_note": "v0.3.4 reverse-fill — cmocka tests authored before Layer T was wired (commit 149487a9)"
+      }
     },
     {
       "id": "upcase",
@@ -308,7 +360,20 @@
           "symbol": "exfat_free_upcase_table",
           "kind": "func"
         }
-      ]
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_upcase.c"
+        ],
+        "git_sha": "70882e879edbff153607ffb83d8706b2c94d77e5",
+        "approved_at": "2026-05-01T16:42:28Z",
+        "approval_iterations": 1,
+        "testpoints": 5,
+        "test_array_name": "test_upcase_tests",
+        "dirty": false,
+        "reverse_filled": true,
+        "reverse_fill_note": "v0.3.4 reverse-fill — cmocka tests authored before Layer T was wired (commit 149487a9)"
+      }
     },
     {
       "id": "vfs_ops_stub",
@@ -499,7 +564,20 @@
           "signature": "void exfat_free_upcase_table(exfat_sb_info *sbi)",
           "src": "fs/exfat/util/exfat_upcase.c"
         }
-      ]
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_fat_chain.c"
+        ],
+        "git_sha": "5a8086719f237564d5b46b47257deffbfce42c3b",
+        "approved_at": "2026-05-01T16:42:28Z",
+        "approval_iterations": 1,
+        "testpoints": 20,
+        "test_array_name": "test_fat_chain_tests",
+        "dirty": false,
+        "reverse_filled": true,
+        "reverse_fill_note": "v0.3.4 reverse-fill — cmocka tests authored before Layer T was wired (commit 149487a9)"
+      }
     },
     {
       "id": "inode_alloc",
@@ -652,7 +730,20 @@
           "signature": "void exfat_free_upcase_table(exfat_sb_info *sbi)",
           "src": "fs/exfat/util/exfat_upcase.c"
         }
-      ]
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_inode_alloc.c"
+        ],
+        "git_sha": "26252e1836749a61fbe0ec6ee5df7d40468a2c97",
+        "approved_at": "2026-05-01T16:42:28Z",
+        "approval_iterations": 1,
+        "testpoints": 9,
+        "test_array_name": "test_inode_alloc_tests",
+        "dirty": false,
+        "reverse_filled": true,
+        "reverse_fill_note": "v0.3.4 reverse-fill — cmocka tests authored before Layer T was wired (commit 149487a9)"
+      }
     },
     {
       "id": "dentry_iter",
@@ -828,7 +919,20 @@
           "signature": "void exfat_free_upcase_table(exfat_sb_info *sbi)",
           "src": "fs/exfat/util/exfat_upcase.c"
         }
-      ]
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_dentry_iter.c"
+        ],
+        "git_sha": "fbe83807abd518c2a35a9c311a9fa0ef763f6c30",
+        "approved_at": "2026-05-01T16:42:28Z",
+        "approval_iterations": 1,
+        "testpoints": 15,
+        "test_array_name": "test_dentry_iter_tests",
+        "dirty": false,
+        "reverse_filled": true,
+        "reverse_fill_note": "v0.3.4 reverse-fill — cmocka tests authored before Layer T was wired (commit 149487a9)"
+      }
     },
     {
       "id": "nls_utf16",
@@ -1027,7 +1131,20 @@
           "signature": "void exfat_free_upcase_table(exfat_sb_info *sbi)",
           "src": "fs/exfat/util/exfat_upcase.c"
         }
-      ]
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_nls_utf16.c"
+        ],
+        "git_sha": "9e2c7c80cb2b8ea5f0abbc9ee5d4ccf2f597c6c1",
+        "approved_at": "2026-05-01T16:42:28Z",
+        "approval_iterations": 1,
+        "testpoints": 42,
+        "test_array_name": "test_nls_utf16_tests",
+        "dirty": false,
+        "reverse_filled": true,
+        "reverse_fill_note": "v0.3.4 reverse-fill — cmocka tests authored before Layer T was wired (commit 149487a9)"
+      }
     },
     {
       "id": "lookup",
@@ -1249,7 +1366,20 @@
           "signature": "void exfat_free_upcase_table(exfat_sb_info *sbi)",
           "src": "fs/exfat/util/exfat_upcase.c"
         }
-      ]
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_lookup.c"
+        ],
+        "git_sha": "13124040860f3af425fd1f0fc882c19024a7bf40",
+        "approved_at": "2026-05-01T16:42:28Z",
+        "approval_iterations": 1,
+        "testpoints": 12,
+        "test_array_name": "test_lookup_tests",
+        "dirty": false,
+        "reverse_filled": true,
+        "reverse_fill_note": "v0.3.4 reverse-fill — cmocka tests authored before Layer T was wired (commit 149487a9)"
+      }
     },
     {
       "id": "readdir",
@@ -1466,7 +1596,20 @@
           "signature": "void exfat_free_upcase_table(exfat_sb_info *sbi)",
           "src": "fs/exfat/util/exfat_upcase.c"
         }
-      ]
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_readdir.c"
+        ],
+        "git_sha": "95d9c50c4b6c4187291016b77dc47368a75a8d6d",
+        "approved_at": "2026-05-01T16:42:28Z",
+        "approval_iterations": 1,
+        "testpoints": 15,
+        "test_array_name": "test_readdir_tests",
+        "dirty": false,
+        "reverse_filled": true,
+        "reverse_fill_note": "v0.3.4 reverse-fill — cmocka tests authored before Layer T was wired (commit 149487a9)"
+      }
     },
     {
       "id": "read",
@@ -1683,7 +1826,20 @@
           "signature": "void exfat_free_upcase_table(exfat_sb_info *sbi)",
           "src": "fs/exfat/util/exfat_upcase.c"
         }
-      ]
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_read.c"
+        ],
+        "git_sha": "08f40040dd6f204259d999543eb96341c519c2ae",
+        "approved_at": "2026-05-01T16:42:28Z",
+        "approval_iterations": 1,
+        "testpoints": 13,
+        "test_array_name": "test_read_tests",
+        "dirty": false,
+        "reverse_filled": true,
+        "reverse_fill_note": "v0.3.4 reverse-fill — cmocka tests authored before Layer T was wired (commit 149487a9)"
+      }
     },
     {
       "id": "open_close",
