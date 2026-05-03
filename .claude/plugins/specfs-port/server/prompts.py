@@ -197,6 +197,30 @@ def assemble_speceval_prompt(*, generated_code: str, original_spec: str) -> str:
     })
 
 
+def assemble_unittest_gen_prompt(
+    *,
+    generated_code: str,
+    original_spec: str,
+    harness_layout: str,
+) -> str:
+    """Layer T (v0.3.4) cmocka test synthesis prompt from prompts/unittest_gen.md.
+
+    Pulled out of the docs into actual server-side wiring: was advertised in the
+    v0.3.2 CHANGELOG as 'Spec-derived cmocka test generation (default ON)' but
+    no MCP tool consumed this template until v0.3.4. See commit 149487a9 for
+    the Wave A test-debt catch-up that motivated wiring it.
+
+    harness_layout: a snapshot of testsuites/unittest/<module>/ contents so the
+    prompt can pin file naming + extern-decl conventions to what already exists.
+    """
+    template = load("unittest_gen")
+    return substitute(template, {
+        "GENERATED_CODE": generated_code.strip(),
+        "ORIGINAL_SPEC": original_spec.strip(),
+        "HARNESS_LAYOUT": harness_layout.strip() or "(harness directory not found)",
+    })
+
+
 def assemble_style_audit_prompt(*, generated_code: str, auto_checks: str = "") -> str:
     """Layer S coding-style audit prompt from prompts/style_audit.md.
 

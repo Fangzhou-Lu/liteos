@@ -159,6 +159,19 @@ def toggle_skip_build(session_id: str, skip: bool) -> dict[str, bool]:
     return {"skip_build_layer": sess.skip_build_layer}
 
 
+@mcp.tool()
+def toggle_test_gen(session_id: str, enabled: bool) -> dict[str, bool]:
+    """Enable / disable Layer T (v0.3.4 cmocka test gen) for this session.
+
+    Default ON. Disable with --test-off when iterating on a stage whose
+    behavior is fully covered by Wave B (QEMU LTP) and a host-side cmocka
+    test would only duplicate coverage.
+    """
+    sess = _get(session_id)
+    sess.test_gen_enabled = bool(enabled)
+    return {"test_gen_enabled": sess.test_gen_enabled}
+
+
 # ---- Section 4.2 — Loop A: spec generation ----------------------------------
 
 
@@ -508,7 +521,20 @@ def code_gen_approve(
     node["exports"] = exports
     dag_module.save(sess.module, dag_state)
 
-    sess.phase = "approved"
+    # v0.3.4: capture for Layer T re-use without re-reading from disk
+    sess.code_final_text = final_code
+    sess.code_final_paths = saved
+
+    # v0.3.4: when Layer T is enabled, code approval transitions into
+    # test_drafting (Layer T) instead of terminal "approved". The user
+    # reviews code+test together in one HITL pass via Step 9.
+    next_phase: str
+    if sess.test_gen_enabled:
+        sess.phase = "test_drafting"
+        next_phase = "test_gen"
+    else:
+        sess.phase = "approved"
+        next_phase = "done"
 
     # git add (no commit)
     to_add = list(saved) + [f"spec/{sess.module}/.specfs.dag.json"]
@@ -521,6 +547,324 @@ def code_gen_approve(
         "common_header_diff": common_header_diff,
         "dag_node_id": node_id,
         "exports_count": len(exports),
+        "git_added": to_add,
+        "next": next_phase,
+    }
+
+
+# ---- Section 4.3.5 — Loop C: Layer T cmocka test gen (v0.3.4) ---------------
+#
+# Sits between Layer 3 (SpecEval) and Layer 4 (user review). Was advertised in
+# the v0.3.2 CHANGELOG ("Spec-derived cmocka test generation, default ON") but
+# never wired in the server until v0.3.4 — Wave A 9 stages accumulated test
+# debt under the v0.3.2 era (see commit 149487a9 for the catch-up batch).
+#
+# Pipeline: code_gen_approve → test_gen_start → test_gen_submit → user review
+# of code+test together → test_gen_approve (writes test_<stage>.c + applies
+# Makefile/main.c deltas).
+
+
+def _harness_dir(module: str) -> Path:
+    """testsuites/unittest/<module>/ — the cmocka host harness root."""
+    return _repo_root() / "testsuites" / "unittest" / module
+
+
+def _test_paths_for(module: str, stage: str) -> tuple[str, str]:
+    """Return (draft_relpath, final_relpath) under the harness dir."""
+    base = f"testsuites/unittest/{module}/test_{stage}.c"
+    return base + ".draft", base
+
+
+def _harness_layout(module: str) -> str:
+    """ls-style snapshot for the unittest_gen prompt's [Existing harness layout]
+    segment. Empty string if the harness dir does not exist (first-time port)."""
+    d = _harness_dir(module)
+    if not d.is_dir():
+        return ""
+    items: list[str] = []
+    for p in sorted(d.iterdir()):
+        if p.name.startswith("."):
+            continue
+        items.append(p.name)
+    return "\n".join(items)
+
+
+@mcp.tool()
+def test_gen_start(session_id: str) -> dict[str, Any]:
+    """Begin Layer T: assemble the unittest_gen prompt from the just-approved
+    code + spec + harness layout snapshot.
+
+    Pre-condition: code_gen_approve must have completed AND test_gen_enabled
+    is True; otherwise raises RuntimeError so the slash command can short-circuit.
+
+    Returns:
+        {prompt_for_llm, draft_path, final_path, harness_dir_exists}
+    """
+    sess = _get(session_id)
+    if not sess.test_gen_enabled:
+        raise RuntimeError(
+            "test_gen disabled for this session — enable via toggle_test_gen "
+            "or remove --test-off from the slash-command args"
+        )
+    if not sess.code_final_text:
+        raise RuntimeError(
+            "Layer T requires an approved code artifact. Run code_gen_approve first."
+        )
+
+    sess.phase = "test_drafting"
+    stage = _stage_from_spec_path(sess.code_spec_path)
+    sess.test_stage = stage
+    draft_rel, final_rel = _test_paths_for(sess.module, stage)
+    sess.test_draft_path = draft_rel
+    sess.test_final_path = final_rel
+
+    spec_p = _repo_root() / sess.code_spec_path
+    spec_content = spec_p.read_text(encoding="utf-8") if spec_p.exists() else ""
+
+    prompt_text = prompts.assemble_unittest_gen_prompt(
+        generated_code=sess.code_final_text,
+        original_spec=spec_content,
+        harness_layout=_harness_layout(sess.module),
+    )
+    sess.last_prompt = prompt_text
+
+    return {
+        "prompt_for_llm": prompt_text,
+        "draft_path": draft_rel,
+        "final_path": final_rel,
+        "harness_dir_exists": _harness_dir(sess.module).is_dir(),
+    }
+
+
+@mcp.tool()
+def test_gen_submit(session_id: str, generated_test_text: str) -> dict[str, Any]:
+    """Stash the freshly generated test draft. Writes to <draft_path>.
+
+    Returns next='review' so the slash command knows to surface code+test
+    together in the Layer 4 user-review pass.
+    """
+    sess = _get(session_id)
+    if not sess.test_draft_path:
+        raise RuntimeError("test_gen_start must be called before test_gen_submit")
+
+    full = _repo_root() / sess.test_draft_path
+    full.parent.mkdir(parents=True, exist_ok=True)
+    full.write_text(generated_test_text, encoding="utf-8")
+    sess.current_artifact = generated_test_text
+
+    return {
+        "next": "review",
+        "draft_path": sess.test_draft_path,
+        "iteration": sess.test_iterations,
+    }
+
+
+@mcp.tool()
+def test_gen_refine(session_id: str, user_suggestion: str) -> dict[str, Any]:
+    """User-driven test refine: re-assemble unittest_gen prompt with the prior
+    draft baked in as context + user_suggestion appended.
+
+    The unittest_gen.md template doesn't have a {PREVIOUS_TEST} slot today, so
+    we append the prior draft + suggestion as a [Modification suggestions] tail
+    segment that the LLM is expected to honor on round 2+.
+    """
+    sess = _get(session_id)
+    sess.test_iterations += 1
+    sess.layer_retries["test_gen"] = sess.layer_retries.get("test_gen", 0) + 1
+
+    spec_p = _repo_root() / sess.code_spec_path
+    spec_content = spec_p.read_text(encoding="utf-8") if spec_p.exists() else ""
+
+    prior = ""
+    draft_p = _repo_root() / sess.test_draft_path
+    if draft_p.exists():
+        prior = draft_p.read_text(encoding="utf-8")
+
+    base_prompt = prompts.assemble_unittest_gen_prompt(
+        generated_code=sess.code_final_text,
+        original_spec=spec_content,
+        harness_layout=_harness_layout(sess.module),
+    )
+    refine_tail = (
+        "\n\n[Previously generated test]\n```c\n" + prior.strip() + "\n```\n"
+        "\n[Modification suggestions]\n<source: user>\n"
+        + user_suggestion.strip() + "\n</source>\n"
+    )
+    prompt_text = base_prompt + refine_tail
+    sess.last_prompt = prompt_text
+
+    return {
+        "next_prompt": prompt_text,
+        "iteration": sess.test_iterations,
+        "retries": dict(sess.layer_retries),
+    }
+
+
+# Compiled once: matches `static const struct CMUnitTest test_<stage>_tests[]`
+_TEST_ARRAY_RE = re.compile(
+    r"const\s+struct\s+CMUnitTest\s+(test_\w+_tests)\s*\[",
+)
+
+
+def _derive_test_array_name(test_text: str, stage: str) -> str:
+    """Extract `test_<stage>_tests` array symbol from the generated file. Falls
+    back to the stage-derived default if regex misses (LLM used non-standard naming).
+    """
+    m = _TEST_ARRAY_RE.search(test_text)
+    return m.group(1) if m else f"test_{stage}_tests"
+
+
+def _apply_makefile_delta(module: str, stage: str) -> str:
+    """Best-effort: append `test_<stage>.c` to HARNESS_SRCS in the harness Makefile.
+
+    Idempotent — silently skips if the entry already exists. Returns the diff
+    string for surfacing back to the user (empty if no-op).
+    """
+    mk = _harness_dir(module) / "Makefile"
+    if not mk.exists():
+        return ""
+    text = mk.read_text(encoding="utf-8")
+    test_entry = f"    test_{stage}.c"
+    if test_entry in text or f"test_{stage}.c " in text:
+        return ""
+    # Find HARNESS_SRCS := ... \\ block; append before the closing line
+    m = re.search(r"(HARNESS_SRCS\s*:=[^\n]*(?:\n\s+[^\n]+)*)", text)
+    if not m:
+        return ""
+    block = m.group(1)
+    # Append "    test_<stage>.c" continuation. Last line of block ends with
+    # either a continuation `\\` or a real terminator; we insert a new line
+    # before the terminator if any.
+    lines = block.split("\n")
+    # Last real entry — find where to insert
+    new_lines = list(lines)
+    # If last line ends with backslash, we extend the chain
+    if new_lines and new_lines[-1].rstrip().endswith("\\"):
+        new_lines.append(test_entry)
+    else:
+        # Last line is bare entry — turn it into continuation
+        if new_lines:
+            new_lines[-1] = new_lines[-1].rstrip() + "          \\"
+        new_lines.append(test_entry)
+    new_block = "\n".join(new_lines)
+    new_text = text[:m.start(1)] + new_block + text[m.end(1):]
+    mk.write_text(new_text, encoding="utf-8")
+    return f"+ HARNESS_SRCS += test_{stage}.c (in {mk.relative_to(_repo_root())})"
+
+
+def _apply_mainc_delta(module: str, stage: str, array_name: str) -> str:
+    """Best-effort: append extern decl + run_suite() call to harness main.c.
+
+    Idempotent — skips if the suite is already wired. Returns diff string."""
+    main_c = _harness_dir(module) / "main.c"
+    if not main_c.exists():
+        return ""
+    text = main_c.read_text(encoding="utf-8")
+    extern_decl = f"extern const struct CMUnitTest {array_name}[];"
+    suite_call = f'run_suite("{stage}",'
+    if extern_decl in text and suite_call in text:
+        return ""
+    # Append extern decl after the last existing extern declaration
+    extern_pat = re.compile(
+        r"(extern\s+const\s+struct\s+CMUnitTest\s+test_\w+_tests\[\];\s*"
+        r"extern\s+const\s+size_t\s+test_\w+_tests_count;\s*\n)",
+    )
+    matches = list(extern_pat.finditer(text))
+    if matches and extern_decl not in text:
+        last = matches[-1]
+        new_decl = (
+            f"extern const struct CMUnitTest {array_name}[];        "
+            f"extern const size_t {array_name}_count;\n"
+        )
+        text = text[:last.end()] + new_decl + text[last.end():]
+    # Append run_suite call inside main()
+    if suite_call not in text:
+        # Find last existing run_suite call inside main
+        last_run = None
+        for m in re.finditer(r"^\s*total\s*\+=\s*run_suite\([^;]+;\s*\n", text, re.MULTILINE):
+            last_run = m
+        if last_run is not None:
+            new_call = (
+                f'    total += run_suite("{stage}",'
+                f' {array_name}, {array_name}_count);\n'
+            )
+            text = text[:last_run.end()] + new_call + text[last_run.end():]
+    main_c.write_text(text, encoding="utf-8")
+    return f"+ run_suite(\"{stage}\", {array_name}, ...) (in {main_c.relative_to(_repo_root())})"
+
+
+@mcp.tool()
+def test_gen_approve(session_id: str, final_test_text: str) -> dict[str, Any]:
+    """Commit the test layer of the DAG node.
+
+    1. Renames <draft_path>.c.draft → <final_path>.c with the user-approved text.
+    2. Best-effort applies Makefile (HARNESS_SRCS) and main.c (extern + run_suite)
+       deltas. If parsing fails, returns the diffs as empty strings so the user
+       knows to wire manually — does NOT abort.
+    3. Updates the DAG node's `tests` block (additive — no schema bump).
+    4. git-adds the test file + Makefile + main.c + dag.json.
+    5. Sets phase = "approved" (terminal).
+    """
+    sess = _get(session_id)
+    if not sess.test_final_path:
+        raise RuntimeError("test_gen_start must be called before test_gen_approve")
+
+    final_p = _repo_root() / sess.test_final_path
+    final_p.parent.mkdir(parents=True, exist_ok=True)
+    final_p.write_text(final_test_text, encoding="utf-8")
+
+    # Drop draft if present
+    draft_p = _repo_root() / sess.test_draft_path
+    if draft_p.exists():
+        draft_p.unlink()
+
+    # Best-effort Makefile/main.c rewiring
+    array_name = _derive_test_array_name(final_test_text, sess.test_stage)
+    mk_diff = _apply_makefile_delta(sess.module, sess.test_stage)
+    mc_diff = _apply_mainc_delta(sess.module, sess.test_stage, array_name)
+
+    # Count testpoints — match `cmocka_unit_test_setup_teardown(...)` /
+    # `cmocka_unit_test(...)` entries in the array
+    tp_count = len(re.findall(
+        r"cmocka_unit_test(?:_setup_teardown)?\s*\(", final_test_text,
+    ))
+
+    # DAG update — additive `tests` block on the existing node
+    target_stage = _stage_from_spec_path(sess.code_spec_path)
+    dag_state = dag_module.load(sess.module)
+    node_id = _stage_id(target_stage)
+    node = dag_module.find_node(dag_state, node_id)
+    if node is None:
+        raise RuntimeError(
+            f"DAG node {node_id} not found — code_gen_approve must run before test_gen_approve"
+        )
+    node["tests"] = {
+        "files": [sess.test_final_path],
+        "git_sha": _git_sha(final_p),
+        "approved_at": _now_iso(),
+        "approval_iterations": sess.test_iterations,
+        "testpoints": tp_count,
+        "test_array_name": array_name,
+        "dirty": False,
+    }
+    dag_module.save(sess.module, dag_state)
+
+    sess.phase = "approved"
+
+    to_add: list[str] = [sess.test_final_path, f"spec/{sess.module}/.specfs.dag.json"]
+    if mk_diff:
+        to_add.append(f"testsuites/unittest/{sess.module}/Makefile")
+    if mc_diff:
+        to_add.append(f"testsuites/unittest/{sess.module}/main.c")
+    _git_add(to_add)
+
+    return {
+        "saved_to": sess.test_final_path,
+        "dag_node_id": node_id,
+        "testpoints": tp_count,
+        "test_array_name": array_name,
+        "makefile_diff": mk_diff or "(no Makefile change — verify manually)",
+        "mainc_diff": mc_diff or "(no main.c change — verify manually)",
         "git_added": to_add,
     }
 

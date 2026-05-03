@@ -8,16 +8,18 @@
 ### Goals
 - Two HITL loops for porting Linux FS modules to LiteOS-A:
  - **Loop A** (Linux → spec): user describes need, LLM drafts SYSSPEC spec, user reviews
- - **Loop B** (spec → code): LLM generates C code with five-layer defense, user reviews
+ - **Loop B** (spec → code): LLM generates C code with seven-layer defense, user reviews
 - Plugin enforces **ask-first** clarification before generation when LLM is uncertain
 - Plugin controls iteration order via stateful MCP server; user can't be skipped
 - DAG of approved stage nodes preserves cross-stage dependencies + invariants
+- **Layer T (v0.3.4)**: spec-derived cmocka test generation in the same HITL pass
+  as code review — eliminates the test-debt failure mode where regression coverage
+  silently lags behind merged code (see CHANGELOG v0.3.4 for the v0.3.2-era gap).
 - Reproducibility = "same user decisions → same outputs"; session JSON is the trace
 
 ### Non-goals
 - Not a SpecFS paper reproducer (no batch automation, no statistical evaluation)
 - Not a general-purpose FS porting toolkit (focused on LiteOS-A target only)
-- No automatic regression test generation (user approves manually; QEMU smoke replaces FUSE tests)
 - No spec authoring by user (specs are LLM-generated artifacts only)
 
 ## 2. Mental model
@@ -72,14 +74,23 @@ Plugin: Layer 1 (compile gate: clangd LSP preferred + gcc fsyntax-only fallback)
     ▼
 Layer 3: SpecEvaluator self-audit (default ON since v0.2, --speceval-off to skip)
     ▼
+Layer T: cmocka test gen (default ON since v0.3.4, --test-off to skip)
+    Plugin assembles unittest_gen.md prompt from {generated_code, spec, harness_layout}
+    LLM produces test_<stage>.c.draft (one testpoint per [SPECIFICATION] Case +
+    one per testable Invariant; no full-VFS dependencies — those go to Layer B QEMU LTP).
+    Max 3 retries per session (escalate to Loop A if exceeded — spec is under-specified).
+    ▼
 Layer 4: User review with diff + build status + QEMU log + style score + speceval verdict
-    ├─ approve → save to fs/<module>/*.c, mark code.approved_at
-    ├─ suggest → feed back as [Modification suggestions] → regen
+    + cmocka test draft (code AND test reviewed in one HITL pass — v0.3.4)
+    ├─ approve both → save code+test to final paths, mark code.approved_at + tests.approved_at
+    ├─ suggest code edits → feed back as [Modification suggestions] → regen code (+ Layer T re-fires)
+    ├─ suggest test edits → feed back to Layer T only via test_gen_refine
     ├─ inline-edit → user manually edits, plugin acknowledges
     └─ reject → regen
     ▼
-DAG node code layer committed; trigger common.header sync (auto-extract new exports);
-advance to next stage
+DAG node code layer + tests layer committed; trigger common.header sync (auto-extract
+new exports); apply best-effort Makefile (HARNESS_SRCS) + main.c (extern + run_suite)
+deltas; advance to next stage
 ```
 
 ### 2.3 DAG of stages
@@ -177,6 +188,29 @@ specfs.code_gen_approve(session_id, final_code, files_to_save: list)
     → {saved_paths, common_header_diff, dag_node_id}
 specfs.code_gen_refine(session_id, user_suggestion)
     → {next_prompt}
+```
+
+### 4.3.5 Layer T (v0.3.4 — cmocka test gen)
+```
+specfs.toggle_test_gen(session_id, enabled: bool)
+specfs.test_gen_start(session_id)
+    → {prompt_for_llm, draft_path, final_path, harness_dir_exists}
+    # Pre-condition: code_gen_approve must have run AND test_gen_enabled=True.
+    # Server caches the just-approved code text + spec for re-use without disk re-read.
+specfs.test_gen_submit(session_id, generated_test_text)
+    → {next: "review", draft_path, iteration}
+    # Writes <draft_path> (.c.draft suffix). Layer 4 will display alongside the code draft.
+specfs.test_gen_refine(session_id, user_suggestion)
+    → {next_prompt, iteration, retries}
+    # Re-assembles unittest_gen.md prompt with prior draft + user feedback as a
+    # [Modification suggestions] tail segment.
+specfs.test_gen_approve(session_id, final_test_text)
+    → {saved_to, dag_node_id, testpoints, test_array_name, makefile_diff,
+       mainc_diff, git_added}
+    # Renames .draft → .c, best-effort applies Makefile (HARNESS_SRCS) + main.c
+    # (extern decl + run_suite call) deltas, updates DAG node `tests` block,
+    # runs git add. If regex-based wiring fails, returns "(verify manually)"
+    # sentinel so user can patch — does NOT abort approval.
 ```
 
 ### 4.4 Layered defense
@@ -378,7 +412,8 @@ Example phrasings:
 | **S Style** (v0.3, ON by default) | After Layer 1 pass | auto-check (clang-format dry-run + libsec scan + length heuristic) → LLM self-judge → JSON {is_good, score, violations} | Inject violations → re-codegen | 5 |
 | 2 Build+QEMU | After Layer S pass; per-stage | build.sh + qemu-system-arm with smoke | Inject build/qemu log → re-codegen | 3 |
 | 3 SpecEvaluator (v0.2, ON by default) | After Layer 2 pass | LLM self-judge → JSON {is_good, comments} | Inject comments → re-codegen | 8 (paper) |
-| 4 User review | After all auto layers pass | diff + style score + speceval verdict + status display | Inject user suggestion → re-codegen | unlimited |
+| **T cmocka test gen (v0.3.4, ON by default)** | After Layer 3 pass | LLM assembles `test_<stage>.c.draft` from spec [SPECIFICATION] Cases + Invariants via `prompts/unittest_gen.md` | `test_gen_refine` with prior draft + user feedback → regen | 3 (then escalate to Loop A — spec under-specified) |
+| 4 User review | After all auto layers pass | diff + style score + speceval verdict + cmocka test draft | Inject user suggestion → re-codegen (or test_gen_refine for test-only edits) | unlimited |
 
 Each layer has its own [Modification suggestions] segment header so the LLM can
 distinguish "compiler said X" from "QEMU panicked Y" from "user said Z".
@@ -403,12 +438,15 @@ Triggers Loop A. Plugin:
 Triggers Loop B. Plugin:
 1. Validates spec is approved
 2. Calls `code_gen_start` → assembled codegen prompt with all injection segments
-3. Skill body runs the layered defense loop in sequence (lsp → compile → build → qemu → user)
-4. On final approval: call `code_gen_approve` → commit DAG node code layer + sync common.header
+3. Skill body runs the layered defense loop in sequence (compile → style → build → qemu → speceval → test_gen → user)
+4. On final approval: call `code_gen_approve` then `test_gen_approve` → commit DAG node code+tests layers + sync common.header + apply Makefile/main.c deltas
 
 ### Optional flags
-- `--speceval-on` — enable Layer 3
+- `--speceval-off` (v0.2 ON by default) — disable Layer 3 SpecEvaluator self-audit
+- `--style-off` (v0.3 ON by default) — disable Layer S coding-style audit
+- `--test-off` (v0.3.4 ON by default) — disable Layer T cmocka test gen
 - `--no-build` — skip Layer 2 (for fast iteration on logic-only specs)
+- `--no-regress` — skip Step 12 regression-suite reminder
 - `--prompt-override <file>` — bypass spec-derived prompt assembly
 
 ## 9. Edge cases & open questions
@@ -461,6 +499,10 @@ The plugin design assumes single FS at a time per project. Multiple FSes
 - Layer 1 (compile, merged) retries: 4. Layer S (style) retries: 5.
 - Layer 2 (build / qemu): 3 each. After exhaustion on any layer, escalate to user.
 - Layer 3 retries: 8 (paper). User can override.
+- **Layer T retries: 3.** v0.3.4. Hard cap is intentionally tight: if Layer T can't
+  converge in 3 rounds, the spec [SPECIFICATION] Cases are likely under-specified
+  (no testable post-condition, ambiguous error path). Escalate back to Loop A and
+  refine the spec rather than grinding more rounds in test gen.
 - Sub-agent dispatch: max 4 parallel (avoid Claude Code rate limits).
 - AskUserQuestion: no hard limit, but plugin tracks count per session and warns
  if > 5 in a single generation step (suggests spec is too vague).

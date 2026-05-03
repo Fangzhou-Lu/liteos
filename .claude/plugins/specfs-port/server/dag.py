@@ -127,7 +127,13 @@ def descendants(dag: dict[str, Any], node_id: str) -> list[dict[str, Any]]:
 
 
 def is_node_complete(node: dict[str, Any]) -> bool:
-    """Both spec and code layers approved."""
+    """Both spec and code layers approved.
+
+    Note: Layer T tests are an additive layer (v0.3.4); their absence does NOT
+    make a node "incomplete" by this predicate, so historical Wave-A nodes that
+    lack a `tests` block still report complete. Use `is_tests_approved(node)`
+    if you need to surface the test-coverage gap separately.
+    """
     return bool(
         node.get("spec", {}).get("approved_at")
         and node.get("code", {}).get("approved_at")
@@ -140,6 +146,13 @@ def is_spec_approved(node: dict[str, Any]) -> bool:
 
 def is_code_approved(node: dict[str, Any]) -> bool:
     return bool(node.get("code", {}).get("approved_at"))
+
+
+def is_tests_approved(node: dict[str, Any]) -> bool:
+    """v0.3.4: Layer T (cmocka tests) approval check. Additive — old nodes
+    without a `tests` block return False (NOT a hard failure; reports as
+    'tests-debt' so the user can backfill via /specfs-port-code --regen-tests)."""
+    return bool(node.get("tests", {}).get("approved_at"))
 
 
 def collect_invariants(dag: dict[str, Any], node_id: str) -> list[dict[str, str]]:

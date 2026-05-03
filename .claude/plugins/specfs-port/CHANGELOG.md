@@ -3,6 +3,74 @@
 All notable changes to this plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/) loosely; semver applies.
 
+## [0.3.4] — 2026-05-04
+
+### Added — Layer T actually wired (closes v0.3.2 gap)
+
+- **5 new MCP tools in `server/specfs_server.py`** (~290 LOC):
+  `toggle_test_gen`, `test_gen_start`, `test_gen_submit`, `test_gen_refine`,
+  `test_gen_approve`. Total tool surface: 33 (was 28).
+- `code_gen_approve` now returns `{next: "test_gen"}` (instead of terminal
+  `phase=approved`) when `test_gen_enabled=True` (default ON). Final code +
+  files-saved cached on the session for Layer T re-use without re-reading
+  from disk.
+- `test_gen_approve` writes the cmocka file and **best-effort applies the
+  Makefile + main.c deltas automatically**: regex-based append to
+  `HARNESS_SRCS` and insertion of `extern` decl + `total += run_suite(...)`
+  in main.c. Idempotent — second invocation with same `<stage>` is a no-op.
+  Verified against the real `testsuites/unittest/exfat/` harness (14 existing
+  externs detected, no double-add on existing stages).
+- `prompts.assemble_unittest_gen_prompt(generated_code, original_spec,
+  harness_layout)` — the `unittest_gen.md` template that has existed since
+  v0.3.2 finally has a server-side caller.
+- `dag.is_tests_approved(node)` helper. The DAG node schema gains an additive
+  `tests` block (`{files, git_sha, approved_at, approval_iterations,
+  testpoints, test_array_name, dirty}`). No schema_version bump — old nodes
+  without `tests` continue to report `is_node_complete=True`, surfacing the
+  gap separately as "tests-debt" via the new helper.
+- `state.SessionPhase` adds `"test_drafting"`; `Session` adds
+  `test_stage` / `test_draft_path` / `test_final_path` / `test_iterations` /
+  `test_gen_enabled` / `code_final_text` / `code_final_paths`;
+  `layer_retries` adds the `test_gen` slot (3 max per `DESIGN.md §10`).
+- `--test-off` CLI flag in `commands/specfs-port-code.md` to opt out per
+  session (e.g., write paths whose only verification is QEMU LTP).
+
+### Changed — pipeline reorder (Step 11 was in the wrong place)
+
+- `commands/specfs-port-code.md` rewritten: Layer T moved from old Step 11
+  (post-approval) to new **Step 8.5**, between Layer 3 (SpecEval) and Layer 4
+  (user review). The v0.3.2 prompt comment said this was the intent
+  ("plugin runs Layer T after Layer S + Layer 3 pass, BEFORE user review")
+  but the actual command body had it sequenced after Step 10 (handle approve
+  response). Fixed in v0.3.4.
+- Step 9 (user review) now displays code + cmocka test together. Step 10
+  options expanded from 5 to 6: separate `Suggest test edits` (option c)
+  branch that calls only `test_gen_refine` without re-running code generation.
+- `argument-hint` updated; `description` says "7-layer defense" (was "6-layer").
+
+### Why this matters — the v0.3.2 self-deception
+
+v0.3.2 announced "Spec-derived cmocka test generation (default ON)" and
+shipped the `prompts/unittest_gen.md` template, but **0 server-side tools
+consumed it**. The slash command's Step 11 was a soft reminder, not a hard
+gate. Result: Wave A's 9 stages (chksum, options, dentry, balloc, upcase,
+fat_chain, nls_utf16, dentry_iter, inode_alloc, open_close, getattr_seek,
+read, readdir, lookup) all skipped Layer T silently and accumulated test
+debt — caught only in commit 149487a9 where 152 testpoints were back-filled
+in one batch. v0.3.4 closes the loop so Wave B and forward cannot repeat
+this failure mode.
+
+### Validated
+
+- All 4 modified `.py` files pass `python3 -m py_compile`.
+- Static AST scan: 5 new MCP tools registered (`toggle_test_gen` +
+  `test_gen_{start,submit,refine,approve}`); 33 total tools.
+- End-to-end smoke: `assemble_unittest_gen_prompt` renders 3489-char
+  prompt; `Session` exposes new fields; `is_tests_approved` correctly
+  distinguishes legacy nodes (False) from v0.3.4-era nodes (True);
+  Makefile delta is idempotent; main.c regex matches all 14 existing
+  externs (no false negatives).
+
 ## [0.3.3] — 2026-05-01 (late evening)
 
 ### Changed
