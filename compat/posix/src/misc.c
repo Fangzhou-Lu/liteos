@@ -112,6 +112,13 @@ long sysconf(int name)
         CONF_CASE_RETURN(_SC_MQ_PRIO_MAX,                       MQ_PRIO_MAX);
 #endif
         CONF_CASE_RETURN(_SC_NGROUPS_MAX,                       NGROUPS_MAX);
+#ifdef LOSCFG_KERNEL_SMP
+        CONF_CASE_RETURN(_SC_NPROCESSORS_CONF,                  LOSCFG_KERNEL_SMP_CORE_NUM);
+        CONF_CASE_RETURN(_SC_NPROCESSORS_ONLN,                  LOSCFG_KERNEL_SMP_CORE_NUM);
+#else
+        CONF_CASE_RETURN(_SC_NPROCESSORS_CONF,                  1);
+        CONF_CASE_RETURN(_SC_NPROCESSORS_ONLN,                  1);
+#endif
         CONF_CASE_RETURN(_SC_OPEN_MAX,                          OPEN_MAX);
         CONF_CASE_RETURN(_SC_PAGESIZE,                          0x1000);
         CONF_CASE_RETURN(_SC_PRIORITIZED_IO,                    SC_DISABLE);
