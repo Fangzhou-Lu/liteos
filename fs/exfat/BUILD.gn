@@ -36,6 +36,7 @@ kernel_module(module_name) {
     "exfat_balloc.c",
     "exfat_dentry.c",
     "exfat_dentry_iter.c",
+    "exfat_dentry_set_write.c",
     "exfat_dir.c",
     "exfat_file.c",
     "exfat_inode_alloc.c",

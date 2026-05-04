@@ -336,6 +336,22 @@ int  exfat_get_dentry_set(const exfat_sb_info *sbi, const exfat_chain *dir,
  */
 int  exfat_validate_dentry_set(const struct exfat_dentry *set, int num_entries);
 
+/* ---- dentry-set WRITE (Wave B Stage 4a) — fs/exfat/exfat_dentry_set_write.c
+ * Symmetric writer for exfat_get_dentry / exfat_get_dentry_set. Each call:
+ * read the affected sector, splice the 32B dentry, write the sector back
+ * (one read-modify-write per dentry — recomputes clu/sector each time so
+ * dentry-sets crossing cluster boundaries land on the right disk extents).
+ * No locks taken; no chksum touched (caller is responsible for filling
+ * SetChecksum before calling); no vol_flags touched. See
+ * spec/exfat/dentry/exfat_dentry_set_write.spec for full contract.
+ */
+int  exfat_set_dentry(const exfat_sb_info *sbi, const exfat_chain *dir,
+                      int entry_idx, const struct exfat_dentry *in);
+
+int  exfat_set_dentry_set(const exfat_sb_info *sbi, const exfat_chain *dir,
+                          int start_entry, const struct exfat_dentry *set,
+                          int num_entries);
+
 /* ---- UTF-16 / UTF-8 conversion + upcase compare — fs/exfat/util/exfat_nls_utf16.c
  * Pure compute (spinlock-safe). RFC 3629-strict UTF-8: rejects overlong,
  * surrogate-half input, > 0x10FFFF. Surrogate pairs in cmp are bit-exact

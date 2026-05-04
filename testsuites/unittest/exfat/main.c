@@ -34,6 +34,7 @@ extern const struct CMUnitTest test_alloc_cluster_tests[];        extern const s
 extern const struct CMUnitTest test_truncate_extend_tests[];        extern const size_t test_truncate_extend_tests_count;
 extern const struct CMUnitTest test_truncate_shrink_tests[];        extern const size_t test_truncate_shrink_tests_count;
 extern const struct CMUnitTest test_truncate_vop_tests[];           extern const size_t test_truncate_vop_tests_count;
+extern const struct CMUnitTest test_dentry_set_write_tests[];       extern const size_t test_dentry_set_write_tests_count;
 static int run_suite(const char *name,
                      const struct CMUnitTest *tests, size_t n)
 {
@@ -70,6 +71,7 @@ int main(void)
     total += run_suite("truncate_extend", test_truncate_extend_tests, test_truncate_extend_tests_count);
     total += run_suite("truncate_shrink", test_truncate_shrink_tests, test_truncate_shrink_tests_count);
     total += run_suite("truncate_vop",    test_truncate_vop_tests,    test_truncate_vop_tests_count);
+    total += run_suite("dentry_set_write", test_dentry_set_write_tests, test_dentry_set_write_tests_count);
     fprintf(stderr, "\n=== exfat TOTAL FAILURES: %d ===\n", total);
     return total == 0 ? 0 : 1;
 }

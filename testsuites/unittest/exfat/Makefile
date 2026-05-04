@@ -34,6 +34,7 @@ PROD_SRCS := \
     $(EXFAT)/util/exfat_alloc_cluster.c \
     $(EXFAT)/exfat_dentry.c          \
     $(EXFAT)/exfat_dentry_iter.c     \
+    $(EXFAT)/exfat_dentry_set_write.c \
     $(EXFAT)/exfat_balloc.c          \
     $(EXFAT)/exfat_inode_alloc.c     \
     $(EXFAT)/exfat_open_close.c      \
@@ -59,6 +60,7 @@ HARNESS_SRCS := \
     test_fat_chain.c       \
     test_nls_utf16.c       \
     test_dentry_iter.c     \
+    test_dentry_set_write.c \
     test_inode_alloc.c     \
     test_open_close.c      \
     test_getattr_seek.c    \

@@ -3621,6 +3621,73 @@
         "runtime_validation_pending": false,
         "runtime_validation_note": "Local mac cmocka 2026-05-05: 17/17 testpoints PASS in truncate_vop suite. Whole exfat_tests binary 0 failures across all suites."
       }
+    },
+    {
+      "id": "dentry_set_write",
+      "stage_name": "dentry_set_write",
+      "depends_on": [
+        "dentry_iter",
+        "fat_chain"
+      ],
+      "spec": {
+        "path": "spec/exfat/dentry/exfat_dentry_set_write.spec",
+        "approved_at": "2026-05-04T17:08:57+00:00",
+        "common_header_path": "spec/exfat/common.header",
+        "dirty": false
+      },
+      "code": {
+        "path": "fs/exfat/exfat_dentry_set_write.c",
+        "approved_at": "2026-05-04T17:08:57+00:00",
+        "dirty": false
+      },
+      "invariants": [
+        {
+          "id": "exfat-set-dentry-no-locks",
+          "text": "Helper takes no locks; caller holds parent->inode_lock or sbi->s_lock."
+        },
+        {
+          "id": "exfat-set-dentry-leak-free",
+          "text": "All return paths LOS_MemFree any allocated buf."
+        },
+        {
+          "id": "exfat-set-dentry-cluster-boundary",
+          "text": "Per-call clu/sector recompute; mass writes forbidden."
+        },
+        {
+          "id": "exfat-set-dentry-no-spinlock-callsite",
+          "text": "Contains alloc + IO; spinlock-held entry forbidden."
+        },
+        {
+          "id": "exfat-set-dentry-bounded-per-call",
+          "text": "Each set_dentry: 1 read + 1 write; no recursion."
+        },
+        {
+          "id": "exfat-set-dentry-no-mutate-on-arg-failure",
+          "text": "-EINVAL/-ENOMEM paths don't touch sbi/dir/in/set."
+        },
+        {
+          "id": "exfat-set-dentry-no-chksum-touch",
+          "text": "Doesn't compute or rewrite SetChecksum; caller's responsibility."
+        },
+        {
+          "id": "exfat-set-dentry-no-vol-flags-touch",
+          "text": "Doesn't modify sbi->vol_flags; caller decides VOLUME_DIRTY."
+        },
+        {
+          "id": "exfat-set-dentry-set-no-rollback",
+          "text": "Partial commit on failure; caller marks VOLUME_DIRTY."
+        }
+      ],
+      "exports": [
+        {
+          "symbol": "exfat_set_dentry",
+          "kind": "func"
+        },
+        {
+          "symbol": "exfat_set_dentry_set",
+          "kind": "func"
+        }
+      ]
     }
   ]
 }
