@@ -12,6 +12,13 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+/* macOS doesn't expose off64_t; LiteOS-A musl + glibc do. Aliasing keeps
+ * VOP signatures (VfsExfatTruncate64) source-compatible on the host. */
+#if defined(__APPLE__) && !defined(_OFF64_T_DEFINED)
+typedef int64_t off64_t;
+#define _OFF64_T_DEFINED
+#endif
+
 /* Minimal doubly-linked list node (used by Vnode struct fields). */
 typedef struct _list_entry { struct _list_entry *pstNext, *pstPrev; } LOS_DL_LIST;
 typedef LOS_DL_LIST LIST_HEAD;

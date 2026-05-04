@@ -212,3 +212,12 @@ extern int  exfat_truncate_extend(exfat_sb_info *sbi, exfat_inode_info *ei, uint
  * frees the discarded suffix via exfat_free_cluster. Clamps valid_size so it
  * never exceeds new_size. shrink-to-zero resets start_clu = EOF_CLUSTER.) */
 extern int  exfat_truncate_shrink(exfat_sb_info *sbi, exfat_inode_info *ei, uint64_t new_size);
+
+/* truncate VOP exports (Wave B Stage 3; VFS-edge dispatcher. Acquires
+ * ei->inode_lock, picks extend/shrink based on len vs ei->size, releases the
+ * lock and forwards the helper's negative POSIX errno verbatim. Wired into
+ * g_exfatVops at .Truncate / .Truncate64. v1 limitation: does NOT update
+ * on-disk dentry — sync helper deferred.) */
+struct Vnode;
+extern int VfsExfatTruncate(struct Vnode *vp, off_t len);
+extern int VfsExfatTruncate64(struct Vnode *vp, off64_t len);

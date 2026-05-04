@@ -48,13 +48,15 @@
  * Rename, Truncate, Open, Close, Read, Write — by editing this file.
  */
 struct VnodeOps g_exfatVops = {
-    .Lookup    = VfsExfatLookup,
-    .Reclaim   = VfsExfatReclaim,
-    .Opendir   = VfsExfatOpendir,
-    .Readdir   = VfsExfatReaddir,
-    .Closedir  = VfsExfatClosedir,
-    .Rewinddir = VfsExfatRewinddir,
-    .Getattr   = VfsExfatGetattr,
+    .Lookup     = VfsExfatLookup,
+    .Reclaim    = VfsExfatReclaim,
+    .Opendir    = VfsExfatOpendir,
+    .Readdir    = VfsExfatReaddir,
+    .Closedir   = VfsExfatClosedir,
+    .Rewinddir  = VfsExfatRewinddir,
+    .Getattr    = VfsExfatGetattr,
+    .Truncate   = VfsExfatTruncate,
+    .Truncate64 = VfsExfatTruncate64,
 };
 
 /*

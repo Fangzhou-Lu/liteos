@@ -43,7 +43,8 @@ PROD_SRCS := \
     $(EXFAT)/exfat_lookup.c          \
     $(EXFAT)/exfat_write.c           \
     $(EXFAT)/exfat_truncate_extend.c \
-    $(EXFAT)/exfat_truncate_shrink.c
+    $(EXFAT)/exfat_truncate_shrink.c \
+    $(EXFAT)/exfat_truncate_vop.c
 
 # Harness sources.
 HARNESS_SRCS := \
@@ -69,7 +70,8 @@ HARNESS_SRCS := \
     test_free_cluster.c    \
     test_alloc_cluster.c   \
     test_truncate_extend.c   \
-    test_truncate_shrink.c
+    test_truncate_shrink.c   \
+    test_truncate_vop.c
 
 OBJS := $(PROD_SRCS:.c=.o) $(HARNESS_SRCS:.c=.o)
 TARGET := exfat_tests

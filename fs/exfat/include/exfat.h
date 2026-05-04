@@ -275,6 +275,16 @@ int  exfat_truncate_extend(exfat_sb_info *sbi, exfat_inode_info *ei,
 int  exfat_truncate_shrink(exfat_sb_info *sbi, exfat_inode_info *ei,
                            uint64_t new_size);
 
+/* ---- truncate VOP — fs/exfat/exfat_truncate_vop.c -----------------------
+ * VFS-edge dispatcher. Acquires ei->inode_lock, compares len vs ei->size,
+ * calls exfat_truncate_extend / exfat_truncate_shrink as needed, releases
+ * the lock and forwards the helper's negative POSIX errno verbatim. Does
+ * NOT update on-disk dentry — v1 known limitation; sync helper deferred.
+ */
+struct Vnode;
+int VfsExfatTruncate(struct Vnode *vp, off_t len);
+int VfsExfatTruncate64(struct Vnode *vp, off64_t len);
+
 /* ---- inode_info lifecycle — fs/exfat/exfat_inode_alloc.c ---------------
  * Memory-only helpers; no IO, no disk read/write. inode_lock initialised
  * with LOS_MUX_PRIO_INHERIT protocol to avoid priority inversion on the

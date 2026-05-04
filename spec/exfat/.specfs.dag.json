@@ -3534,6 +3534,93 @@
         "runtime_validation_pending": false,
         "runtime_validation_note": "Local mac cmocka 2026-05-05: 23/23 testpoints PASS in truncate_shrink suite. Whole exfat_tests binary 0 failures across all suites."
       }
+    },
+    {
+      "id": "truncate_vop",
+      "stage_name": "truncate_vop",
+      "depends_on": [
+        "truncate_extend",
+        "truncate_shrink"
+      ],
+      "code": {
+        "files": [
+          "fs/exfat/exfat_truncate_vop.c",
+          "fs/exfat/exfat_ops.c"
+        ],
+        "git_sha": "2de5906f9b4fc6c38d3648d237f377ba9a4125c1",
+        "approved_at": "2026-05-04T16:16:32Z",
+        "approval_iterations": 0,
+        "validations_passed": {
+          "compile": true,
+          "style": true,
+          "build": true,
+          "qemu": false,
+          "speceval": true
+        },
+        "dirty": false
+      },
+      "spec": {
+        "files": [
+          "spec/exfat/interface/exfat_truncate_vop.spec"
+        ],
+        "git_sha": "f5441e857ad4ba4b1e1312070e8fd60be33215c8",
+        "linux_source_ref": "/Users/kissa/Codebase/linux/fs/exfat/file.c",
+        "approved_at": "2026-05-04T16:16:32Z",
+        "approval_iterations": 0,
+        "user_clarifications": [],
+        "dirty": false
+      },
+      "invariants": [
+        {
+          "id": "exfat-truncate-vop-inode-lock-bracketed",
+          "text": "本 VOP 在所有非 -EINVAL 早退路径上都 LOS_MuxLock + LOS_MuxUnlock 严格成对；-EINVAL 早退路径不触锁。"
+        },
+        {
+          "id": "exfat-truncate-vop-no-self-recurse",
+          "text": "本 VOP 是 inode_lock 持有者；底层 helper 不再加 inode_lock，但会自取 s_lock / bitmap_lock。"
+        },
+        {
+          "id": "exfat-truncate-vop-no-dentry-write",
+          "text": "本 stage 不修改盘上 dentry；仅在内存层 (ei->size) 变更。v1 已知限制。"
+        },
+        {
+          "id": "exfat-truncate-vop-len-non-negative",
+          "text": "off_t 是有符号；负值视为 -EINVAL，不类型转换为大正值。"
+        },
+        {
+          "id": "exfat-truncate-vop-errno-passthrough",
+          "text": "helper 返回的负 errno 直接透传；不重映射 -EIO/-ENOSPC。"
+        },
+        {
+          "id": "exfat-truncate-vop-truncate-equiv-truncate64",
+          "text": "VfsExfatTruncate(vp, len) == VfsExfatTruncate64(vp, (off64_t)len)。"
+        }
+      ],
+      "exports": [
+        {
+          "symbol": "VfsExfatTruncate",
+          "signature": "int VfsExfatTruncate(struct Vnode *vp, off_t len)",
+          "src": "fs/exfat/exfat_truncate_vop.c"
+        },
+        {
+          "symbol": "VfsExfatTruncate64",
+          "signature": "int VfsExfatTruncate64(struct Vnode *vp, off64_t len)",
+          "src": "fs/exfat/exfat_truncate_vop.c"
+        }
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_truncate_vop.c"
+        ],
+        "git_sha": "80e792bbc880d7c578e09992c0bac463ab952eb6",
+        "approved_at": "2026-05-04T16:16:32Z",
+        "approval_iterations": 0,
+        "testpoints": 17,
+        "test_array_name": "test_truncate_vop_tests",
+        "dirty": false,
+        "runtime_validation_pending": false,
+        "runtime_validation_note": "Local mac cmocka 2026-05-05: 17/17 testpoints PASS in truncate_vop suite. Whole exfat_tests binary 0 failures across all suites."
+      }
     }
   ]
 }
