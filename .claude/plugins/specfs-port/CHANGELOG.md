@@ -3,6 +3,62 @@
 All notable changes to this plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/) loosely; semver applies.
 
+## [0.3.4.2] — 2026-05-05
+
+### Fixed — two recurrent bugs in `_apply_makefile_delta` and `_sync_common_header`
+
+Both surfaced once per stage during Wave B (Stages 2a–2e). Manual workarounds
+(re-route `test_<stage>.c` from OBJS into HARNESS_SRCS, `python3` truncate at
+duplicate `auto-synced exports` markers, then append clean stage exports)
+were applied 5×. v0.3.4.2 fixes the root causes so future stages don't need
+the workaround.
+
+- **`specfs_server.py::_apply_makefile_delta` — continuation-line regex
+  slurped past blank lines.** The pattern
+  `(HARNESS_SRCS\s*:=[^\n]*(?:\n\s+[^\n]+)*)` used `\s+` for the leading
+  indent of each continuation line. Because `\s` matches newlines (`\n`,
+  `\t`, ` `, etc.), the inner alternation `\n\s+[^\n]+` would consume a
+  blank line plus the *next* assignment line whole — typically the
+  `OBJS := $(PROD_SRCS:.c=.o) $(HARNESS_SRCS:.c=.o)` line that immediately
+  follows the HARNESS_SRCS block. The captured "block" thus extended into
+  OBJS, and the `test_<stage>.c` continuation entry was inserted at end-of-OBJS
+  instead of end-of-HARNESS_SRCS. Result: `make` would see `test_<stage>.c`
+  as a phantom OBJS member with no compilation rule.
+
+  Fix: replace `\s+` with `[ \t]+` so continuation indent is detected by
+  spaces/tabs only, never newlines. Verified via Python repro: OLD regex
+  captures `HARNESS_SRCS := ... test_b.c\n\nOBJS := ...`; NEW correctly
+  stops at `test_b.c`.
+
+- **`specfs_server.py::_sync_common_header` — `auto-synced exports` marker
+  duplicated per stage.** Each successful `code_gen_approve` unconditionally
+  emitted a fresh `/* auto-synced exports — appended by specfs-port
+  code_gen_approve */` comment block plus the new decls, leading to N
+  markers and N decl blobs after N stages. Visual noise plus duplicate-decl
+  risk if two stages exported overlapping symbol names (the existing
+  `decl not in existing` check is whitespace-sensitive but the per-stage
+  marker amplification was the dominant pollution).
+
+  Fix: emit the marker singleton — if it already exists in the file, splice
+  new decls in immediately after the marker line (preserving previous-stage
+  decls below). If absent, append `\n\n<marker>\n<decls>` at end-of-file as
+  before. Verified via standalone Python harness: 3 successive sync calls
+  → 1 marker / 3 collected decls.
+
+### Why this matters
+
+Stages 2a–2e each cost ~30 seconds of manual cleanup. Stage 3 (truncate VOP)
+*also* triggered both bugs. With v0.3.4.2 the pipeline stops needing the
+human-in-the-loop fix — `code_gen_approve` should land a clean Makefile
+delta and a clean common.header sync on the first try.
+
+### Validated
+
+- Bug A: Python repro confirmed OLD regex eats OBJS line; NEW does not.
+- Bug B: Python repro confirmed marker count=1 after 3 sync calls.
+- Both fixes are isolated to `specfs_server.py`; no behavioural change for
+  any path that doesn't trigger these specific code paths.
+
 ## [0.3.4.1] — 2026-05-04 (afternoon)
 
 ### Fixed — two bugs surfaced by v0.3.4 first native Layer T run

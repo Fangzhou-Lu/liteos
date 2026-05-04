@@ -727,8 +727,12 @@ def _apply_makefile_delta(module: str, stage: str) -> str:
     test_entry = f"    test_{stage}.c"
     if test_entry in text or f"test_{stage}.c " in text:
         return ""
-    # Find HARNESS_SRCS := ... \\ block; append before the closing line
-    m = re.search(r"(HARNESS_SRCS\s*:=[^\n]*(?:\n\s+[^\n]+)*)", text)
+    # Find HARNESS_SRCS := ... \\ block; append before the closing line.
+    # Continuation lines are detected by leading [ \t] (NOT \s, which matches
+    # newlines and lets the regex slurp blank lines plus subsequent assignments
+    # like OBJS := ...). v0.3.4.2 fix: bare `\s+` was eating the blank line
+    # plus the OBJS line, causing test_<stage>.c to be appended after OBJS.
+    m = re.search(r"(HARNESS_SRCS\s*:=[^\n]*(?:\n[ \t]+[^\n]+)*)", text)
     if not m:
         return ""
     block = m.group(1)
@@ -1309,10 +1313,27 @@ def _sync_common_header(module: str, ifaces: dict[str, extract.ExtractedInterfac
     if not new_decls:
         return ""
 
-    appended = "\n\n/* auto-synced exports — appended by specfs-port code_gen_approve */\n"
-    appended += "\n".join(new_decls) + "\n"
+    # v0.3.4.2 fix: emit the marker comment AT MOST ONCE per common.header.
+    # Pre-0.3.4.2 each code_gen_approve appended a fresh marker, so after N
+    # stages the file accumulated N "auto-synced exports" comment fragments
+    # plus per-stage decl blobs — making manual dedup necessary.
+    marker = "/* auto-synced exports — appended by specfs-port code_gen_approve */"
+    decls_text = "\n".join(new_decls) + "\n"
+    if marker in existing:
+        # Append the new decls right after the existing marker block,
+        # keeping the marker singleton.
+        appended = decls_text
+        # Insert after the line containing the marker.
+        idx = existing.find(marker)
+        line_end = existing.find("\n", idx)
+        if line_end == -1:
+            line_end = len(existing)
+        new_text = existing[: line_end + 1] + appended + existing[line_end + 1 :]
+    else:
+        appended = "\n\n" + marker + "\n" + decls_text
+        new_text = existing + appended
     header_p.parent.mkdir(parents=True, exist_ok=True)
-    header_p.write_text(existing + appended, encoding="utf-8")
+    header_p.write_text(new_text, encoding="utf-8")
     return appended
 
 
