@@ -37,7 +37,8 @@ PROD_SRCS := \
     $(EXFAT)/exfat_attr.c            \
     $(EXFAT)/exfat_file.c            \
     $(EXFAT)/exfat_readdir.c         \
-    $(EXFAT)/exfat_lookup.c
+    $(EXFAT)/exfat_lookup.c          \
+    $(EXFAT)/exfat_write.c
 
 # Harness sources.
 HARNESS_SRCS := \

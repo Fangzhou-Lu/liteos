@@ -1929,7 +1929,24 @@
       "id": "write",
       "stage_name": "write",
       "depends_on": [],
-      "code": {},
+      "code": {
+        "files": [
+          "fs/exfat/exfat_write.c"
+        ],
+        "git_sha": "095f43c3806d3b2909e5b8836214621a38b153ea",
+        "approved_at": "2026-05-01T15:11:44Z",
+        "approval_iterations": 1,
+        "validations_passed": {
+          "compile": true,
+          "style": true,
+          "build": true,
+          "qemu": true,
+          "speceval": true
+        },
+        "dirty": false,
+        "reverse_filled": true,
+        "reverse_fill_note": "v0.3.4 reverse-fill — Wave B Stage 1 write code (commit 8e3622f8). DAG layer was missing because the original commit did not invoke per-stage code_gen_approve. The tests layer is intentionally NOT reverse-filled here: write was committed AFTER v0.3.4 plumbing landed (dc52de73), so its cmocka tests should be produced via the native Layer T flow on a future session, not back-filled."
+      },
       "spec": {
         "files": [
           "spec/exfat/interface/exfat_write.spec"
