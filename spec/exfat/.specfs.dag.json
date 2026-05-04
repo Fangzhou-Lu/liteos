@@ -3441,6 +3441,99 @@
         "runtime_validation_pending": false,
         "runtime_validation_note": "Local mac cmocka 2026-05-04 04:50: 21/21 testpoints PASS in truncate_extend suite. Whole exfat_tests binary 312/312 PASS across 19 suites."
       }
+    },
+    {
+      "id": "truncate_shrink",
+      "stage_name": "truncate_shrink",
+      "depends_on": [
+        "truncate_extend",
+        "free_cluster"
+      ],
+      "code": {
+        "files": [
+          "fs/exfat/exfat_truncate_shrink.c"
+        ],
+        "git_sha": "fdf9f219cdc526cda8d11fd6dd8c795a652a0689",
+        "approved_at": "2026-05-04T16:08:31Z",
+        "approval_iterations": 0,
+        "validations_passed": {
+          "compile": true,
+          "style": true,
+          "build": true,
+          "qemu": false,
+          "speceval": true
+        },
+        "dirty": false
+      },
+      "spec": {
+        "files": [
+          "spec/exfat/interface/exfat_truncate_shrink.spec"
+        ],
+        "git_sha": "24b686651a992732211554e4d972944aca11b40e",
+        "linux_source_ref": "/Users/kissa/Codebase/linux/fs/exfat/file.c",
+        "approved_at": "2026-05-04T16:08:31Z",
+        "approval_iterations": 0,
+        "user_clarifications": [],
+        "dirty": false
+      },
+      "invariants": [
+        {
+          "id": "exfat-truncate-shrink-monotone-size",
+          "text": "成功路径上 ei->size == new_size < old_size；失败路径（Case 1/5/6/7）上 ei->size 保持 old_size。size 单调不增（在 shrink 范围内）。"
+        },
+        {
+          "id": "exfat-truncate-shrink-valid-size-clamped",
+          "text": "成功路径上 ei->valid_size <= new_size：原 valid_size <= new_size 时保持，否则被夹紧到 new_size。"
+        },
+        {
+          "id": "exfat-truncate-shrink-i-size-ondisk-aligned",
+          "text": "成功路径上 ei->i_size_ondisk 是 cluster_size 的整数倍，且 == num_new_clu * cluster_size >= new_size。"
+        },
+        {
+          "id": "exfat-truncate-shrink-fat-chain-only",
+          "text": "v1 仅支持 ei->flags == ALLOC_FAT_CHAIN；NO_FAT_CHAIN 直接 -EINVAL。"
+        },
+        {
+          "id": "exfat-truncate-shrink-vol-flags-bracketed",
+          "text": "本 helper 退出前尝试清 VOLUME_DIRTY（best-effort）。"
+        },
+        {
+          "id": "exfat-truncate-shrink-fat-then-bitmap",
+          "text": "先 ent_set(EOF) 切链，再调 free_cluster 释放位图；反向会出现链尾指向 free 簇的悬挂引用。"
+        },
+        {
+          "id": "exfat-truncate-shrink-no-dentry-write",
+          "text": "本 stage 不写盘上 dentry；调用方负责 sync。"
+        },
+        {
+          "id": "exfat-truncate-shrink-bounded-walk",
+          "text": "走 FAT 链找 new_tail 的循环硬上限 EXFAT_MAX_CHAIN_LEN；防御自环。"
+        },
+        {
+          "id": "exfat-truncate-shrink-start-clu-on-empty",
+          "text": "new_size == 0 路径上 ei->start_clu 必须复位 EXFAT_EOF_CLUSTER。"
+        }
+      ],
+      "exports": [
+        {
+          "symbol": "exfat_truncate_shrink",
+          "signature": "int exfat_truncate_shrink(exfat_sb_info *sbi, exfat_inode_info *ei, uint64_t new_size)",
+          "src": "fs/exfat/exfat_truncate_shrink.c"
+        }
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_truncate_shrink.c"
+        ],
+        "git_sha": "9501ef9f2c6be32e2609b4b9116db49e799e159c",
+        "approved_at": "2026-05-04T16:08:31Z",
+        "approval_iterations": 0,
+        "testpoints": 23,
+        "test_array_name": "test_truncate_shrink_tests",
+        "dirty": false,
+        "runtime_validation_pending": false,
+        "runtime_validation_note": "Local mac cmocka 2026-05-05: 23/23 testpoints PASS in truncate_shrink suite. Whole exfat_tests binary 0 failures across all suites."
+      }
     }
   ]
 }

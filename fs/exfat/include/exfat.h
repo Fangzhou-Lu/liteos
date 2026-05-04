@@ -266,6 +266,15 @@ int  exfat_clear_volume_dirty(exfat_sb_info *sbi);
 int  exfat_truncate_extend(exfat_sb_info *sbi, exfat_inode_info *ei,
                            uint64_t new_size);
 
+/* ---- truncate_shrink — fs/exfat/exfat_truncate_shrink.c -----------------
+ * Shrink a file's logical size to new_size, breaking the FAT chain at the
+ * new tail and releasing the discarded clusters. Caller holds ei->inode_lock.
+ * v1 requires ei->flags == ALLOC_FAT_CHAIN. Pairs with exfat_truncate_extend
+ * to form the truncate VOP.
+ */
+int  exfat_truncate_shrink(exfat_sb_info *sbi, exfat_inode_info *ei,
+                           uint64_t new_size);
+
 /* ---- inode_info lifecycle — fs/exfat/exfat_inode_alloc.c ---------------
  * Memory-only helpers; no IO, no disk read/write. inode_lock initialised
  * with LOS_MUX_PRIO_INHERIT protocol to avoid priority inversion on the
