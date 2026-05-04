@@ -30,6 +30,16 @@ from pathlib import Path
 # Capture the whole signature (one line ahead of '{').
 # We require return type + identifier + parens + open brace on the next line
 # (LiteOS-A coding style is K&R-like for top-level funcs).
+#
+# v0.3.4.x: callers MUST first run text through `_strip_c_comments` — the
+# `[\w*\s]+?` lazy quantifier and the `\([^;{}]*\)` greedy params class will
+# otherwise cross block-comment boundaries on docstring blocks and capture
+# fragments like
+#   /* func — does X.
+#    * (per Invariant foo). */
+#   int func(int a) { ... }
+# as a single bogus signature. See specfs-port CHANGELOG v0.3.4 §"Known
+# server bugs" item (1) for the worked example that triggered this fix.
 _FUNC_DEF_RE = re.compile(
     r"^(?P<sig>"
     r"(?:static\s+)?"
@@ -40,6 +50,26 @@ _FUNC_DEF_RE = re.compile(
     r")\s*\n\s*\{",                 # opening brace on its own or next line
     re.MULTILINE,
 )
+
+
+# Block /* ... */ and line // ... comments.
+# The strip preserves newlines (so MULTILINE `^` anchors still match the right
+# lines) and leaves behind whitespace where comment chars used to be — that
+# way subsequent regexes never see asterisks-from-doc-comments masquerading
+# as `*` in a return type.
+_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+_LINE_COMMENT_RE = re.compile(r"//[^\n]*")
+
+
+def _strip_c_comments(text: str) -> str:
+    def _blank_keep_newlines(m: "re.Match[str]") -> str:
+        # Replace every non-newline char with a space so absolute byte offsets
+        # are stable enough for downstream regexes that rely on `^` anchors.
+        return re.sub(r"[^\n]", " ", m.group(0))
+
+    text = _BLOCK_COMMENT_RE.sub(_blank_keep_newlines, text)
+    text = _LINE_COMMENT_RE.sub("", text)
+    return text
 
 
 _EXTERN_VAR_RE = re.compile(
@@ -95,6 +125,7 @@ def extract_from_file(path: Path) -> ExtractedInterface:
 
 def extract_from_text(text: str, src_file: str = "<unknown>") -> ExtractedInterface:
     iface = ExtractedInterface(src_file=src_file)
+    text = _strip_c_comments(text)
 
     for m in _FUNC_DEF_RE.finditer(text):
         sig = _normalize_signature(m.group("sig"))

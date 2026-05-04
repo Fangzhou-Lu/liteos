@@ -1198,36 +1198,38 @@ def _infer_depends(stage: str, dag_state: dict[str, Any]) -> list[str]:
 
 
 def _derive_code_path(module: str, spec_path: str) -> str:
-    """Map spec/<module>/<sub>/<op>.spec → fs/<module>/<file>.c per skill convention.
+    """Map spec/<module>/<sub>/<op>.spec → fs/<module>/<file>.c (best-effort hint).
 
-    For interface specs, all functions for one stage typically land in one file.
+    The returned path is a HINT — the authoritative final location comes from
+    `code_gen_approve(files_to_save=[...])`. Use this only to pre-create the
+    `<draft>.c.draft` scratchpad and seed the prompt's "expected output file"
+    line. If the hint is wrong, the caller corrects it at approve time.
+
+    v0.3.4.x: previous version baked Linux upstream conventions
+    (read+write+open+close all in one `<module>_file.c`, readdir in
+    `<module>_dir.c`). LiteOS-A actually splits these per-stage. We now keep
+    overrides ONLY for stages that DO share a file in our port:
+      - mount/umount/statfs/sync → `<module>_super.c` (FSMAP entry + super ops)
+      - read                    → `<module>_file.c` (currently solo there;
+                                   if seek/getattr ever join it the override
+                                   stays correct, no spec naming clash)
+    Everything else falls back to `<module>_<stage>.c` which matches the
+    actual per-stage filenames (exfat_write.c, exfat_open_close.c,
+    exfat_readdir.c, exfat_lookup.c, exfat_dentry.c, ...).
     """
     p = Path(spec_path)
-    stem = p.stem  # "exfat_lookup"
-    sub = p.parent.name  # "interface" / "inode" / etc.
-
-    # Convention from skill v1 §4 + v1 port:
-    #  - mount/umount/statfs/sync → exfat_super.c
-    #  - lookup → exfat_lookup.c
-    #  - read/write/readdir/open/close → exfat_file.c
-    #  - inode_* → exfat_inode.c
-    #  - bitmap → exfat_balloc.c
-    #  - dentry → exfat_dentry.c
-    #  - upcase / le_load → util/...
+    stem = p.stem            # "exfat_write" / "exfat_open_close" / ...
+    sub = p.parent.name      # "interface" / "inode" / "bitmap" / "util"
     op = stem.split("_", 1)[1] if "_" in stem else stem
-    fname_map = {
-        "mount": f"{module}_super.c",
+
+    SHARED_FILE_MAP = {
+        "mount":  f"{module}_super.c",
         "umount": f"{module}_super.c",
         "statfs": f"{module}_super.c",
-        "sync": f"{module}_super.c",
-        "lookup": f"{module}_lookup.c",
-        "readdir": f"{module}_dir.c",
-        "open": f"{module}_file.c",
-        "close": f"{module}_file.c",
-        "read": f"{module}_file.c",
-        "write": f"{module}_file.c",
+        "sync":   f"{module}_super.c",
+        "read":   f"{module}_file.c",
     }
-    fname = fname_map.get(op)
+    fname = SHARED_FILE_MAP.get(op)
     if fname:
         return f"fs/{module}/{fname}"
     if sub == "util":

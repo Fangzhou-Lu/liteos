@@ -3,6 +3,72 @@
 All notable changes to this plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/) loosely; semver applies.
 
+## [0.3.4.1] — 2026-05-04 (afternoon)
+
+### Fixed — two bugs surfaced by v0.3.4 first native Layer T run
+
+- **`extract.py::extract_from_text` — strip C comments before regex match.**
+  `_FUNC_DEF_RE`'s `[\w*\s]+?` lazy quantifier could traverse multi-line
+  block comments preceding a function and capture comment fragments as
+  the return type; `\([^;{}]*\)` then greedily spanned multiple `(...)`
+  pairs inside the comment as if they were the parameter list. Result was
+  garbled extern decls in `common.header` like
+  `extern * exfat_find_root_dentry * * FAT chain walk ... */ int exfat_find_root_dentry(...)`.
+
+  Fix: new `_strip_c_comments(text)` helper that replaces `/* ... */`
+  blocks with whitespace (preserving newlines so `^` anchors still match
+  the right lines) and `// ...` line comments. Called at the top of
+  `extract_from_text`. Verified via full sweep of `fs/exfat/`: 33 public
+  functions across 20 files, **0 corrupted signatures** (was 7+ before
+  the fix on the same input).
+
+- **`specfs_server.py::_derive_code_path` — drop wrong upstream-Linux
+  conventions, keep only the truly-shared mappings.**
+  Old map sent `write/open/close → <module>_file.c` and `readdir →
+  <module>_dir.c`, which is the upstream Linux `fs/exfat/` layout. Our
+  LiteOS-A port splits per-stage: `exfat_write.c`, `exfat_open_close.c`,
+  `exfat_readdir.c`, `exfat_lookup.c`, etc. The hint path therefore
+  pointed to non-existent files for these stages.
+
+  Fix: `SHARED_FILE_MAP` now contains ONLY:
+  `mount/umount/statfs/sync → <module>_super.c` and
+  `read → <module>_file.c`. Everything else falls back to
+  `<module>_<stage>.c`. Verified against 10 exfat stages
+  (mount / umount / lookup / read / write / readdir / open_close /
+  vfs_ops_filled / chksum util / balloc bitmap), all map to the
+  expected file. Note: `vfs_ops_filled` still maps to a non-existent
+  `exfat_vfs_ops_filled.c` because the actual landing file is
+  `exfat_attr.c` — the docstring now states explicitly that the path
+  is a HINT only; the authoritative final location is the
+  `code_gen_approve(files_to_save=[...])` argument.
+
+### Why this matters
+
+Bug (1) silently appended pseudo-extern lines on every `code_gen_approve`
+call, polluting `spec/<module>/common.header` with junk that
+collected over Wave A's 15 stages. The header had to be hand-cleaned
+twice (commit `b8b27abc`, then again during the v0.3.4 first native
+run) — explicit `git restore` after the run; the comment "hand-cleaned
+of comment-fragment regex misfires" still sits in the file as evidence.
+After 0.3.4.1, future `code_gen_approve` invocations should not need
+manual cleanup of `common.header`.
+
+Bug (2) was harmless because `code_gen_approve(files_to_save=[...])`
+overrides the draft path. But the misleading hint cost time during
+the v0.3.4 first run (saw `exfat_file.c` in the prompt, had to
+mentally remap to `exfat_write.c`). After 0.3.4.1, the hint matches
+reality for the common cases.
+
+### Validated
+
+- `python3 -m py_compile` clean on both modified files.
+- Smoke: `extract_module_interface('exfat', ...)` returns 33 functions,
+  0 with comment-fragment markers `(/* */ — *)`. Spot-checked all 20
+  source files; signatures look clean.
+- Smoke: `_derive_code_path` manually exercised on 10 spec paths
+  (mount / umount / lookup / read / write / readdir / open_close /
+  vfs_ops_filled / util / bitmap), all return the expected hint path.
+
 ## [0.3.4] — 2026-05-04
 
 ### Added — Layer T actually wired (closes v0.3.2 gap)
