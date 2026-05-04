@@ -177,10 +177,10 @@ layers populated; `dag.is_node_complete` returns True for all 14 stages.
   benign until `exfat_write.c` joined `PROD_SRCS`; bundled into the same
   commit (`cafcfccf`) as the test artifact.
 
-### Known v0.3.4 server bugs (deferred to v0.3.4.x)
+### Known v0.3.4 server bugs — RESOLVED in v0.3.4.1 (see entry above)
 
 Surfaced during the first native run; both fail open (do not block the
-flow) and were worked around manually:
+flow) and were worked around manually. **Both fixed in v0.3.4.1**:
 
 1. **`_sync_common_header` regex misfires** on multi-line block comments,
    appending pseudo-extern lines that quote comment fragments as part of
