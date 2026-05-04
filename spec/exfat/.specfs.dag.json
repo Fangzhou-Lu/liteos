@@ -1902,7 +1902,60 @@
       "id": "vfs_ops_filled",
       "stage_name": "vfs_ops_filled",
       "depends_on": [],
-      "code": {},
+      "code": {
+        "files": [
+          "fs/exfat/exfat_attr.c"
+        ],
+        "git_sha": "5e1b90ff708f7fd329ca2296d6d848e25baaf29c",
+        "approved_at": "2026-05-01T14:29:19Z",
+        "approval_iterations": 1,
+        "validations_passed": {
+          "compile": true,
+          "style": true,
+          "build": true,
+          "qemu": true,
+          "speceval": true
+        },
+        "dirty": false,
+        "reverse_filled": true,
+        "reverse_fill_note": "v0.3.4 reverse-fill — Wave A vfs_ops_filled (Vop.Getattr + Fop.seek) code commit e9b36f83. 原始提交早于 v0.3.4 Layer T 实接（dc52de73），未走 per-stage code_gen_approve 写回 DAG。spec 层已在 b2b0bc6177 三轮迭代 approved，code 与 spec 一一对应（VfsExfatGetattr / VfsExfatSeek，全部 invariant 嵌入 fs/exfat/exfat_attr.c 注释）。"
+      },
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_getattr_seek.c"
+        ],
+        "git_sha": "77864b6c524fe3a3bd0c83a9e36c0306c68ae0d8",
+        "approved_at": "2026-05-01T16:42:28Z",
+        "approval_iterations": 1,
+        "testpoints_added": 16,
+        "testpoint_ids": [
+          "getattr_null_vnode",
+          "getattr_null_mount",
+          "getattr_null_sbi",
+          "getattr_null_vdata",
+          "getattr_null_stat",
+          "getattr_st_cleared",
+          "getattr_size_from_ei",
+          "getattr_blksize_cluster",
+          "seek_null_filep",
+          "seek_set_negative",
+          "seek_set_zero",
+          "seek_set_positive",
+          "seek_cur_advance",
+          "seek_cur_negative_result",
+          "seek_end_at_size",
+          "seek_rejects_non_file"
+        ],
+        "harness": "cmocka",
+        "harness_root": "testsuites/unittest/exfat/",
+        "wired_into": [
+          "testsuites/unittest/exfat/Makefile (HARNESS_SRCS, PROD_SRCS=fs/exfat/exfat_attr.c)",
+          "testsuites/unittest/exfat/main.c (extern + run_suite(\"getattr_seek\", ...))"
+        ],
+        "dirty": false,
+        "reverse_filled": true,
+        "reverse_fill_note": "v0.3.4 reverse-fill — Wave A 单元测试补债 commit 149487a9。当时 Layer T 服务端尚未实接（v0.3.2 自欺），手写 16 个 testpoint：getattr 8 个（NULL 入参五种 / st 清零 / size 来源 / blksize=cluster_size），seek 8 个（NULL filep / SEEK_SET 负 / SEEK_SET 0 / SEEK_SET 正 / SEEK_CUR 推进 / SEEK_CUR 负结果 / SEEK_END at size / 拒绝非 FILE）。所有断言对照 spec 中 invariant ids（exfat-vfsops-getattr-* / exfat-vfsops-seek-*）。"
+      },
       "spec": {
         "files": [
           "spec/exfat/interface/exfat_vfs_ops_filled.spec"
