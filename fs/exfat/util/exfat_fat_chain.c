@@ -44,6 +44,7 @@ extern UINT8 *m_aucSysMem0;
  * Mirrors fs/exfat/exfat_dentry.c's local definition (Invariant
  * exfat-fat-chain-le-host-only). */
 #define LE32_TO_HOST(x) ((uint32_t)(x))
+#define HOST_TO_LE32(x) ((uint32_t)(x))
 
 /* ---------------------------------------------------------------------------
  * exfat_get_next_cluster
@@ -193,6 +194,111 @@ int exfat_chain_walk(const exfat_sb_info *sbi, uint32_t start_clu,
 
     /* Bound exceeded — corrupt FAT chain (loop). */
     return -EIO;
+}
+
+/* ---------------------------------------------------------------------------
+ * exfat_ent_set
+ *
+ * Write FAT[loc] = value. Mirrors to FAT2 when sbi->num_fats == 2.
+ * Sequence (Invariant exfat-ent-set-mirror-byte-exact + bounded-per-call):
+ *   1. Range-check loc against [EXFAT_FIRST_CLUSTER, num_clusters).
+ *   2. Validate value: must be EOF, FREE, or a legal cluster index.
+ *      EXFAT_BAD_CLUSTER explicitly rejected (Invariant
+ *      exfat-ent-set-rejects-bad-cluster).
+ *   3. Compute fat_byte_off = loc * 4; fat_sector = fat_offset + off/blocksize;
+ *      in_sector_off = off % blocksize.
+ *   4. Read FAT1 sector via los_part_read.
+ *   5. Patch the 4-byte LE32 entry in fat_buf via memcpy_s.
+ *   6. Write FAT1 sector via los_part_write.
+ *   7. If num_fats == 2, write the SAME fat_buf to fat2_offset + delta
+ *      (Invariant exfat-ent-set-mirror-byte-exact: byte-exact reuse).
+ *   8. Free fat_buf.
+ *
+ * Caller-side locking (Invariant exfat-ent-set-no-locks): function takes
+ * no lock. Truncate-shrink / fsync paths hold ei->inode_lock; alloc_cluster
+ * holds sbi->bitmap_lock. See spec Refine Prompt for the lock matrix.
+ * --------------------------------------------------------------------------- */
+int exfat_ent_set(const exfat_sb_info *sbi, uint32_t loc, uint32_t value)
+{
+    uint8_t *fat_buf = NULL;
+    uint64_t fat_byte_off;
+    uint64_t fat_sector;
+    uint32_t in_sector_off;
+    uint32_t le_value;
+    int err = 0;
+
+    if (sbi == NULL) {
+        return -EINVAL;
+    }
+    if (sbi->blocksize == 0u) {
+        return -EIO;
+    }
+    /* Invariant exfat-ent-set-validates-value-range. */
+    if (loc < EXFAT_FIRST_CLUSTER || loc >= sbi->num_clusters) {
+        return -EINVAL;
+    }
+    /* Invariant exfat-ent-set-rejects-bad-cluster. */
+    if (value == EXFAT_BAD_CLUSTER) {
+        return -EINVAL;
+    }
+    if (value != EXFAT_EOF_CLUSTER && value != EXFAT_FREE_CLUSTER) {
+        if (value < EXFAT_FIRST_CLUSTER || value >= sbi->num_clusters) {
+            return -EINVAL;
+        }
+    }
+
+    fat_buf = (uint8_t *)LOS_MemAlloc(m_aucSysMem0, sbi->blocksize);
+    if (fat_buf == NULL) {
+        return -ENOMEM;
+    }
+
+    fat_byte_off  = (uint64_t)loc * 4u;
+    fat_sector    = (uint64_t)sbi->fat_offset + (fat_byte_off / sbi->blocksize);
+    in_sector_off = (uint32_t)(fat_byte_off % sbi->blocksize);
+
+    /* RMW step 1: read FAT1 sector. */
+    if (los_part_read(sbi->part_id, fat_buf, fat_sector, 1u, TRUE) < 0) {
+        err = -EIO;
+        goto out;
+    }
+
+    /* RMW step 2: patch entry as LE32 in-place. memcpy_s avoids unaligned
+     * write on hosts where in_sector_off may not be 4-aligned (FAT entries
+     * always are, but defensive). */
+    le_value = HOST_TO_LE32(value);
+    if (memcpy_s(fat_buf + in_sector_off, sizeof(uint32_t),
+                 &le_value, sizeof(uint32_t)) != EOK) {
+        err = -EIO;
+        goto out;
+    }
+
+    /* RMW step 3: write FAT1 sector back. */
+    if (los_part_write(sbi->part_id, fat_buf, fat_sector, 1u) < 0) {
+        err = -EIO;
+        goto out;
+    }
+
+    /* Mirror to FAT2 when configured. Invariant
+     * exfat-ent-set-mirror-byte-exact: reuse the SAME fat_buf — never
+     * re-encode the value or read FAT2 separately. */
+    if (sbi->num_fats == 2u) {
+        uint64_t fat2_sector = (uint64_t)sbi->fat2_offset +
+                               (fat_byte_off / sbi->blocksize);
+        if (los_part_write(sbi->part_id, fat_buf, fat2_sector, 1u) < 0) {
+            /* Partial-commit window: FAT1 is new, FAT2 is old. Caller must
+             * coordinate via vol_flags VOLUME_DIRTY (Wave B6 fsync).
+             * See spec Case 7. */
+            err = -EIO;
+            goto out;
+        }
+    }
+
+    err = 0;
+
+out:
+    /* Invariant exfat-ent-set-buf-leak-free. */
+    LOS_MemFree(m_aucSysMem0, fat_buf);
+    return err;
 }
 
 #endif /* LOSCFG_FS_EXFAT */

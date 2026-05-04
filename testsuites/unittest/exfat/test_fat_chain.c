@@ -36,6 +36,7 @@ int  exfat_get_next_cluster(const exfat_sb_info *sbi, uint32_t cur_clu,
                             uint32_t *next_clu);
 int  exfat_chain_walk(const exfat_sb_info *sbi, uint32_t start_clu,
                       exfat_chain_visitor_t visitor, void *ctx);
+int  exfat_ent_set(const exfat_sb_info *sbi, uint32_t loc, uint32_t value);
 
 #define FAT_TEST_NUM_CLUSTERS  16u
 #define FAT_TEST_SECTORS       4
@@ -323,6 +324,222 @@ static void test_walk_propagates_get_next_error(void **state)
     assert_int_equal(vc.visited[0], 9u);
 }
 
+/* ============================================================================
+ * exfat_ent_set
+ * ========================================================================== */
+
+/* Helper: read FAT[loc] direct from g_fat_image (LE32). */
+static uint32_t read_fat_entry_image(uint8_t *img, uint32_t fat_sector_offset,
+                                     uint32_t loc, uint32_t blocksize)
+{
+    uint64_t byte_off = (uint64_t)fat_sector_offset * blocksize + (uint64_t)loc * 4u;
+    uint32_t v = 0;
+    v |= (uint32_t)img[byte_off + 0];
+    v |= ((uint32_t)img[byte_off + 1]) << 8;
+    v |= ((uint32_t)img[byte_off + 2]) << 16;
+    v |= ((uint32_t)img[byte_off + 3]) << 24;
+    return v;
+}
+
+static void test_ent_set_null_sbi(void **state)
+{
+    (void)state;
+    assert_int_equal(exfat_ent_set(NULL, 2u, 3u), -EINVAL);
+}
+
+static void test_ent_set_loc_below_first(void **state)
+{
+    (void)state;
+    exfat_sb_info sbi; make_fat_sbi(&sbi);
+    sbi.num_fats = 1u;
+    assert_int_equal(exfat_ent_set(&sbi, 0u, EXFAT_EOF_CLUSTER), -EINVAL);
+    assert_int_equal(exfat_ent_set(&sbi, 1u, EXFAT_EOF_CLUSTER), -EINVAL);
+    /* No IO issued: bounds checked before alloc. */
+    assert_int_equal((int)mock_disk_write_count(), 0);
+}
+
+static void test_ent_set_loc_at_or_above_num_clusters(void **state)
+{
+    (void)state;
+    exfat_sb_info sbi; make_fat_sbi(&sbi);
+    sbi.num_fats = 1u;
+    assert_int_equal(exfat_ent_set(&sbi, FAT_TEST_NUM_CLUSTERS, EXFAT_EOF_CLUSTER), -EINVAL);
+    assert_int_equal(exfat_ent_set(&sbi, FAT_TEST_NUM_CLUSTERS + 1u, EXFAT_EOF_CLUSTER), -EINVAL);
+    assert_int_equal((int)mock_disk_write_count(), 0);
+}
+
+static void test_ent_set_value_bad_cluster_rejected(void **state)
+{
+    (void)state;
+    exfat_sb_info sbi; make_fat_sbi(&sbi);
+    sbi.num_fats = 1u;
+    /* Invariant exfat-ent-set-rejects-bad-cluster. */
+    assert_int_equal(exfat_ent_set(&sbi, 2u, EXFAT_BAD_CLUSTER), -EINVAL);
+    assert_int_equal((int)mock_disk_write_count(), 0);
+}
+
+static void test_ent_set_value_out_of_range_rejected(void **state)
+{
+    (void)state;
+    exfat_sb_info sbi; make_fat_sbi(&sbi);
+    sbi.num_fats = 1u;
+    /* value == 1: below FIRST and not EOF/FREE → -EINVAL. */
+    assert_int_equal(exfat_ent_set(&sbi, 2u, 1u), -EINVAL);
+    /* value == num_clusters: at upper bound (exclusive) and not sentinel → -EINVAL. */
+    assert_int_equal(exfat_ent_set(&sbi, 2u, FAT_TEST_NUM_CLUSTERS), -EINVAL);
+    /* value == 100: clearly OOR. */
+    assert_int_equal(exfat_ent_set(&sbi, 2u, 100u), -EINVAL);
+    assert_int_equal((int)mock_disk_write_count(), 0);
+}
+
+static void test_ent_set_value_eof_succeeds(void **state)
+{
+    (void)state;
+    exfat_sb_info sbi; make_fat_sbi(&sbi);
+    sbi.num_fats = 1u;
+    /* Pre: FAT[2] currently == 3 from the test image. */
+    assert_int_equal(exfat_ent_set(&sbi, 2u, EXFAT_EOF_CLUSTER), 0);
+    /* Post: in-RAM image (mock_disk uses RAM snapshot) shows EOF at FAT[2]. */
+    assert_int_equal(read_fat_entry_image(g_fat_image, 0u, 2u, 512u),
+                     EXFAT_EOF_CLUSTER);
+    /* Single read + single write (num_fats=1, no mirror). */
+    assert_int_equal((int)mock_disk_read_count(), 1);
+    assert_int_equal((int)mock_disk_write_count(), 1);
+}
+
+static void test_ent_set_value_free_succeeds(void **state)
+{
+    (void)state;
+    exfat_sb_info sbi; make_fat_sbi(&sbi);
+    sbi.num_fats = 1u;
+    assert_int_equal(exfat_ent_set(&sbi, 4u, EXFAT_FREE_CLUSTER), 0);
+    assert_int_equal(read_fat_entry_image(g_fat_image, 0u, 4u, 512u),
+                     EXFAT_FREE_CLUSTER);
+}
+
+static void test_ent_set_value_legal_cluster_succeeds(void **state)
+{
+    (void)state;
+    exfat_sb_info sbi; make_fat_sbi(&sbi);
+    sbi.num_fats = 1u;
+    /* Set FAT[2] = 5 (a legal cluster index in [2, 16)). */
+    assert_int_equal(exfat_ent_set(&sbi, 2u, 5u), 0);
+    assert_int_equal(read_fat_entry_image(g_fat_image, 0u, 2u, 512u), 5u);
+    /* Subsequent get_next observes the new value. */
+    uint32_t next = 0;
+    assert_int_equal(exfat_get_next_cluster(&sbi, 2u, &next), 0);
+    assert_int_equal(next, 5u);
+}
+
+/*
+ * Mirror semantics: num_fats == 2. The RAW fat_buf returned by step 5
+ * (memcpy_s patched LE32) is reused byte-for-byte in step 7's FAT2 write.
+ * Verified by reading both FAT1 and FAT2 sectors from the in-RAM image and
+ * asserting they hold the same bytes at the entry offset.
+ */
+static void test_ent_set_mirror_byte_exact_num_fats_2(void **state)
+{
+    (void)state;
+    /* Build an 8-sector image: FAT1 at sectors 0-3, FAT2 at sectors 4-7.
+     * Pre-fill both with the same FAT data so we can assert equality after. */
+    static uint8_t mirror_image[8 * 512];
+    memset(mirror_image, 0, sizeof(mirror_image));
+    /* FAT1 base entries. */
+    put_le32(mirror_image,  2 * 4u, 3u);
+    put_le32(mirror_image,  3 * 4u, 4u);
+    put_le32(mirror_image,  4 * 4u, EXFAT_EOF_CLUSTER);
+    /* FAT2 base entries (mirror) at sector 4. */
+    put_le32(mirror_image, 4 * 512u + 2 * 4u, 3u);
+    put_le32(mirror_image, 4 * 512u + 3 * 4u, 4u);
+    put_le32(mirror_image, 4 * 512u + 4 * 4u, EXFAT_EOF_CLUSTER);
+
+    mock_disk_unload();
+    mock_disk_load(mirror_image, sizeof(mirror_image));
+    mock_disk_reset_counters();
+
+    exfat_sb_info sbi; make_fat_sbi(&sbi);
+    sbi.num_fats     = 2u;
+    sbi.fat2_offset  = 4u;  /* 4 sectors into the image. */
+
+    assert_int_equal(exfat_ent_set(&sbi, 2u, EXFAT_EOF_CLUSTER), 0);
+    /* Both FAT1 and FAT2 must show the new EOF. */
+    assert_int_equal(read_fat_entry_image(mirror_image, 0u, 2u, 512u),
+                     EXFAT_EOF_CLUSTER);
+    assert_int_equal(read_fat_entry_image(mirror_image, 4u, 2u, 512u),
+                     EXFAT_EOF_CLUSTER);
+    /* Read 1 + Write 2 (FAT1 + FAT2). */
+    assert_int_equal((int)mock_disk_read_count(), 1);
+    assert_int_equal((int)mock_disk_write_count(), 2);
+}
+
+static void test_ent_set_zero_blocksize(void **state)
+{
+    (void)state;
+    exfat_sb_info sbi; make_fat_sbi(&sbi);
+    sbi.num_fats  = 1u;
+    sbi.blocksize = 0u;
+    assert_int_equal(exfat_ent_set(&sbi, 2u, EXFAT_EOF_CLUSTER), -EIO);
+}
+
+static void test_ent_set_read_fail_returns_eio(void **state)
+{
+    (void)state;
+    exfat_sb_info sbi; make_fat_sbi(&sbi);
+    sbi.num_fats = 1u;
+    /* First los_part_read fails → -EIO; no part_write issued. */
+    mock_disk_set_read_fail_at(1u);
+    assert_int_equal(exfat_ent_set(&sbi, 2u, EXFAT_EOF_CLUSTER), -EIO);
+    /* On-disk FAT unchanged: g_fat_image FAT[2] still 3. */
+    assert_int_equal(read_fat_entry_image(g_fat_image, 0u, 2u, 512u), 3u);
+    assert_int_equal((int)mock_disk_write_count(), 0);
+}
+
+static void test_ent_set_write_fail_returns_eio(void **state)
+{
+    (void)state;
+    exfat_sb_info sbi; make_fat_sbi(&sbi);
+    sbi.num_fats = 1u;
+    /* First los_part_write fails (FAT1) → -EIO. */
+    mock_disk_set_write_fail_at(1u);
+    assert_int_equal(exfat_ent_set(&sbi, 2u, EXFAT_EOF_CLUSTER), -EIO);
+    /* Read OK, write attempted once and failed. */
+    assert_int_equal((int)mock_disk_read_count(), 1);
+    assert_int_equal((int)mock_disk_write_count(), 1);
+}
+
+/*
+ * Partial commit on FAT2 mirror failure (Case 7 in spec):
+ * FAT1 write succeeds, FAT2 write fails → -EIO; FAT1 has new value, FAT2
+ * has old value. Caller responsibility (VOLUME_DIRTY) — function exits as
+ * specified.
+ */
+static void test_ent_set_mirror_write_fail_partial_commit(void **state)
+{
+    (void)state;
+    static uint8_t mirror_image[8 * 512];
+    memset(mirror_image, 0, sizeof(mirror_image));
+    put_le32(mirror_image,         2 * 4u, 3u);
+    put_le32(mirror_image, 4 * 512u + 2 * 4u, 3u);
+
+    mock_disk_unload();
+    mock_disk_load(mirror_image, sizeof(mirror_image));
+    mock_disk_reset_counters();
+
+    exfat_sb_info sbi; make_fat_sbi(&sbi);
+    sbi.num_fats    = 2u;
+    sbi.fat2_offset = 4u;
+
+    /* 2nd write fails (FAT2), 1st (FAT1) succeeded. */
+    mock_disk_set_write_fail_at(2u);
+    assert_int_equal(exfat_ent_set(&sbi, 2u, EXFAT_EOF_CLUSTER), -EIO);
+    /* FAT1 already updated. */
+    assert_int_equal(read_fat_entry_image(mirror_image, 0u, 2u, 512u),
+                     EXFAT_EOF_CLUSTER);
+    /* FAT2 still old. */
+    assert_int_equal(read_fat_entry_image(mirror_image, 4u, 2u, 512u), 3u);
+    assert_int_equal((int)mock_disk_write_count(), 2);
+}
+
 const struct CMUnitTest test_fat_chain_tests[] = {
     cmocka_unit_test_setup_teardown(test_get_next_happy,                    fat_setup, fat_teardown),
     cmocka_unit_test_setup_teardown(test_get_next_null_sbi,                 fat_setup, fat_teardown),
@@ -344,6 +561,20 @@ const struct CMUnitTest test_fat_chain_tests[] = {
     cmocka_unit_test_setup_teardown(test_walk_self_loop_bound_exhausted,    fat_setup, fat_teardown),
     cmocka_unit_test_setup_teardown(test_walk_two_cycle_bound_exhausted,    fat_setup, fat_teardown),
     cmocka_unit_test_setup_teardown(test_walk_propagates_get_next_error,    fat_setup, fat_teardown),
+    /* exfat_ent_set (Wave B Stage 2a). */
+    cmocka_unit_test_setup_teardown(test_ent_set_null_sbi,                       fat_setup, fat_teardown),
+    cmocka_unit_test_setup_teardown(test_ent_set_loc_below_first,                fat_setup, fat_teardown),
+    cmocka_unit_test_setup_teardown(test_ent_set_loc_at_or_above_num_clusters,   fat_setup, fat_teardown),
+    cmocka_unit_test_setup_teardown(test_ent_set_value_bad_cluster_rejected,     fat_setup, fat_teardown),
+    cmocka_unit_test_setup_teardown(test_ent_set_value_out_of_range_rejected,    fat_setup, fat_teardown),
+    cmocka_unit_test_setup_teardown(test_ent_set_value_eof_succeeds,             fat_setup, fat_teardown),
+    cmocka_unit_test_setup_teardown(test_ent_set_value_free_succeeds,            fat_setup, fat_teardown),
+    cmocka_unit_test_setup_teardown(test_ent_set_value_legal_cluster_succeeds,   fat_setup, fat_teardown),
+    cmocka_unit_test_setup_teardown(test_ent_set_mirror_byte_exact_num_fats_2,   fat_setup, fat_teardown),
+    cmocka_unit_test_setup_teardown(test_ent_set_zero_blocksize,                 fat_setup, fat_teardown),
+    cmocka_unit_test_setup_teardown(test_ent_set_read_fail_returns_eio,          fat_setup, fat_teardown),
+    cmocka_unit_test_setup_teardown(test_ent_set_write_fail_returns_eio,         fat_setup, fat_teardown),
+    cmocka_unit_test_setup_teardown(test_ent_set_mirror_write_fail_partial_commit, fat_setup, fat_teardown),
 };
 
 const size_t test_fat_chain_tests_count =

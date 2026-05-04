@@ -135,6 +135,7 @@ extern void exfat_free_upcase_table(exfat_sb_info *sbi);
 typedef int (*exfat_chain_visitor_t)(uint32_t clu, void *ctx);
 extern int  exfat_get_next_cluster(const exfat_sb_info *sbi, uint32_t cur_clu, uint32_t *next_clu);
 extern int  exfat_chain_walk(const exfat_sb_info *sbi, uint32_t start_clu, exfat_chain_visitor_t visitor, void *ctx);
+extern int  exfat_ent_set(const exfat_sb_info *sbi, uint32_t loc, uint32_t value);
 
 /* inode_alloc stage exports */
 extern int  exfat_inode_alloc(exfat_inode_info **out);

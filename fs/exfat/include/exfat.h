@@ -229,6 +229,14 @@ int  exfat_get_next_cluster(const exfat_sb_info *sbi, uint32_t cur_clu,
 int  exfat_chain_walk(const exfat_sb_info *sbi, uint32_t start_clu,
                       exfat_chain_visitor_t visitor, void *ctx);
 
+/* Write FAT[loc] = value (with FAT2 mirror when num_fats == 2). Synchronous
+ * IO; takes no locks (caller holds ei->inode_lock, sbi->bitmap_lock, or
+ * sbi->s_lock per the lock matrix in spec/exfat/util/exfat_ent_set.spec).
+ * value ∈ {EOF, FREE} ∪ [FIRST, num_clusters); BAD rejected with -EINVAL.
+ * Returns 0 / -EINVAL / -EIO / -ENOMEM. fat_buf released on every path.
+ */
+int  exfat_ent_set(const exfat_sb_info *sbi, uint32_t loc, uint32_t value);
+
 /* ---- inode_info lifecycle — fs/exfat/exfat_inode_alloc.c ---------------
  * Memory-only helpers; no IO, no disk read/write. inode_lock initialised
  * with LOS_MUX_PRIO_INHERIT protocol to avoid priority inversion on the
