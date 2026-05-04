@@ -71,6 +71,70 @@ this failure mode.
   Makefile delta is idempotent; main.c regex matches all 14 existing
   externs (no false negatives).
 
+### DAG completeness — 4 finalization commits
+
+- `ccd8060d` — Wave A 12 stages tests-layer reverse_filled (175 testpoints
+  catalogued: chksum 8 / options 18 / dentry 10 / balloc 8 / upcase 5 /
+  fat_chain 20 / inode_alloc 9 / dentry_iter 15 / nls_utf16 42 /
+  lookup 12 / readdir 15 / read 13).
+- `178d9258` — `open_close` code+tests double-layer reverse_fill (10
+  testpoints; both layers were missing because the original commit
+  predated v0.3.4 plumbing).
+- `ee1feeaf` — `write` code-layer reverse_fill + Makefile `PROD_SRCS`
+  appended `exfat_write.c`. Tests intentionally NOT reverse-filled —
+  reserved for native Layer T flow.
+- `f1961efd` — `vfs_ops_filled` (getattr+seek) code+tests double-layer
+  reverse_fill (16 testpoints). Corrects task-#47 misjudgement that
+  "spec missing"; the spec was at `exfat_vfs_ops_filled.spec` all
+  along, only DAG layers were empty.
+
+After this batch, every Wave A stage's DAG node has both code and tests
+layers populated; `dag.is_node_complete` returns True for all 14 stages.
+
+### First native Layer T run — `write` stage (cafcfccf)
+
+- First end-to-end use of the v0.3.4 native flow (vs the 9-stage
+  reverse_fill batch that established the historical baseline):
+  `session_start → code_gen_start → code_gen_approve → test_gen_start →
+   test_gen_submit → test_gen_approve`.
+- `assemble_unittest_gen_prompt` produced a **53-KB prompt**: full
+  `exfat_write.c` (~7 KB) + `exfat_write.spec` (~17 KB) + 9.3 KB frozen
+  contract + 40 prior symbols + harness layout snapshot.
+- LLM generated `testsuites/unittest/exfat/test_write.c` (16 testpoints
+  covering all 7 spec Cases + 11 of 16 testable invariants); `test_gen_approve`
+  auto-applied Makefile + main.c deltas without manual editing.
+- Cmocka regression after merge: **15 suites / 217 testpoints, 0 failures**
+  (was 14 / 201 before write).
+- Build-fix found via Layer T: `host_stubs/disk.h` and `mock_disk.c` had
+  a 5-arg `los_part_write` declaration whereas real
+  `drivers/block/disk/include/disk.h:485` is 4-arg. The mismatch was
+  benign until `exfat_write.c` joined `PROD_SRCS`; bundled into the same
+  commit (`cafcfccf`) as the test artifact.
+
+### Known v0.3.4 server bugs (deferred to v0.3.4.x)
+
+Surfaced during the first native run; both fail open (do not block the
+flow) and were worked around manually:
+
+1. **`_sync_common_header` regex misfires** on multi-line block comments,
+   appending pseudo-extern lines that quote comment fragments as part of
+   the signature (e.g. `extern * are handled transparently ... */ int
+   exfat_get_dentry_set(...)`). Manually `git restore`d after
+   `code_gen_approve`. Root cause: the signature extractor in
+   `prompts.py` / `extract.py` strips block-comment start `/*` but
+   re-greedily consumes leading whitespace + inner `*` continuation
+   lines into the next signature token. Fix candidate: tokenize on
+   semicolons after stripping comments via a real C preprocessor pass,
+   not a line-oriented regex.
+2. **`_derive_code_path` mis-derives draft path**: spec
+   `spec/exfat/interface/exfat_write.spec` resolves to
+   `fs/exfat/exfat_file.c` rather than `fs/exfat/exfat_write.c`. Caused
+   by sharing the read+write convention from upstream Linux (read+write
+   in same `file.c`). Does not affect the final saved path because
+   `code_gen_approve(files_to_save=[...])` overrides — but the draft
+   path is misleading. Fix: derive from `stage_name` not from a hardcoded
+   filename heuristic.
+
 ## [0.3.3] — 2026-05-01 (late evening)
 
 ### Changed
