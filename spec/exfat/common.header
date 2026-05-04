@@ -192,3 +192,11 @@ extern int  exfat_clear_volume_dirty(exfat_sb_info *sbi);
  * by clearing bitmap bits — does NOT touch FAT entries, by spec) */
 extern int  exfat_clear_bitmap(exfat_sb_info *sbi, uint32_t clu);
 extern int  exfat_free_cluster(exfat_sb_info *sbi, const exfat_chain *p_chain);
+
+/* alloc_cluster stage exports (Wave B Stage 2c; util-level helpers used by
+ * write paths to allocate new cluster chains. exfat_set_bitmap is the
+ * mutation pair to exfat_clear_bitmap; exfat_find_free_bitmap is pure compute;
+ * exfat_alloc_cluster is the main public API requiring p_chain.flags=ALLOC_FAT_CHAIN) */
+extern int  exfat_set_bitmap(exfat_sb_info *sbi, uint32_t clu);
+extern int  exfat_find_free_bitmap(const exfat_sb_info *sbi, uint32_t hint_clu, uint32_t *out_clu);
+extern int  exfat_alloc_cluster(exfat_sb_info *sbi, uint32_t num_alloc, exfat_chain *p_chain);

@@ -237,6 +237,20 @@ int  exfat_chain_walk(const exfat_sb_info *sbi, uint32_t start_clu,
  */
 int  exfat_ent_set(const exfat_sb_info *sbi, uint32_t loc, uint32_t value);
 
+/* ---- Allocation bitmap mutation — fs/exfat/util/{exfat_free_cluster,
+ *                                  exfat_alloc_cluster}.c ---------------
+ * Caller holds sbi->bitmap_lock for both helpers. set/clear modify in-memory
+ * sbi->vol_amap and synchronously write the affected sector via
+ * los_part_write. find_free_bitmap is pure compute (no IO).
+ */
+int  exfat_set_bitmap(exfat_sb_info *sbi, uint32_t clu);
+int  exfat_clear_bitmap(exfat_sb_info *sbi, uint32_t clu);
+int  exfat_find_free_bitmap(const exfat_sb_info *sbi, uint32_t hint_clu,
+                            uint32_t *out_clu);
+int  exfat_free_cluster(exfat_sb_info *sbi, const exfat_chain *p_chain);
+int  exfat_alloc_cluster(exfat_sb_info *sbi, uint32_t num_alloc,
+                         exfat_chain *p_chain);
+
 /* ---- inode_info lifecycle — fs/exfat/exfat_inode_alloc.c ---------------
  * Memory-only helpers; no IO, no disk read/write. inode_lock initialised
  * with LOS_MUX_PRIO_INHERIT protocol to avoid priority inversion on the

@@ -31,6 +31,7 @@ PROD_SRCS := \
     $(EXFAT)/util/exfat_nls_utf16.c  \
     $(EXFAT)/util/exfat_vol_flags.c  \
     $(EXFAT)/util/exfat_free_cluster.c \
+    $(EXFAT)/util/exfat_alloc_cluster.c \
     $(EXFAT)/exfat_dentry.c          \
     $(EXFAT)/exfat_dentry_iter.c     \
     $(EXFAT)/exfat_balloc.c          \
@@ -63,7 +64,8 @@ HARNESS_SRCS := \
     test_lookup.c          \
     test_write.c           \
     test_vol_flags.c       \
-    test_free_cluster.c
+    test_free_cluster.c    \
+    test_alloc_cluster.c
 
 OBJS := $(PROD_SRCS:.c=.o) $(HARNESS_SRCS:.c=.o)
 TARGET := exfat_tests
