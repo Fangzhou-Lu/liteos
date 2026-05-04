@@ -328,16 +328,29 @@ static void test_walk_propagates_get_next_error(void **state)
  * exfat_ent_set
  * ========================================================================== */
 
-/* Helper: read FAT[loc] direct from g_fat_image (LE32). */
-static uint32_t read_fat_entry_image(uint8_t *img, uint32_t fat_sector_offset,
-                                     uint32_t loc, uint32_t blocksize)
+/* Helper: read FAT[loc] back from mock_disk's RAM snapshot via los_part_read.
+ * mock_disk_load copies the source buffer into a private snapshot, so direct
+ * reads from g_fat_image would miss any writes made by exfat_ent_set. The
+ * verification path goes through the mock the same way the production code
+ * does. NOTE: this issues an extra los_part_read which bumps mock_disk_read_count;
+ * call AFTER any read/write count assertions, never before.
+ */
+extern INT32 los_part_read(INT32 pt, VOID *buf, UINT64 sector,
+                           UINT32 count, BOOL useRead);
+static uint32_t read_fat_entry_via_mock(INT32 part_id,
+                                        uint32_t fat_sector_offset,
+                                        uint32_t loc, uint32_t blocksize)
 {
-    uint64_t byte_off = (uint64_t)fat_sector_offset * blocksize + (uint64_t)loc * 4u;
+    uint8_t buf[1024]; /* covers blocksize up to 1024; tests use 512 */
+    uint64_t byte_off = (uint64_t)loc * 4u;
+    uint64_t sector   = (uint64_t)fat_sector_offset + (byte_off / blocksize);
+    uint32_t in_off   = (uint32_t)(byte_off % blocksize);
     uint32_t v = 0;
-    v |= (uint32_t)img[byte_off + 0];
-    v |= ((uint32_t)img[byte_off + 1]) << 8;
-    v |= ((uint32_t)img[byte_off + 2]) << 16;
-    v |= ((uint32_t)img[byte_off + 3]) << 24;
+    (void)los_part_read(part_id, buf, sector, 1u, 1);
+    v |= (uint32_t)buf[in_off + 0];
+    v |= ((uint32_t)buf[in_off + 1]) << 8;
+    v |= ((uint32_t)buf[in_off + 2]) << 16;
+    v |= ((uint32_t)buf[in_off + 3]) << 24;
     return v;
 }
 
@@ -399,12 +412,13 @@ static void test_ent_set_value_eof_succeeds(void **state)
     sbi.num_fats = 1u;
     /* Pre: FAT[2] currently == 3 from the test image. */
     assert_int_equal(exfat_ent_set(&sbi, 2u, EXFAT_EOF_CLUSTER), 0);
-    /* Post: in-RAM image (mock_disk uses RAM snapshot) shows EOF at FAT[2]. */
-    assert_int_equal(read_fat_entry_image(g_fat_image, 0u, 2u, 512u),
-                     EXFAT_EOF_CLUSTER);
-    /* Single read + single write (num_fats=1, no mirror). */
+    /* Single read + single write (num_fats=1, no mirror). Asserted BEFORE
+     * the verification read to avoid the verifier polluting the count. */
     assert_int_equal((int)mock_disk_read_count(), 1);
     assert_int_equal((int)mock_disk_write_count(), 1);
+    /* Post: mock_disk RAM snapshot shows EOF at FAT[2]. */
+    assert_int_equal(read_fat_entry_via_mock(0, 0u, 2u, 512u),
+                     EXFAT_EOF_CLUSTER);
 }
 
 static void test_ent_set_value_free_succeeds(void **state)
@@ -413,7 +427,7 @@ static void test_ent_set_value_free_succeeds(void **state)
     exfat_sb_info sbi; make_fat_sbi(&sbi);
     sbi.num_fats = 1u;
     assert_int_equal(exfat_ent_set(&sbi, 4u, EXFAT_FREE_CLUSTER), 0);
-    assert_int_equal(read_fat_entry_image(g_fat_image, 0u, 4u, 512u),
+    assert_int_equal(read_fat_entry_via_mock(0, 0u, 4u, 512u),
                      EXFAT_FREE_CLUSTER);
 }
 
@@ -424,7 +438,7 @@ static void test_ent_set_value_legal_cluster_succeeds(void **state)
     sbi.num_fats = 1u;
     /* Set FAT[2] = 5 (a legal cluster index in [2, 16)). */
     assert_int_equal(exfat_ent_set(&sbi, 2u, 5u), 0);
-    assert_int_equal(read_fat_entry_image(g_fat_image, 0u, 2u, 512u), 5u);
+    assert_int_equal(read_fat_entry_via_mock(0, 0u, 2u, 512u), 5u);
     /* Subsequent get_next observes the new value. */
     uint32_t next = 0;
     assert_int_equal(exfat_get_next_cluster(&sbi, 2u, &next), 0);
@@ -462,14 +476,15 @@ static void test_ent_set_mirror_byte_exact_num_fats_2(void **state)
     sbi.fat2_offset  = 4u;  /* 4 sectors into the image. */
 
     assert_int_equal(exfat_ent_set(&sbi, 2u, EXFAT_EOF_CLUSTER), 0);
-    /* Both FAT1 and FAT2 must show the new EOF. */
-    assert_int_equal(read_fat_entry_image(mirror_image, 0u, 2u, 512u),
-                     EXFAT_EOF_CLUSTER);
-    assert_int_equal(read_fat_entry_image(mirror_image, 4u, 2u, 512u),
-                     EXFAT_EOF_CLUSTER);
-    /* Read 1 + Write 2 (FAT1 + FAT2). */
+    /* Read 1 + Write 2 (FAT1 + FAT2) — assert BEFORE verification reads to
+     * avoid those polluting the count. */
     assert_int_equal((int)mock_disk_read_count(), 1);
     assert_int_equal((int)mock_disk_write_count(), 2);
+    /* Both FAT1 and FAT2 must show the new EOF. */
+    assert_int_equal(read_fat_entry_via_mock(0, 0u, 2u, 512u),
+                     EXFAT_EOF_CLUSTER);
+    assert_int_equal(read_fat_entry_via_mock(0, 4u, 2u, 512u),
+                     EXFAT_EOF_CLUSTER);
 }
 
 static void test_ent_set_zero_blocksize(void **state)
@@ -489,9 +504,11 @@ static void test_ent_set_read_fail_returns_eio(void **state)
     /* First los_part_read fails → -EIO; no part_write issued. */
     mock_disk_set_read_fail_at(1u);
     assert_int_equal(exfat_ent_set(&sbi, 2u, EXFAT_EOF_CLUSTER), -EIO);
-    /* On-disk FAT unchanged: g_fat_image FAT[2] still 3. */
-    assert_int_equal(read_fat_entry_image(g_fat_image, 0u, 2u, 512u), 3u);
     assert_int_equal((int)mock_disk_write_count(), 0);
+    /* Disable read-fail injection before the verification read; otherwise
+     * the verifier itself would fail. FAT must still hold the original 3. */
+    mock_disk_set_read_fail_at(0u);
+    assert_int_equal(read_fat_entry_via_mock(0, 0u, 2u, 512u), 3u);
 }
 
 static void test_ent_set_write_fail_returns_eio(void **state)
@@ -533,10 +550,10 @@ static void test_ent_set_mirror_write_fail_partial_commit(void **state)
     mock_disk_set_write_fail_at(2u);
     assert_int_equal(exfat_ent_set(&sbi, 2u, EXFAT_EOF_CLUSTER), -EIO);
     /* FAT1 already updated. */
-    assert_int_equal(read_fat_entry_image(mirror_image, 0u, 2u, 512u),
+    assert_int_equal(read_fat_entry_via_mock(0, 0u, 2u, 512u),
                      EXFAT_EOF_CLUSTER);
     /* FAT2 still old. */
-    assert_int_equal(read_fat_entry_image(mirror_image, 4u, 2u, 512u), 3u);
+    assert_int_equal(read_fat_entry_via_mock(0, 4u, 2u, 512u), 3u);
     assert_int_equal((int)mock_disk_write_count(), 2);
 }
 

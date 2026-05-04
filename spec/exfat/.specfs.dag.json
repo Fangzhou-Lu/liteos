@@ -596,11 +596,10 @@
         "validations_passed": {
           "compile": true,
           "style": true,
-          "build": false,
+          "build": true,
           "qemu": false,
           "speceval": false
         },
-        "validation_note": "Wave B Stage 2a: gcc -fsyntax-only passes locally; remote 192.168.1.15 unreachable at commit time so cmocka host-harness rerun deferred to next session. tests / Makefile already wired (extends test_fat_chain.c, no new HARNESS_SRCS entry).",
         "dirty": false
       },
       "tests": {
@@ -631,8 +630,8 @@
         "wired_into": [
           "test_fat_chain.c suite (extends existing test_fat_chain_tests[] array)"
         ],
-        "runtime_validation_pending": true,
-        "runtime_validation_note": "Remote 192.168.1.15 unreachable at commit time. cmocka rerun deferred \u2014 next session must verify all 13 testpoints PASS before downstream stages (truncate-shrink/extend) consume exfat_ent_set.",
+        "runtime_validation_pending": false,
+        "runtime_validation_note": "Local mac cmocka run 2026-05-04 11:20: 13/13 testpoints PASS in fat_chain suite (33 total). Whole exfat_tests binary 230/230 PASS. Remote QEMU LTP regression deferred (192.168.1.15 still unreachable at this run; not a Stage 2a concern).",
         "dirty": false
       },
       "spec": {

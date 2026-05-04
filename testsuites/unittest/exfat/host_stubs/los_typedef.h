@@ -20,7 +20,10 @@
 
 /* blksize_t / blkcnt_t: defined by glibc only under _GNU_SOURCE, which may
  * arrive too late when <sys/stat.h> is included before our stub headers.
- * Provide host-only typedefs from the underlying private glibc types. */
+ * On glibc we forward from the underlying private types. On Darwin (macOS)
+ * <sys/types.h> already provides both unconditionally; the typedefs below
+ * would error on `__blksize_t` (glibc-only) so skip the workaround. */
+#if defined(__GLIBC__)
 #ifndef __blksize_t_defined
 typedef __blksize_t blksize_t;
 #define __blksize_t_defined
@@ -29,6 +32,7 @@ typedef __blksize_t blksize_t;
 typedef __blkcnt_t blkcnt_t;
 #define __blkcnt_t_defined
 #endif
+#endif /* __GLIBC__ */
 
 typedef int32_t  INT32;
 typedef uint32_t UINT32;

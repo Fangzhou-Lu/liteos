@@ -54,3 +54,6 @@ AGENTS.md
 # Empty placeholder TUs created during Layer 1 verification cycles
 fs/exfat/exfat_dir.c
 
+# Cmocka test binary built locally (target name from harness Makefile)
+testsuites/unittest/exfat/exfat_tests
+
