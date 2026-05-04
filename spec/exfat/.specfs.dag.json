@@ -1987,8 +1987,8 @@
           "fs/exfat/exfat_write.c"
         ],
         "git_sha": "095f43c3806d3b2909e5b8836214621a38b153ea",
-        "approved_at": "2026-05-01T15:11:44Z",
-        "approval_iterations": 1,
+        "approved_at": "2026-05-04T01:59:56Z",
+        "approval_iterations": 0,
         "validations_passed": {
           "compile": true,
           "style": true,
@@ -1996,9 +1996,7 @@
           "qemu": true,
           "speceval": true
         },
-        "dirty": false,
-        "reverse_filled": true,
-        "reverse_fill_note": "v0.3.4 reverse-fill — Wave B Stage 1 write code (commit 8e3622f8). DAG layer was missing because the original commit did not invoke per-stage code_gen_approve. The tests layer is intentionally NOT reverse-filled here: write was committed AFTER v0.3.4 plumbing landed (dc52de73), so its cmocka tests should be produced via the native Layer T flow on a future session, not back-filled."
+        "dirty": false
       },
       "spec": {
         "files": [
@@ -2020,7 +2018,195 @@
         ],
         "dirty": false
       },
-      "invariants": []
+      "invariants": [],
+      "exports": [
+        {
+          "symbol": "VfsExfatGetattr",
+          "signature": "int VfsExfatGetattr(struct Vnode *vp, struct stat *st)",
+          "src": "fs/exfat/exfat_attr.c"
+        },
+        {
+          "symbol": "VfsExfatSeek",
+          "signature": "off_t VfsExfatSeek(struct file *filep, off_t offset, int whence)",
+          "src": "fs/exfat/exfat_attr.c"
+        },
+        {
+          "symbol": "exfat_load_bitmap",
+          "signature": "int exfat_load_bitmap(exfat_sb_info *sbi)",
+          "src": "fs/exfat/exfat_balloc.c"
+        },
+        {
+          "symbol": "exfat_free_bitmap",
+          "signature": "void exfat_free_bitmap(exfat_sb_info *sbi)",
+          "src": "fs/exfat/exfat_balloc.c"
+        },
+        {
+          "symbol": "exfat_count_used_clusters",
+          "signature": "int exfat_count_used_clusters(const exfat_sb_info *sbi, uint32_t *out)",
+          "src": "fs/exfat/exfat_balloc.c"
+        },
+        {
+          "symbol": "exfat_parse_boot_sector",
+          "signature": "int exfat_parse_boot_sector(exfat_sb_info *sbi, const struct exfat_boot_sector *bs, uint32_t logical_sector_size)",
+          "src": "fs/exfat/exfat_dentry.c"
+        },
+        {
+          "symbol": "iterations",
+          "signature": "* exfat_find_root_dentry * * FAT chain walk with bounded iterations (per Invariant * exfat-dentry-fat-traversal-bounded). All allocations released in * reverse-LIFO on every return path (per *-buf-leak-free). * --------------------------------------------------------------------------- */ int exfat_find_root_dentry(const exfat_sb_info *sbi, uint8_t type, struct exfat_dentry *out)",
+          "src": "fs/exfat/exfat_dentry.c"
+        },
+        {
+          "symbol": "exfat_get_dentry",
+          "signature": "int exfat_get_dentry(const exfat_sb_info *sbi, const exfat_chain *dir, int entry_idx, struct exfat_dentry *out, uint64_t *out_sector)",
+          "src": "fs/exfat/exfat_dentry_iter.c"
+        },
+        {
+          "symbol": "transparently",
+          "signature": "* are handled transparently (Invariant exfat-dentry-iter-set-cluster-boundary * — alternative big-read implementations are explicitly forbidden by spec). * * On any failure, *num_entries is left undefined and the caller must treat * `set` as garbage (Invariant exfat-dentry-iter-set-not-mutated-on-failure). * --------------------------------------------------------------------------- */ int exfat_get_dentry_set(const exfat_sb_info *sbi, const exfat_chain *dir, int start_entry, struct exfat_dentry *set, int max_entries, int *num_entries)",
+          "src": "fs/exfat/exfat_dentry_iter.c"
+        },
+        {
+          "symbol": "exfat_validate_dentry_set",
+          "signature": "int exfat_validate_dentry_set(const struct exfat_dentry *set, int num_entries)",
+          "src": "fs/exfat/exfat_dentry_iter.c"
+        },
+        {
+          "symbol": "chain",
+          "signature": "* the spec forbids idx falling outside the chain (caller has clamped to_read * by ei->size, so the offset must lie inside the allocated chain). * --------------------------------------------------------------------------- */ static int ExfatGetClusterAt(const exfat_sb_info *sbi, uint32_t start_clu, uint8_t flags, uint32_t idx, uint32_t *out_clu)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "VfsExfatRead",
+          "signature": "ssize_t VfsExfatRead(struct file *filep, char *buf, size_t len)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "destroyed",
+          "signature": "* On success the local LosMuxAttr is destroyed (ei->inode_lock has copied the * relevant fields) before returning. * * Invariant exfat-inode-alloc-prio-inherit: PRIO_INHERIT must be set via * LOS_MuxAttrSetProtocol — never via direct field assignment, never NULL attr. * --------------------------------------------------------------------------- */ int exfat_inode_alloc(exfat_inode_info **out)",
+          "src": "fs/exfat/exfat_inode_alloc.c"
+        },
+        {
+          "symbol": "exfat_inode_free",
+          "signature": "void exfat_inode_free(exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode_alloc.c"
+        },
+        {
+          "symbol": "exfat_inode_init_dir_chain",
+          "signature": "void exfat_inode_init_dir_chain(exfat_inode_info *ei, uint32_t start_clu)",
+          "src": "fs/exfat/exfat_inode_alloc.c"
+        },
+        {
+          "symbol": "untouched",
+          "signature": "* leaves *vpp untouched (Invariant exfat-lookup-no-mutate-on-failure). * --------------------------------------------------------------------------- */ int VfsExfatLookup(struct Vnode *parent, const char *name, int len, struct Vnode **vpp)",
+          "src": "fs/exfat/exfat_lookup.c"
+        },
+        {
+          "symbol": "VfsExfatOpen",
+          "signature": "int VfsExfatOpen(struct file *filep)",
+          "src": "fs/exfat/exfat_open_close.c"
+        },
+        {
+          "symbol": "VfsExfatClose",
+          "signature": "int VfsExfatClose(struct file *filep)",
+          "src": "fs/exfat/exfat_open_close.c"
+        },
+        {
+          "symbol": "compute",
+          "signature": "* Pure compute (no IO/lock/alloc). * --------------------------------------------------------------------------- */ static int ExfatReaddirExtractName8(const struct exfat_dentry *set, int num_entries, uint16_t *uni, int uni_max, char *out, int out_max)",
+          "src": "fs/exfat/exfat_readdir.c"
+        },
+        {
+          "symbol": "VfsExfatOpendir",
+          "signature": "int VfsExfatOpendir(struct Vnode *vp, struct fs_dirent_s *idir)",
+          "src": "fs/exfat/exfat_readdir.c"
+        },
+        {
+          "symbol": "VfsExfatReaddir",
+          "signature": "int VfsExfatReaddir(struct Vnode *vp, struct fs_dirent_s *idir)",
+          "src": "fs/exfat/exfat_readdir.c"
+        },
+        {
+          "symbol": "VfsExfatClosedir",
+          "signature": "int VfsExfatClosedir(struct Vnode *vp, struct fs_dirent_s *idir)",
+          "src": "fs/exfat/exfat_readdir.c"
+        },
+        {
+          "symbol": "VfsExfatRewinddir",
+          "signature": "int VfsExfatRewinddir(struct Vnode *vp, struct fs_dirent_s *idir)",
+          "src": "fs/exfat/exfat_readdir.c"
+        },
+        {
+          "symbol": "VfsExfatUnmount",
+          "signature": "* VfsExfatUnmount() instead causes a use-after-free during VnodeFreeAll's * subsequent VnodePathCacheFree (data_abort far=0x4 — see fix history). * Mirrors fatfs's reclaim handling. * --------------------------------------------------------------------------- */ int VfsExfatReclaim(struct Vnode *vnode)",
+          "src": "fs/exfat/exfat_super.c"
+        },
+        {
+          "symbol": "bitmap_lock",
+          "signature": "* bitmap_lock (no allocation in B1). * * Short-write semantics: if any byte already written when an IO error hits, * return the short count (mirror Linux generic_file_write_iter). Only * zero-byte path returns negative errno. * --------------------------------------------------------------------------- */ ssize_t VfsExfatWrite(struct file *filep, const char *buf, size_t len)",
+          "src": "fs/exfat/exfat_write.c"
+        },
+        {
+          "symbol": "LOS_Crc32",
+          "signature": "* do NOT replace with LOS_Crc32 (different polynomial, incompatible result). */ uint32_t exfat_calc_chksum32(const void *data, uint32_t len, uint32_t chksum, int type)",
+          "src": "fs/exfat/util/exfat_chksum.c"
+        },
+        {
+          "symbol": "exfat_calc_chksum16",
+          "signature": "uint16_t exfat_calc_chksum16(const void *data, int len, uint16_t chksum, int type)",
+          "src": "fs/exfat/util/exfat_chksum.c"
+        },
+        {
+          "symbol": "path",
+          "signature": "* * fat_buf released on every return path (Invariant exfat-fat-chain-leak-free). * Read-only — no los_part_write call (Invariant exfat-fat-chain-readonly). * --------------------------------------------------------------------------- */ int exfat_get_next_cluster(const exfat_sb_info *sbi, uint32_t cur_clu, uint32_t *next_clu)",
+          "src": "fs/exfat/util/exfat_fat_chain.c"
+        },
+        {
+          "symbol": "acquired",
+          "signature": "* * No locks acquired (Invariant exfat-fat-chain-no-locks). Calling context * must not hold any LiteOS spinlock (Invariant exfat-fat-chain-no-spinlock- * callsite) because exfat_get_next_cluster performs LOS_MemAlloc + IO. * --------------------------------------------------------------------------- */ int exfat_chain_walk(const exfat_sb_info *sbi, uint32_t start_clu, exfat_chain_visitor_t visitor, void *ctx)",
+          "src": "fs/exfat/util/exfat_fat_chain.c"
+        },
+        {
+          "symbol": "exfat_uni_to_utf8",
+          "signature": "int exfat_uni_to_utf8(const uint16_t *uni, int uni_len, char *out, int out_max)",
+          "src": "fs/exfat/util/exfat_nls_utf16.c"
+        },
+        {
+          "symbol": "codepoints",
+          "signature": "* * Supplementary plane codepoints (>0xFFFF) emitted as a high+low surrogate * pair occupying 2 uint16 slots. * --------------------------------------------------------------------------- */ int exfat_utf8_to_uni(const char *utf8, int utf8_len, uint16_t *uni, int uni_max, int *uni_len_out)",
+          "src": "fs/exfat/util/exfat_nls_utf16.c"
+        },
+        {
+          "symbol": "exfat_uniname_cmp",
+          "signature": "int exfat_uniname_cmp(const exfat_sb_info *sbi, const uint16_t *a, int a_len, const uint16_t *b, int b_len)",
+          "src": "fs/exfat/util/exfat_nls_utf16.c"
+        },
+        {
+          "symbol": "exfat_parse_options",
+          "signature": "int exfat_parse_options(const char *data, exfat_mount_options *opts)",
+          "src": "fs/exfat/util/exfat_options.c"
+        },
+        {
+          "symbol": "exfat_create_upcase_table",
+          "signature": "int exfat_create_upcase_table(exfat_sb_info *sbi)",
+          "src": "fs/exfat/util/exfat_upcase.c"
+        },
+        {
+          "symbol": "exfat_free_upcase_table",
+          "signature": "void exfat_free_upcase_table(exfat_sb_info *sbi)",
+          "src": "fs/exfat/util/exfat_upcase.c"
+        }
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_write.c"
+        ],
+        "git_sha": "c5174ca5b4f6425ca588e22c45b74c6f92a393f7",
+        "approved_at": "2026-05-04T02:06:08Z",
+        "approval_iterations": 0,
+        "testpoints": 16,
+        "test_array_name": "test_write_tests",
+        "dirty": false
+      }
     }
   ]
 }

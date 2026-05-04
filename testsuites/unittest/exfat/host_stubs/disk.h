@@ -10,6 +10,9 @@
 #define ENOERR 0
 
 INT32 los_part_read(INT32 pt, VOID *buf, UINT64 sector, UINT32 count, BOOL useRead);
-INT32 los_part_write(INT32 pt, VOID *buf, UINT64 sector, UINT32 count, BOOL useWrite);
+/* NB: real LiteOS-A signature has 4 args (no BOOL useWrite); see
+ * drivers/block/disk/include/disk.h:485. The stub mirrors that exactly so
+ * exfat_write.c compiles unchanged in the host harness. */
+INT32 los_part_write(INT32 pt, const VOID *buf, UINT64 sector, UINT32 count);
 
 #endif

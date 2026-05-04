@@ -60,7 +60,8 @@ HARNESS_SRCS := \
     test_readdir.c         \
     test_lookup.c
 
-OBJS := $(PROD_SRCS:.c=.o) $(HARNESS_SRCS:.c=.o)
+OBJS := $(PROD_SRCS:.c=.o) $(HARNESS_SRCS:.c=.o)          \
+    test_write.c
 TARGET := exfat_tests
 
 .PHONY: all build run clean

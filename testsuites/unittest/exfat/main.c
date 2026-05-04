@@ -27,6 +27,7 @@ extern const struct CMUnitTest test_read_tests[];          extern const size_t t
 extern const struct CMUnitTest test_readdir_tests[];       extern const size_t test_readdir_tests_count;
 extern const struct CMUnitTest test_lookup_tests[];        extern const size_t test_lookup_tests_count;
 
+extern const struct CMUnitTest test_write_tests[];        extern const size_t test_write_tests_count;
 static int run_suite(const char *name,
                      const struct CMUnitTest *tests, size_t n)
 {
@@ -56,6 +57,7 @@ int main(void)
     total += run_suite("readdir",      test_readdir_tests,      test_readdir_tests_count);
     total += run_suite("lookup",       test_lookup_tests,       test_lookup_tests_count);
 
+    total += run_suite("write", test_write_tests, test_write_tests_count);
     fprintf(stderr, "\n=== exfat TOTAL FAILURES: %d ===\n", total);
     return total == 0 ? 0 : 1;
 }

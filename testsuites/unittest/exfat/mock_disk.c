@@ -89,9 +89,9 @@ INT32 los_part_read(INT32 pt, VOID *buf, UINT64 sector, UINT32 count, BOOL useRe
     return 0;
 }
 
-INT32 los_part_write(INT32 pt, VOID *buf, UINT64 sector, UINT32 count, BOOL useWrite)
+INT32 los_part_write(INT32 pt, const VOID *buf, UINT64 sector, UINT32 count)
 {
-    (void)pt; (void)useWrite;
+    (void)pt;
     g_write_count++;
     if (g_write_fail_at != 0 && g_write_count == g_write_fail_at) {
         return -1;
