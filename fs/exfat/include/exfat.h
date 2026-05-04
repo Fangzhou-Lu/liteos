@@ -251,6 +251,21 @@ int  exfat_free_cluster(exfat_sb_info *sbi, const exfat_chain *p_chain);
 int  exfat_alloc_cluster(exfat_sb_info *sbi, uint32_t num_alloc,
                          exfat_chain *p_chain);
 
+/* ---- vol_flags helpers — fs/exfat/util/exfat_vol_flags.c ---------------
+ * Caller holds sbi->s_lock. set/clear toggle the VOLUME_DIRTY bit in
+ * sbi->vol_flags + write back the main boot sector via los_part_write.
+ */
+int  exfat_set_volume_dirty(exfat_sb_info *sbi);
+int  exfat_clear_volume_dirty(exfat_sb_info *sbi);
+
+/* ---- truncate_extend — fs/exfat/exfat_truncate_extend.c -----------------
+ * Extend a file's logical size to new_size, allocating clusters as needed
+ * and linking them onto ei's existing chain. Caller holds ei->inode_lock.
+ * v1 requires ei->flags == ALLOC_FAT_CHAIN.
+ */
+int  exfat_truncate_extend(exfat_sb_info *sbi, exfat_inode_info *ei,
+                           uint64_t new_size);
+
 /* ---- inode_info lifecycle — fs/exfat/exfat_inode_alloc.c ---------------
  * Memory-only helpers; no IO, no disk read/write. inode_lock initialised
  * with LOS_MUX_PRIO_INHERIT protocol to avoid priority inversion on the

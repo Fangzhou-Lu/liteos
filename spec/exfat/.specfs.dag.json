@@ -3146,6 +3146,301 @@
         "runtime_validation_pending": false,
         "runtime_validation_note": "Local mac cmocka 2026-05-04 04:30: 25/25 testpoints PASS in alloc_cluster suite. Whole exfat_tests binary 291/291 PASS across 18 suites."
       }
+    },
+    {
+      "id": "truncate_extend",
+      "stage_name": "truncate_extend",
+      "depends_on": [],
+      "code": {
+        "files": [
+          "fs/exfat/exfat_truncate_extend.c"
+        ],
+        "git_sha": "8ee17b2463c08efa57af1c0bea0efb6bbdb004e4",
+        "approved_at": "2026-05-04T14:42:42Z",
+        "approval_iterations": 0,
+        "validations_passed": {
+          "compile": true,
+          "style": true,
+          "build": true,
+          "qemu": true,
+          "speceval": true
+        },
+        "dirty": false
+      },
+      "spec": {
+        "files": [
+          "spec/exfat/interface/exfat_truncate_extend.spec"
+        ],
+        "git_sha": "93755abd25b4ca04ff86a87e7d7ec71a011d4e85",
+        "linux_source_ref": "/Users/kissa/Codebase/linux/fs/exfat/file.c",
+        "approved_at": "2026-05-04T14:40:40Z",
+        "approval_iterations": 0,
+        "user_clarifications": [],
+        "dirty": false
+      },
+      "invariants": [
+        {
+          "id": "exfat-truncate-extend-monotone-size",
+          "text": "成功路径上 ei->size == new_size > old_size；失败路径上 ei->size 保持 old_size。size 单调不减。"
+        },
+        {
+          "id": "exfat-truncate-extend-valid-size-preserved",
+          "text": "ei->valid_size 在本 stage 任何路径上都不变。"
+        },
+        {
+          "id": "exfat-truncate-extend-i-size-ondisk-aligned",
+          "text": "成功路径上 ei->i_size_ondisk 是 cluster_size 的整数倍且 >= new_size。"
+        },
+        {
+          "id": "exfat-truncate-extend-fat-chain-only",
+          "text": "v1 仅支持 ei->flags == ALLOC_FAT_CHAIN；NO_FAT_CHAIN 直接 -EINVAL。"
+        },
+        {
+          "id": "exfat-truncate-extend-vol-flags-bracketed",
+          "text": "本 helper 退出前尝试清 VOLUME_DIRTY（best-effort——set 失败不会发起 clear； 其它路径 clear 失败仅打 PRINT_ERR 不改变最终错误码）。"
+        },
+        {
+          "id": "exfat-truncate-extend-rollback-on-link-failure",
+          "text": "Case 9 alloc 成功但 link 失败时必须 exfat_free_cluster 释放新链； 不允许\"链分配出来又没人引用\"的孤儿状态。"
+        },
+        {
+          "id": "exfat-truncate-extend-no-dentry-write",
+          "text": "本 stage 不写盘上 dentry；调用方负责后续 dentry 同步。"
+        },
+        {
+          "id": "exfat-truncate-extend-bounded-walk",
+          "text": "走 FAT 链找尾巴的循环硬上限 EXFAT_MAX_CHAIN_LEN；防御自环。"
+        },
+        {
+          "id": "exfat-truncate-extend-no-physical-zerofill",
+          "text": "本 stage **不**对新分配的簇做 los_part_write 零填充；通过 valid_size 在读路径上等价实现。"
+        }
+      ],
+      "exports": [
+        {
+          "symbol": "VfsExfatGetattr",
+          "signature": "int VfsExfatGetattr(struct Vnode *vp, struct stat *st)",
+          "src": "fs/exfat/exfat_attr.c"
+        },
+        {
+          "symbol": "VfsExfatSeek",
+          "signature": "off_t VfsExfatSeek(struct file *filep, off_t offset, int whence)",
+          "src": "fs/exfat/exfat_attr.c"
+        },
+        {
+          "symbol": "exfat_load_bitmap",
+          "signature": "int exfat_load_bitmap(exfat_sb_info *sbi)",
+          "src": "fs/exfat/exfat_balloc.c"
+        },
+        {
+          "symbol": "exfat_free_bitmap",
+          "signature": "void exfat_free_bitmap(exfat_sb_info *sbi)",
+          "src": "fs/exfat/exfat_balloc.c"
+        },
+        {
+          "symbol": "exfat_count_used_clusters",
+          "signature": "int exfat_count_used_clusters(const exfat_sb_info *sbi, uint32_t *out)",
+          "src": "fs/exfat/exfat_balloc.c"
+        },
+        {
+          "symbol": "exfat_parse_boot_sector",
+          "signature": "int exfat_parse_boot_sector(exfat_sb_info *sbi, const struct exfat_boot_sector *bs, uint32_t logical_sector_size)",
+          "src": "fs/exfat/exfat_dentry.c"
+        },
+        {
+          "symbol": "exfat_find_root_dentry",
+          "signature": "int exfat_find_root_dentry(const exfat_sb_info *sbi, uint8_t type, struct exfat_dentry *out)",
+          "src": "fs/exfat/exfat_dentry.c"
+        },
+        {
+          "symbol": "exfat_get_dentry",
+          "signature": "int exfat_get_dentry(const exfat_sb_info *sbi, const exfat_chain *dir, int entry_idx, struct exfat_dentry *out, uint64_t *out_sector)",
+          "src": "fs/exfat/exfat_dentry_iter.c"
+        },
+        {
+          "symbol": "exfat_get_dentry_set",
+          "signature": "int exfat_get_dentry_set(const exfat_sb_info *sbi, const exfat_chain *dir, int start_entry, struct exfat_dentry *set, int max_entries, int *num_entries)",
+          "src": "fs/exfat/exfat_dentry_iter.c"
+        },
+        {
+          "symbol": "exfat_validate_dentry_set",
+          "signature": "int exfat_validate_dentry_set(const struct exfat_dentry *set, int num_entries)",
+          "src": "fs/exfat/exfat_dentry_iter.c"
+        },
+        {
+          "symbol": "VfsExfatRead",
+          "signature": "ssize_t VfsExfatRead(struct file *filep, char *buf, size_t len)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "exfat_inode_alloc",
+          "signature": "int exfat_inode_alloc(exfat_inode_info **out)",
+          "src": "fs/exfat/exfat_inode_alloc.c"
+        },
+        {
+          "symbol": "exfat_inode_free",
+          "signature": "void exfat_inode_free(exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode_alloc.c"
+        },
+        {
+          "symbol": "exfat_inode_init_dir_chain",
+          "signature": "void exfat_inode_init_dir_chain(exfat_inode_info *ei, uint32_t start_clu)",
+          "src": "fs/exfat/exfat_inode_alloc.c"
+        },
+        {
+          "symbol": "VfsExfatLookup",
+          "signature": "int VfsExfatLookup(struct Vnode *parent, const char *name, int len, struct Vnode **vpp)",
+          "src": "fs/exfat/exfat_lookup.c"
+        },
+        {
+          "symbol": "VfsExfatOpen",
+          "signature": "int VfsExfatOpen(struct file *filep)",
+          "src": "fs/exfat/exfat_open_close.c"
+        },
+        {
+          "symbol": "VfsExfatClose",
+          "signature": "int VfsExfatClose(struct file *filep)",
+          "src": "fs/exfat/exfat_open_close.c"
+        },
+        {
+          "symbol": "VfsExfatOpendir",
+          "signature": "int VfsExfatOpendir(struct Vnode *vp, struct fs_dirent_s *idir)",
+          "src": "fs/exfat/exfat_readdir.c"
+        },
+        {
+          "symbol": "VfsExfatReaddir",
+          "signature": "int VfsExfatReaddir(struct Vnode *vp, struct fs_dirent_s *idir)",
+          "src": "fs/exfat/exfat_readdir.c"
+        },
+        {
+          "symbol": "VfsExfatClosedir",
+          "signature": "int VfsExfatClosedir(struct Vnode *vp, struct fs_dirent_s *idir)",
+          "src": "fs/exfat/exfat_readdir.c"
+        },
+        {
+          "symbol": "VfsExfatRewinddir",
+          "signature": "int VfsExfatRewinddir(struct Vnode *vp, struct fs_dirent_s *idir)",
+          "src": "fs/exfat/exfat_readdir.c"
+        },
+        {
+          "symbol": "VfsExfatReclaim",
+          "signature": "int VfsExfatReclaim(struct Vnode *vnode)",
+          "src": "fs/exfat/exfat_super.c"
+        },
+        {
+          "symbol": "exfat_truncate_extend",
+          "signature": "int exfat_truncate_extend(exfat_sb_info *sbi, exfat_inode_info *ei, uint64_t new_size)",
+          "src": "fs/exfat/exfat_truncate_extend.c"
+        },
+        {
+          "symbol": "VfsExfatWrite",
+          "signature": "ssize_t VfsExfatWrite(struct file *filep, const char *buf, size_t len)",
+          "src": "fs/exfat/exfat_write.c"
+        },
+        {
+          "symbol": "exfat_set_bitmap",
+          "signature": "int exfat_set_bitmap(exfat_sb_info *sbi, uint32_t clu)",
+          "src": "fs/exfat/util/exfat_alloc_cluster.c"
+        },
+        {
+          "symbol": "exfat_find_free_bitmap",
+          "signature": "int exfat_find_free_bitmap(const exfat_sb_info *sbi, uint32_t hint_clu, uint32_t *out_clu)",
+          "src": "fs/exfat/util/exfat_alloc_cluster.c"
+        },
+        {
+          "symbol": "exfat_alloc_cluster",
+          "signature": "int exfat_alloc_cluster(exfat_sb_info *sbi, uint32_t num_alloc, exfat_chain *p_chain)",
+          "src": "fs/exfat/util/exfat_alloc_cluster.c"
+        },
+        {
+          "symbol": "exfat_calc_chksum32",
+          "signature": "uint32_t exfat_calc_chksum32(const void *data, uint32_t len, uint32_t chksum, int type)",
+          "src": "fs/exfat/util/exfat_chksum.c"
+        },
+        {
+          "symbol": "exfat_calc_chksum16",
+          "signature": "uint16_t exfat_calc_chksum16(const void *data, int len, uint16_t chksum, int type)",
+          "src": "fs/exfat/util/exfat_chksum.c"
+        },
+        {
+          "symbol": "exfat_get_next_cluster",
+          "signature": "int exfat_get_next_cluster(const exfat_sb_info *sbi, uint32_t cur_clu, uint32_t *next_clu)",
+          "src": "fs/exfat/util/exfat_fat_chain.c"
+        },
+        {
+          "symbol": "exfat_chain_walk",
+          "signature": "int exfat_chain_walk(const exfat_sb_info *sbi, uint32_t start_clu, exfat_chain_visitor_t visitor, void *ctx)",
+          "src": "fs/exfat/util/exfat_fat_chain.c"
+        },
+        {
+          "symbol": "exfat_ent_set",
+          "signature": "int exfat_ent_set(const exfat_sb_info *sbi, uint32_t loc, uint32_t value)",
+          "src": "fs/exfat/util/exfat_fat_chain.c"
+        },
+        {
+          "symbol": "exfat_clear_bitmap",
+          "signature": "int exfat_clear_bitmap(exfat_sb_info *sbi, uint32_t clu)",
+          "src": "fs/exfat/util/exfat_free_cluster.c"
+        },
+        {
+          "symbol": "exfat_free_cluster",
+          "signature": "int exfat_free_cluster(exfat_sb_info *sbi, const exfat_chain *p_chain)",
+          "src": "fs/exfat/util/exfat_free_cluster.c"
+        },
+        {
+          "symbol": "exfat_uni_to_utf8",
+          "signature": "int exfat_uni_to_utf8(const uint16_t *uni, int uni_len, char *out, int out_max)",
+          "src": "fs/exfat/util/exfat_nls_utf16.c"
+        },
+        {
+          "symbol": "exfat_utf8_to_uni",
+          "signature": "int exfat_utf8_to_uni(const char *utf8, int utf8_len, uint16_t *uni, int uni_max, int *uni_len_out)",
+          "src": "fs/exfat/util/exfat_nls_utf16.c"
+        },
+        {
+          "symbol": "exfat_uniname_cmp",
+          "signature": "int exfat_uniname_cmp(const exfat_sb_info *sbi, const uint16_t *a, int a_len, const uint16_t *b, int b_len)",
+          "src": "fs/exfat/util/exfat_nls_utf16.c"
+        },
+        {
+          "symbol": "exfat_parse_options",
+          "signature": "int exfat_parse_options(const char *data, exfat_mount_options *opts)",
+          "src": "fs/exfat/util/exfat_options.c"
+        },
+        {
+          "symbol": "exfat_create_upcase_table",
+          "signature": "int exfat_create_upcase_table(exfat_sb_info *sbi)",
+          "src": "fs/exfat/util/exfat_upcase.c"
+        },
+        {
+          "symbol": "exfat_free_upcase_table",
+          "signature": "void exfat_free_upcase_table(exfat_sb_info *sbi)",
+          "src": "fs/exfat/util/exfat_upcase.c"
+        },
+        {
+          "symbol": "exfat_set_volume_dirty",
+          "signature": "int exfat_set_volume_dirty(exfat_sb_info *sbi)",
+          "src": "fs/exfat/util/exfat_vol_flags.c"
+        },
+        {
+          "symbol": "exfat_clear_volume_dirty",
+          "signature": "int exfat_clear_volume_dirty(exfat_sb_info *sbi)",
+          "src": "fs/exfat/util/exfat_vol_flags.c"
+        }
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_truncate_extend.c"
+        ],
+        "git_sha": "8cb07104d582b91c40abbf75b023294d2984ad26",
+        "approved_at": "2026-05-04T14:47:07Z",
+        "approval_iterations": 0,
+        "testpoints": 21,
+        "test_array_name": "test_truncate_extend_tests",
+        "dirty": false,
+        "runtime_validation_pending": false,
+        "runtime_validation_note": "Local mac cmocka 2026-05-04 04:50: 21/21 testpoints PASS in truncate_extend suite. Whole exfat_tests binary 312/312 PASS across 19 suites."
+      }
     }
   ]
 }

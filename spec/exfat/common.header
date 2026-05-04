@@ -200,3 +200,9 @@ extern int  exfat_free_cluster(exfat_sb_info *sbi, const exfat_chain *p_chain);
 extern int  exfat_set_bitmap(exfat_sb_info *sbi, uint32_t clu);
 extern int  exfat_find_free_bitmap(const exfat_sb_info *sbi, uint32_t hint_clu, uint32_t *out_clu);
 extern int  exfat_alloc_cluster(exfat_sb_info *sbi, uint32_t num_alloc, exfat_chain *p_chain);
+
+/* truncate_extend stage exports (Wave B Stage 2d; file-level helper used by
+ * VFS truncate to extend a file size. Requires ei->flags == ALLOC_FAT_CHAIN;
+ * does not physically zero-fill new clusters — read path uses valid_size for
+ * virtual zeros over [valid_size, size).) */
+extern int  exfat_truncate_extend(exfat_sb_info *sbi, exfat_inode_info *ei, uint64_t new_size);
