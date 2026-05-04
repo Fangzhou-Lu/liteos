@@ -1845,7 +1845,24 @@
       "id": "open_close",
       "stage_name": "open_close",
       "depends_on": [],
-      "code": {},
+      "code": {
+        "files": [
+          "fs/exfat/exfat_open_close.c"
+        ],
+        "git_sha": "d5d411e144f8c96c3f22c87bac7037da67572a5b",
+        "approved_at": "2026-05-01T14:29:19Z",
+        "approval_iterations": 1,
+        "validations_passed": {
+          "compile": true,
+          "style": true,
+          "build": true,
+          "qemu": true,
+          "speceval": true
+        },
+        "dirty": false,
+        "reverse_filled": true,
+        "reverse_fill_note": "v0.3.4 reverse-fill — code authored under pre-v0.3.4 flow (commit e9b36f83 \"exFAT Wave A 读路径\"). DAG layer was missing because the original commit batched 6 stages (lookup/readdir/read/open-close/seek/getattr) without per-stage code_gen_approve calls."
+      },
       "spec": {
         "files": [
           "spec/exfat/interface/exfat_open_close.spec"
@@ -1866,7 +1883,20 @@
         ],
         "dirty": false
       },
-      "invariants": []
+      "invariants": [],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_open_close.c"
+        ],
+        "git_sha": "47d0bda46a7abf476163b68b740d3dabfaf3bb90",
+        "approved_at": "2026-05-01T16:42:28Z",
+        "approval_iterations": 1,
+        "testpoints": 10,
+        "test_array_name": "test_open_close_tests",
+        "dirty": false,
+        "reverse_filled": true,
+        "reverse_fill_note": "v0.3.4 reverse-fill — cmocka tests authored before Layer T was wired (commit 149487a9)"
+      }
     },
     {
       "id": "vfs_ops_filled",
