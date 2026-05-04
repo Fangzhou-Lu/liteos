@@ -186,3 +186,9 @@ extern ssize_t VfsExfatWrite(struct file *filep, const char *buf, size_t len);
  * to mark / clear VOLUME_DIRTY before / after on-disk mutations) */
 extern int  exfat_set_volume_dirty(exfat_sb_info *sbi);
 extern int  exfat_clear_volume_dirty(exfat_sb_info *sbi);
+
+/* free_cluster stage exports (Wave B Stage 2b; util-level helpers used by
+ * truncate-shrink / unlink / rename release paths to release a cluster chain
+ * by clearing bitmap bits — does NOT touch FAT entries, by spec) */
+extern int  exfat_clear_bitmap(exfat_sb_info *sbi, uint32_t clu);
+extern int  exfat_free_cluster(exfat_sb_info *sbi, const exfat_chain *p_chain);

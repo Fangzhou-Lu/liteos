@@ -2547,6 +2547,292 @@
         "runtime_validation_pending": false,
         "runtime_validation_note": "Local mac cmocka run 2026-05-04 03:35: 17/17 testpoints PASS in vol_flags suite. Whole exfat_tests binary 247/247 PASS across 16 suites. Remote QEMU LTP regression deferred until 192.168.1.15 reachable."
       }
+    },
+    {
+      "id": "free_cluster",
+      "stage_name": "free_cluster",
+      "depends_on": [],
+      "code": {
+        "files": [
+          "fs/exfat/util/exfat_free_cluster.c"
+        ],
+        "git_sha": "7e8113f8557bd0d82cdefcc86fc10c71f3e97996",
+        "approved_at": "2026-05-04T04:31:19Z",
+        "approval_iterations": 0,
+        "validations_passed": {
+          "compile": true,
+          "style": true,
+          "build": true,
+          "qemu": true,
+          "speceval": true
+        },
+        "dirty": false
+      },
+      "spec": {
+        "files": [
+          "spec/exfat/util/exfat_free_cluster.spec"
+        ],
+        "git_sha": "77685855e9bb2760c9ee24ceb08e14badc142b7e",
+        "linux_source_ref": "/Users/kissa/Codebase/linux/fs/exfat/fatent.c",
+        "approved_at": "2026-05-04T04:29:38Z",
+        "approval_iterations": 0,
+        "user_clarifications": [],
+        "dirty": false
+      },
+      "invariants": [
+        {
+          "id": "exfat-free-cluster-bitmap-lock-acquired",
+          "text": "exfat_free_cluster 入口处必须 LOS_MuxLock(&sbi->bitmap_lock)，出口处 统一 LOS_MuxUnlock；任何 return 都经由 unlock_out 标签，禁止裸 return。"
+        },
+        {
+          "id": "exfat-free-cluster-no-fat-write",
+          "text": "本 stage **不**调用 exfat_ent_set。FAT chain 上的 EOF / 链断点写入是 truncate-shrink (Stage 2c) 的责任。"
+        },
+        {
+          "id": "exfat-free-cluster-no-realloc",
+          "text": "不分配 / 释放任何堆内存。所有缓冲都借用 sbi->vol_amap。"
+        },
+        {
+          "id": "exfat-free-cluster-bounded-loop",
+          "text": "ALLOC_FAT_CHAIN 路径循环次数硬上限 EXFAT_MAX_CHAIN_LEN；防御 FAT 自环 与互指环（与 exfat_chain_walk 的 bounded 不变量同源）。"
+        },
+        {
+          "id": "exfat-free-cluster-used-saturate",
+          "text": "sbi->used_clusters 减法做饱和：当 used_clusters < num_freed 时 used_clusters = 0，避免回绕到 0xFFFFFFFE 引发后续 alloc 路径误判。"
+        },
+        {
+          "id": "exfat-clear-bitmap-bit-then-disk",
+          "text": "clear_bitmap 必须先修改 in-memory `sbi->vol_amap` 字节、再调 los_part_write；不可顺序颠倒。"
+        },
+        {
+          "id": "exfat-clear-bitmap-single-sector",
+          "text": "clear_bitmap 写回操作严格 1 扇区；不批量合并多 bit 的多次清位。"
+        },
+        {
+          "id": "exfat-clear-bitmap-no-discard",
+          "text": "v1 不发起 trim / discard 操作（Linux opts->discard 分支整段删除）； LiteOS-A 块层不支持 trim。"
+        }
+      ],
+      "exports": [
+        {
+          "symbol": "VfsExfatGetattr",
+          "signature": "int VfsExfatGetattr(struct Vnode *vp, struct stat *st)",
+          "src": "fs/exfat/exfat_attr.c"
+        },
+        {
+          "symbol": "VfsExfatSeek",
+          "signature": "off_t VfsExfatSeek(struct file *filep, off_t offset, int whence)",
+          "src": "fs/exfat/exfat_attr.c"
+        },
+        {
+          "symbol": "exfat_load_bitmap",
+          "signature": "int exfat_load_bitmap(exfat_sb_info *sbi)",
+          "src": "fs/exfat/exfat_balloc.c"
+        },
+        {
+          "symbol": "exfat_free_bitmap",
+          "signature": "void exfat_free_bitmap(exfat_sb_info *sbi)",
+          "src": "fs/exfat/exfat_balloc.c"
+        },
+        {
+          "symbol": "exfat_count_used_clusters",
+          "signature": "int exfat_count_used_clusters(const exfat_sb_info *sbi, uint32_t *out)",
+          "src": "fs/exfat/exfat_balloc.c"
+        },
+        {
+          "symbol": "exfat_parse_boot_sector",
+          "signature": "int exfat_parse_boot_sector(exfat_sb_info *sbi, const struct exfat_boot_sector *bs, uint32_t logical_sector_size)",
+          "src": "fs/exfat/exfat_dentry.c"
+        },
+        {
+          "symbol": "iterations",
+          "signature": "* exfat_find_root_dentry * * FAT chain walk with bounded iterations (per Invariant * exfat-dentry-fat-traversal-bounded). All allocations released in * reverse-LIFO on every return path (per *-buf-leak-free). * --------------------------------------------------------------------------- */ int exfat_find_root_dentry(const exfat_sb_info *sbi, uint8_t type, struct exfat_dentry *out)",
+          "src": "fs/exfat/exfat_dentry.c"
+        },
+        {
+          "symbol": "exfat_get_dentry",
+          "signature": "int exfat_get_dentry(const exfat_sb_info *sbi, const exfat_chain *dir, int entry_idx, struct exfat_dentry *out, uint64_t *out_sector)",
+          "src": "fs/exfat/exfat_dentry_iter.c"
+        },
+        {
+          "symbol": "transparently",
+          "signature": "* are handled transparently (Invariant exfat-dentry-iter-set-cluster-boundary * — alternative big-read implementations are explicitly forbidden by spec). * * On any failure, *num_entries is left undefined and the caller must treat * `set` as garbage (Invariant exfat-dentry-iter-set-not-mutated-on-failure). * --------------------------------------------------------------------------- */ int exfat_get_dentry_set(const exfat_sb_info *sbi, const exfat_chain *dir, int start_entry, struct exfat_dentry *set, int max_entries, int *num_entries)",
+          "src": "fs/exfat/exfat_dentry_iter.c"
+        },
+        {
+          "symbol": "exfat_validate_dentry_set",
+          "signature": "int exfat_validate_dentry_set(const struct exfat_dentry *set, int num_entries)",
+          "src": "fs/exfat/exfat_dentry_iter.c"
+        },
+        {
+          "symbol": "chain",
+          "signature": "* the spec forbids idx falling outside the chain (caller has clamped to_read * by ei->size, so the offset must lie inside the allocated chain). * --------------------------------------------------------------------------- */ static int ExfatGetClusterAt(const exfat_sb_info *sbi, uint32_t start_clu, uint8_t flags, uint32_t idx, uint32_t *out_clu)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "VfsExfatRead",
+          "signature": "ssize_t VfsExfatRead(struct file *filep, char *buf, size_t len)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "destroyed",
+          "signature": "* On success the local LosMuxAttr is destroyed (ei->inode_lock has copied the * relevant fields) before returning. * * Invariant exfat-inode-alloc-prio-inherit: PRIO_INHERIT must be set via * LOS_MuxAttrSetProtocol — never via direct field assignment, never NULL attr. * --------------------------------------------------------------------------- */ int exfat_inode_alloc(exfat_inode_info **out)",
+          "src": "fs/exfat/exfat_inode_alloc.c"
+        },
+        {
+          "symbol": "exfat_inode_free",
+          "signature": "void exfat_inode_free(exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode_alloc.c"
+        },
+        {
+          "symbol": "exfat_inode_init_dir_chain",
+          "signature": "void exfat_inode_init_dir_chain(exfat_inode_info *ei, uint32_t start_clu)",
+          "src": "fs/exfat/exfat_inode_alloc.c"
+        },
+        {
+          "symbol": "untouched",
+          "signature": "* leaves *vpp untouched (Invariant exfat-lookup-no-mutate-on-failure). * --------------------------------------------------------------------------- */ int VfsExfatLookup(struct Vnode *parent, const char *name, int len, struct Vnode **vpp)",
+          "src": "fs/exfat/exfat_lookup.c"
+        },
+        {
+          "symbol": "VfsExfatOpen",
+          "signature": "int VfsExfatOpen(struct file *filep)",
+          "src": "fs/exfat/exfat_open_close.c"
+        },
+        {
+          "symbol": "VfsExfatClose",
+          "signature": "int VfsExfatClose(struct file *filep)",
+          "src": "fs/exfat/exfat_open_close.c"
+        },
+        {
+          "symbol": "compute",
+          "signature": "* Pure compute (no IO/lock/alloc). * --------------------------------------------------------------------------- */ static int ExfatReaddirExtractName8(const struct exfat_dentry *set, int num_entries, uint16_t *uni, int uni_max, char *out, int out_max)",
+          "src": "fs/exfat/exfat_readdir.c"
+        },
+        {
+          "symbol": "VfsExfatOpendir",
+          "signature": "int VfsExfatOpendir(struct Vnode *vp, struct fs_dirent_s *idir)",
+          "src": "fs/exfat/exfat_readdir.c"
+        },
+        {
+          "symbol": "VfsExfatReaddir",
+          "signature": "int VfsExfatReaddir(struct Vnode *vp, struct fs_dirent_s *idir)",
+          "src": "fs/exfat/exfat_readdir.c"
+        },
+        {
+          "symbol": "VfsExfatClosedir",
+          "signature": "int VfsExfatClosedir(struct Vnode *vp, struct fs_dirent_s *idir)",
+          "src": "fs/exfat/exfat_readdir.c"
+        },
+        {
+          "symbol": "VfsExfatRewinddir",
+          "signature": "int VfsExfatRewinddir(struct Vnode *vp, struct fs_dirent_s *idir)",
+          "src": "fs/exfat/exfat_readdir.c"
+        },
+        {
+          "symbol": "VfsExfatUnmount",
+          "signature": "* VfsExfatUnmount() instead causes a use-after-free during VnodeFreeAll's * subsequent VnodePathCacheFree (data_abort far=0x4 — see fix history). * Mirrors fatfs's reclaim handling. * --------------------------------------------------------------------------- */ int VfsExfatReclaim(struct Vnode *vnode)",
+          "src": "fs/exfat/exfat_super.c"
+        },
+        {
+          "symbol": "bitmap_lock",
+          "signature": "* bitmap_lock (no allocation in B1). * * Short-write semantics: if any byte already written when an IO error hits, * return the short count (mirror Linux generic_file_write_iter). Only * zero-byte path returns negative errno. * --------------------------------------------------------------------------- */ ssize_t VfsExfatWrite(struct file *filep, const char *buf, size_t len)",
+          "src": "fs/exfat/exfat_write.c"
+        },
+        {
+          "symbol": "LOS_Crc32",
+          "signature": "* do NOT replace with LOS_Crc32 (different polynomial, incompatible result). */ uint32_t exfat_calc_chksum32(const void *data, uint32_t len, uint32_t chksum, int type)",
+          "src": "fs/exfat/util/exfat_chksum.c"
+        },
+        {
+          "symbol": "exfat_calc_chksum16",
+          "signature": "uint16_t exfat_calc_chksum16(const void *data, int len, uint16_t chksum, int type)",
+          "src": "fs/exfat/util/exfat_chksum.c"
+        },
+        {
+          "symbol": "path",
+          "signature": "* * fat_buf released on every return path (Invariant exfat-fat-chain-leak-free). * Read-only — no los_part_write call (Invariant exfat-fat-chain-readonly). * --------------------------------------------------------------------------- */ int exfat_get_next_cluster(const exfat_sb_info *sbi, uint32_t cur_clu, uint32_t *next_clu)",
+          "src": "fs/exfat/util/exfat_fat_chain.c"
+        },
+        {
+          "symbol": "acquired",
+          "signature": "* * No locks acquired (Invariant exfat-fat-chain-no-locks). Calling context * must not hold any LiteOS spinlock (Invariant exfat-fat-chain-no-spinlock- * callsite) because exfat_get_next_cluster performs LOS_MemAlloc + IO. * --------------------------------------------------------------------------- */ int exfat_chain_walk(const exfat_sb_info *sbi, uint32_t start_clu, exfat_chain_visitor_t visitor, void *ctx)",
+          "src": "fs/exfat/util/exfat_fat_chain.c"
+        },
+        {
+          "symbol": "exfat_ent_set",
+          "signature": "int exfat_ent_set(const exfat_sb_info *sbi, uint32_t loc, uint32_t value)",
+          "src": "fs/exfat/util/exfat_fat_chain.c"
+        },
+        {
+          "symbol": "exfat_clear_bitmap",
+          "signature": "int exfat_clear_bitmap(exfat_sb_info *sbi, uint32_t clu)",
+          "src": "fs/exfat/util/exfat_free_cluster.c"
+        },
+        {
+          "symbol": "exfat_free_cluster",
+          "signature": "int exfat_free_cluster(exfat_sb_info *sbi, const exfat_chain *p_chain)",
+          "src": "fs/exfat/util/exfat_free_cluster.c"
+        },
+        {
+          "symbol": "exfat_uni_to_utf8",
+          "signature": "int exfat_uni_to_utf8(const uint16_t *uni, int uni_len, char *out, int out_max)",
+          "src": "fs/exfat/util/exfat_nls_utf16.c"
+        },
+        {
+          "symbol": "codepoints",
+          "signature": "* * Supplementary plane codepoints (>0xFFFF) emitted as a high+low surrogate * pair occupying 2 uint16 slots. * --------------------------------------------------------------------------- */ int exfat_utf8_to_uni(const char *utf8, int utf8_len, uint16_t *uni, int uni_max, int *uni_len_out)",
+          "src": "fs/exfat/util/exfat_nls_utf16.c"
+        },
+        {
+          "symbol": "exfat_uniname_cmp",
+          "signature": "int exfat_uniname_cmp(const exfat_sb_info *sbi, const uint16_t *a, int a_len, const uint16_t *b, int b_len)",
+          "src": "fs/exfat/util/exfat_nls_utf16.c"
+        },
+        {
+          "symbol": "exfat_parse_options",
+          "signature": "int exfat_parse_options(const char *data, exfat_mount_options *opts)",
+          "src": "fs/exfat/util/exfat_options.c"
+        },
+        {
+          "symbol": "exfat_create_upcase_table",
+          "signature": "int exfat_create_upcase_table(exfat_sb_info *sbi)",
+          "src": "fs/exfat/util/exfat_upcase.c"
+        },
+        {
+          "symbol": "exfat_free_upcase_table",
+          "signature": "void exfat_free_upcase_table(exfat_sb_info *sbi)",
+          "src": "fs/exfat/util/exfat_upcase.c"
+        },
+        {
+          "symbol": "success",
+          "signature": "* * Returns 0 on success (including the no-op case where final_flags equals the * current sbi->vol_flags) or -EIO when the synchronous boot-sector write-back * fails. -EINVAL is reserved for the public-API guards above this helper. * --------------------------------------------------------------------------- */ static int exfat_set_vol_flags(exfat_sb_info *sbi, uint16_t new_flags)",
+          "src": "fs/exfat/util/exfat_vol_flags.c"
+        },
+        {
+          "symbol": "incomplete",
+          "signature": "* sbi state is incomplete (NULL sbi, NULL boot_buf, zero blocksize), or -EIO * if los_part_write fails after the in-memory bookkeeping has been updated. * --------------------------------------------------------------------------- */ int exfat_set_volume_dirty(exfat_sb_info *sbi)",
+          "src": "fs/exfat/util/exfat_vol_flags.c"
+        },
+        {
+          "symbol": "exfat_clear_volume_dirty",
+          "signature": "int exfat_clear_volume_dirty(exfat_sb_info *sbi)",
+          "src": "fs/exfat/util/exfat_vol_flags.c"
+        }
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_free_cluster.c"
+        ],
+        "git_sha": "2e05a536f288025cc4626274f2e7e0c597cd1a74",
+        "approved_at": "2026-05-04T04:35:15Z",
+        "approval_iterations": 0,
+        "testpoints": 19,
+        "test_array_name": "test_free_cluster_tests",
+        "dirty": false,
+        "runtime_validation_pending": false,
+        "runtime_validation_note": "Local mac cmocka 2026-05-04 04:00: 19/19 testpoints PASS in free_cluster suite. Whole exfat_tests binary 266/266 PASS across 17 suites."
+      }
     }
   ]
 }
