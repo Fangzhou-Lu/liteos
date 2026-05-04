@@ -39,3 +39,18 @@ AGENTS.md
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 
+# Python bytecode (specfs-port server)
+**/__pycache__/
+*.pyc
+
+# specfs-port server runtime artifacts (debug prompts + Layer 1 compile stubs)
+.claude/plugins/specfs-port/server/.assembled_prompt.txt
+.claude/plugins/specfs-port/server/.loop_b_prompt.txt
+.claude/plugins/specfs-port/server/_stubs/
+
+# Pre-iteration spec / header backups — kept locally as reference, not committed
+*.prior
+
+# Empty placeholder TUs created during Layer 1 verification cycles
+fs/exfat/exfat_dir.c
+
