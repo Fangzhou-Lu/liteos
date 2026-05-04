@@ -181,3 +181,8 @@ extern off_t VfsExfatSeek(struct file *filep, off_t offset, int whence);
 
 /* write stage exports (Wave B Stage 1; file_operations_vfs.write; static-init in g_exfatFops) */
 extern ssize_t VfsExfatWrite(struct file *filep, const char *buf, size_t len);
+
+/* vol_flags stage exports (Wave B Stage 2a; util-level helper used by write paths
+ * to mark / clear VOLUME_DIRTY before / after on-disk mutations) */
+extern int  exfat_set_volume_dirty(exfat_sb_info *sbi);
+extern int  exfat_clear_volume_dirty(exfat_sb_info *sbi);
