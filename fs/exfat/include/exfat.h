@@ -143,6 +143,30 @@ typedef struct exfat_inode_info {
     LosMux   inode_lock;
 } exfat_inode_info;
 
+/* ---- mkdir-stage value types (Wave B Stage 4e) ------------------------ */
+/* Linux struct exfat_uni_name port: UTF-16 leaf name + hash + length. */
+struct exfat_uni_name {
+    uint16_t name[EXFAT_MAX_NAME_LEN + 1];   /* UTF-16 + NUL */
+    uint16_t name_hash;                      /* CS_DEFAULT chksum16 over UTF-16 bytes */
+    uint8_t  name_len;                       /* code-unit count (no NUL) */
+};
+
+/* LiteOS-A simplified port of Linux struct exfat_dir_entry. Carries data
+ * between exfat_add_entry and the VfsExfatMkdir vnode-creation step. */
+struct exfat_dir_entry {
+    exfat_chain dir;            /* parent directory chain */
+    int32_t     entry;          /* linear index of file dentry in parent */
+    uint32_t    type;           /* TYPE_DIR / TYPE_FILE */
+    uint16_t    attr;           /* ATTR_SUBDIR / ATTR_ARCHIVE */
+    uint32_t    start_clu;      /* TYPE_DIR: new dir cluster; TYPE_FILE: EOF */
+    uint8_t     flags;          /* ALLOC_NO_FAT_CHAIN for single-cluster dir */
+    uint64_t    size;           /* TYPE_DIR: cluster_size; TYPE_FILE: 0 */
+    uint32_t    num_subdirs;    /* TYPE_DIR: EXFAT_MIN_SUBDIR (=2); else 0 */
+};
+
+/* Constants used by mkdir composer/helpers (mirror Linux exfat_fs.h). */
+#define EXFAT_MIN_SUBDIR        2u
+
 /* ---- public exports (defined in fs/exfat translation units; externed for mount glue) */
 extern struct VnodeOps             g_exfatVops;
 extern struct file_operations_vfs  g_exfatFops;
@@ -451,6 +475,26 @@ int VfsExfatClose(struct file *filep);
 struct stat;
 int   VfsExfatGetattr(struct Vnode *vp, struct stat *st);
 off_t VfsExfatSeek(struct file *filep, off_t offset, int whence);
+
+/* ---- mkdir-stage helpers + VOP — fs/exfat/exfat_inode.c (Wave B Stage 4e)
+ * Translates Linux fs/exfat/{namei,dir,fatent}.c::exfat_mkdir composition.
+ * All five helpers are lock-free (caller holds sbi->s_lock); composer and VOP
+ * documented in spec/exfat/inode/exfat_mkdir.spec.
+ */
+int  exfat_calc_num_entries(const struct exfat_uni_name *p_uniname);
+int  exfat_zeroed_cluster(exfat_sb_info *sbi, uint32_t clu);
+int  exfat_alloc_new_dir(exfat_sb_info *sbi, exfat_chain *clu_out);
+int  exfat_init_dir_entry(exfat_sb_info *sbi, const exfat_chain *p_dir,
+                          int entry, uint32_t type, uint32_t start_clu,
+                          uint64_t size);
+int  exfat_init_ext_entry(exfat_sb_info *sbi, const exfat_chain *p_dir,
+                          int entry, int num_entries,
+                          const struct exfat_uni_name *p_uniname);
+int  exfat_add_entry(exfat_sb_info *sbi, struct Vnode *parent_vp,
+                     const char *name, uint32_t type,
+                     struct exfat_dir_entry *info);
+int  VfsExfatMkdir(struct Vnode *parent_vp, const char *name,
+                   mode_t mode, struct Vnode **vpp);
 
 #ifdef __cplusplus
 }

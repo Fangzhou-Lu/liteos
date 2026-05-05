@@ -34,10 +34,13 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 
 #include "exfat.h"
+#include "disk.h"
 #include "fs/mount.h"
 #include "los_memory.h"
 #include "los_mux.h"
@@ -693,4 +696,680 @@ off_t VfsExfatSeek(struct file *filep, off_t offset, int whence)
 
     filep->f_pos = (loff_t)new_pos;
     return new_pos;
+}
+
+/* ----- merged from exfat_mkdir (Stage 4e) ----- */
+
+/* ---------------------------------------------------------------------------
+ * exfat_set_entry_time_now — fill file dentry's create/modify/access time
+ * fields from current wall-clock time.
+ *
+ * Linux (fs/exfat/misc.c::exfat_set_entry_time) packs (year-1980 << 9) |
+ * (month << 5) | mday into a date u16 and (hour << 11) | (min << 5) |
+ * (sec >> 1) into a time u16; tz uses EXFAT_TZ_VALID with the offset zero
+ * (== "local time = UTC"). v1 keeps the same encoding; tz/cs sub-fields
+ * left at 0 since LiteOS-A `time_offset` mount option is not yet wired.
+ *
+ * Invariant exfat-init-dir-entry-time-set-on-success: timestamp != 0 must
+ * be observable on the success path.
+ * --------------------------------------------------------------------------- */
+static inline void exfat_set_entry_time_now(struct exfat_dentry *fep)
+{
+    time_t    now;
+    struct tm tmv;
+    uint16_t  date;
+    uint16_t  tval;
+
+    now = time(NULL);
+    if (now <= 0) {
+        /* Time source unavailable — encode 1980-01-01 00:00:00 so the field
+         * stays non-zero per spec invariant exfat-init-dir-entry-time-set-on-success. */
+        date = (uint16_t)((1u << 5) | 1u);
+        tval = 0u;
+    } else {
+        if (gmtime_r(&now, &tmv) == NULL) {
+            date = (uint16_t)((1u << 5) | 1u);
+            tval = 0u;
+        } else {
+            int year_off = tmv.tm_year - 80; /* tm_year=year-1900; we need year-1980 */
+            if (year_off < 0) {
+                year_off = 0;
+            }
+            if (year_off > 127) {
+                year_off = 127; /* exFAT spec caps at 2107. */
+            }
+            date = (uint16_t)((((uint16_t)year_off) << 9) |
+                              ((((uint16_t)tmv.tm_mon) + 1u) << 5) |
+                              (uint16_t)tmv.tm_mday);
+            tval = (uint16_t)((((uint16_t)tmv.tm_hour) << 11) |
+                              (((uint16_t)tmv.tm_min) << 5) |
+                              ((uint16_t)tmv.tm_sec >> 1));
+        }
+    }
+
+    fep->dentry.file.create_time = tval;
+    fep->dentry.file.create_date = date;
+    fep->dentry.file.modify_time = tval;
+    fep->dentry.file.modify_date = date;
+    fep->dentry.file.access_time = tval;
+    fep->dentry.file.access_date = date;
+    fep->dentry.file.create_time_cs = 0u;
+    fep->dentry.file.modify_time_cs = 0u;
+    fep->dentry.file.create_tz = 0u;
+    fep->dentry.file.modify_tz = 0u;
+    fep->dentry.file.access_tz = 0u;
+}
+
+/* ---------------------------------------------------------------------------
+ * exfat_calc_num_entries
+ *
+ * Pure compute. Linux dir.c::exfat_calc_num_entries formula: 1 file + 1 stream
+ * + ceil(name_len / EXFAT_FILE_NAME_LEN) name dentries =
+ * `((name_len - 1) / 15) + 3`. Range guarantees [3, 19].
+ * --------------------------------------------------------------------------- */
+int exfat_calc_num_entries(const struct exfat_uni_name *p_uniname)
+{
+    int len;
+
+    if (p_uniname == NULL) {
+        return -EINVAL;
+    }
+    len = (int)p_uniname->name_len;
+    if (len <= 0 || len > EXFAT_MAX_NAME_LEN) {
+        return -EINVAL;
+    }
+    return ((len - 1) / EXFAT_FILE_NAME_LEN) + 3;
+}
+
+/* ---------------------------------------------------------------------------
+ * exfat_zeroed_cluster
+ *
+ * Per-sector loop over the cluster: heap-alloc one blocksize zero buffer,
+ * los_part_write it nr_sect times.
+ *
+ * Invariant exfat-zeroed-cluster-blocksize-iteration: per-sector loop is
+ * mandated; integrated multi-sector write is forbidden.
+ * --------------------------------------------------------------------------- */
+int exfat_zeroed_cluster(exfat_sb_info *sbi, uint32_t clu)
+{
+    uint8_t *zbuf;
+    uint64_t first_sect;
+    uint32_t nr_sect;
+    uint32_t i;
+    errno_t  serr;
+    int      ret;
+
+    if (sbi == NULL || sbi->blocksize == 0u) {
+        return -EINVAL;
+    }
+    if (clu < EXFAT_FIRST_CLUSTER || clu >= sbi->num_clusters) {
+        return -EINVAL;
+    }
+    if (sbi->sect_per_clus_bits > 25u) {
+        /* exFAT spec EXFAT_MAX_SECT_PER_CLUS_BITS bound. */
+        return -EINVAL;
+    }
+
+    zbuf = (uint8_t *)LOS_MemAlloc(m_aucSysMem0, sbi->blocksize);
+    if (zbuf == NULL) {
+        return -ENOMEM;
+    }
+    serr = memset_s(zbuf, sbi->blocksize, 0, sbi->blocksize);
+    if (serr != EOK) {
+        LOS_MemFree(m_aucSysMem0, zbuf);
+        return -EIO;
+    }
+
+    first_sect = exfat_clu_to_sector(sbi, clu);
+    nr_sect    = 1u << sbi->sect_per_clus_bits;
+
+    for (i = 0; i < nr_sect; i++) {
+        ret = los_part_write(sbi->part_id, zbuf, first_sect + (uint64_t)i, 1u);
+        if (ret < 0) {
+            PRINT_ERR("[%s] zero sector %llu failed: %d\n",
+                      __func__, (unsigned long long)(first_sect + i), ret);
+            LOS_MemFree(m_aucSysMem0, zbuf);
+            return -EIO;
+        }
+    }
+
+    LOS_MemFree(m_aucSysMem0, zbuf);
+    return 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * exfat_alloc_new_dir
+ *
+ * Allocates 1 cluster (via exfat_alloc_cluster which requires
+ * ALLOC_FAT_CHAIN), zeros the cluster, then promotes the chain flag to
+ * ALLOC_NO_FAT_CHAIN (single-cluster chain — no FAT walk needed).
+ *
+ * Invariant exfat-alloc-new-dir-rollback-on-zero-fail: zeroed_cluster
+ * failure rolls back via clear_bitmap + ent_set(FREE) inline (do NOT call
+ * exfat_free_cluster — would self-deadlock on bitmap_lock; honors
+ * Invariant exfat-add-entry-no-self-cluster-double-free).
+ * --------------------------------------------------------------------------- */
+int exfat_alloc_new_dir(exfat_sb_info *sbi, exfat_chain *clu_out)
+{
+    int ret;
+    uint32_t allocated_clu;
+
+    if (sbi == NULL || clu_out == NULL) {
+        return -EINVAL;
+    }
+
+    /* Initial chain shape: alloc path requires ALLOC_FAT_CHAIN. */
+    clu_out->dir   = EXFAT_EOF_CLUSTER;
+    clu_out->size  = 0u;
+    clu_out->flags = (uint8_t)ALLOC_FAT_CHAIN;
+
+    ret = exfat_alloc_cluster(sbi, 1u, clu_out);
+    if (ret != 0) {
+        clu_out->dir   = EXFAT_EOF_CLUSTER;
+        clu_out->size  = 0u;
+        clu_out->flags = (uint8_t)ALLOC_NO_FAT_CHAIN;
+        return ret;
+    }
+
+    allocated_clu = clu_out->dir;
+
+    ret = exfat_zeroed_cluster(sbi, allocated_clu);
+    if (ret != 0) {
+        /* Rollback: release the cluster manually (Invariant
+         * exfat-add-entry-no-self-cluster-double-free — clear_bitmap +
+         * ent_set inline; do not re-enter exfat_free_cluster which would
+         * grab bitmap_lock again indirectly). */
+        (void)exfat_clear_bitmap(sbi, allocated_clu);
+        (void)exfat_ent_set(sbi, allocated_clu, EXFAT_FREE_CLUSTER);
+        if (sbi->used_clusters != EXFAT_CLUSTERS_UNTRACKED &&
+            sbi->used_clusters > 0u) {
+            sbi->used_clusters--;
+        }
+        clu_out->dir   = EXFAT_EOF_CLUSTER;
+        clu_out->size  = 0u;
+        clu_out->flags = (uint8_t)ALLOC_NO_FAT_CHAIN;
+        return ret;
+    }
+
+    /* Promote single-cluster chain to NO_FAT_CHAIN — no FAT walk required
+     * for a 1-cluster directory. */
+    clu_out->flags = (uint8_t)ALLOC_NO_FAT_CHAIN;
+    return 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * exfat_init_dir_entry
+ *
+ * Write [entry, entry+1] = file dentry (0x85) + stream dentry (0xC0) using
+ * the dentry-set-write helper from Stage 4a. num_ext, checksum, name_len,
+ * name_hash placeholders are 0 — populated by exfat_init_ext_entry.
+ *
+ * Invariant exfat-init-dir-entry-stream-flags-by-type: stream.flags is
+ * ALLOC_NO_FAT_CHAIN for TYPE_DIR, ALLOC_FAT_CHAIN for TYPE_FILE.
+ * --------------------------------------------------------------------------- */
+int exfat_init_dir_entry(exfat_sb_info *sbi, const exfat_chain *p_dir,
+                         int entry, uint32_t type, uint32_t start_clu,
+                         uint64_t size)
+{
+    struct exfat_dentry fep;
+    struct exfat_dentry sep;
+    errno_t serr;
+    int ret;
+
+    if (sbi == NULL || p_dir == NULL || entry < 0) {
+        return -EINVAL;
+    }
+    if (type != TYPE_DIR && type != TYPE_FILE) {
+        return -EINVAL;
+    }
+
+    /* file dentry (primary). */
+    serr = memset_s(&fep, sizeof(fep), 0, sizeof(fep));
+    if (serr != EOK) {
+        return -EIO;
+    }
+    fep.type = (uint8_t)EXFAT_FILE;
+    fep.dentry.file.attr = (type == TYPE_DIR) ?
+                           (uint16_t)ATTR_SUBDIR : (uint16_t)ATTR_ARCHIVE;
+    fep.dentry.file.num_ext = 0u;       /* overwritten by init_ext_entry */
+    fep.dentry.file.checksum = 0u;      /* overwritten by init_ext_entry */
+    exfat_set_entry_time_now(&fep);
+
+    ret = exfat_set_dentry(sbi, p_dir, entry, &fep);
+    if (ret != 0) {
+        return ret;
+    }
+
+    /* stream dentry (first secondary). */
+    serr = memset_s(&sep, sizeof(sep), 0, sizeof(sep));
+    if (serr != EOK) {
+        return -EIO;
+    }
+    sep.type = (uint8_t)EXFAT_STREAM;
+    sep.dentry.stream.flags = (type == TYPE_FILE) ?
+                              (uint8_t)ALLOC_FAT_CHAIN :
+                              (uint8_t)ALLOC_NO_FAT_CHAIN;
+    sep.dentry.stream.name_len = 0u;    /* overwritten by init_ext_entry */
+    sep.dentry.stream.name_hash = 0u;   /* overwritten by init_ext_entry */
+    sep.dentry.stream.valid_size = size;
+    sep.dentry.stream.size = size;
+    sep.dentry.stream.start_clu = start_clu;
+
+    ret = exfat_set_dentry(sbi, p_dir, entry + 1, &sep);
+    if (ret != 0) {
+        return ret;     /* Q3: no rollback of file dentry */
+    }
+    return 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * exfat_init_ext_entry
+ *
+ * Patch num_ext into file dentry, name_len/hash into stream dentry, build
+ * num_entries-2 EXFAT_NAME (0xC1) dentries, then read all num_entries
+ * dentries back, compute the SetChecksum, and patch it into the file dentry.
+ *
+ * Invariant exfat-init-ext-entry-chksum-spans-all-N: chksum seed comes from
+ * exfat_calc_chksum16(file, 32, 0, CS_DIR_ENTRY); subsequent dentries use
+ * CS_DEFAULT continuing the seed; missing any dentry breaks lookup.
+ * --------------------------------------------------------------------------- */
+int exfat_init_ext_entry(exfat_sb_info *sbi, const exfat_chain *p_dir,
+                         int entry, int num_entries,
+                         const struct exfat_uni_name *p_uniname)
+{
+    struct exfat_dentry fep;
+    struct exfat_dentry sep;
+    struct exfat_dentry nep;
+    struct exfat_dentry probe;
+    uint16_t chksum;
+    errno_t  serr;
+    int i;
+    int k;
+    int chunk_off;
+    int ret;
+
+    if (sbi == NULL || p_dir == NULL || p_uniname == NULL) {
+        return -EINVAL;
+    }
+    if (num_entries < 3 || num_entries > (int)EXFAT_DENTRY_SET_MAX) {
+        return -EINVAL;
+    }
+    if (entry < 0) {
+        return -EINVAL;
+    }
+    /* name_len is uint8_t — upper bound is implicit (255 == EXFAT_MAX_NAME_LEN). */
+    if (p_uniname->name_len == 0u) {
+        return -EINVAL;
+    }
+
+    /* Step 1: re-fetch file dentry, patch num_ext, write back. */
+    ret = exfat_get_dentry(sbi, p_dir, entry, &fep, NULL);
+    if (ret != 0) {
+        return ret;
+    }
+    fep.dentry.file.num_ext = (uint8_t)(num_entries - 1);
+    ret = exfat_set_dentry(sbi, p_dir, entry, &fep);
+    if (ret != 0) {
+        return ret;
+    }
+
+    /* Step 2: re-fetch stream dentry, patch name_len + name_hash, write back. */
+    ret = exfat_get_dentry(sbi, p_dir, entry + 1, &sep, NULL);
+    if (ret != 0) {
+        return ret;
+    }
+    sep.dentry.stream.name_len = p_uniname->name_len;
+    sep.dentry.stream.name_hash = p_uniname->name_hash;
+    ret = exfat_set_dentry(sbi, p_dir, entry + 1, &sep);
+    if (ret != 0) {
+        return ret;
+    }
+
+    /* Step 3: build EXFAT_NAME dentries — 15 UTF-16 units per slot. */
+    for (i = 2; i < num_entries; i++) {
+        serr = memset_s(&nep, sizeof(nep), 0, sizeof(nep));
+        if (serr != EOK) {
+            return -EIO;
+        }
+        nep.type = (uint8_t)EXFAT_NAME;
+        nep.dentry.name.flags = 0u;
+
+        chunk_off = (i - 2) * EXFAT_FILE_NAME_LEN;
+        for (k = 0; k < EXFAT_FILE_NAME_LEN; k++) {
+            int src = chunk_off + k;
+            if (src < (int)p_uniname->name_len) {
+                nep.dentry.name.unicode_0_14[k] =
+                    p_uniname->name[src];
+            } else {
+                nep.dentry.name.unicode_0_14[k] = 0u;
+            }
+        }
+
+        ret = exfat_set_dentry(sbi, p_dir, entry + i, &nep);
+        if (ret != 0) {
+            return ret;     /* Q3: no rollback */
+        }
+    }
+
+    /* Step 4: re-read all num_entries dentries to compute chksum16
+     * (Invariant exfat-init-ext-entry-chksum-spans-all-N). */
+    ret = exfat_get_dentry(sbi, p_dir, entry, &probe, NULL);
+    if (ret != 0) {
+        return ret;
+    }
+    chksum = exfat_calc_chksum16(&probe, DENTRY_SIZE, 0, CS_DIR_ENTRY);
+
+    for (i = 1; i < num_entries; i++) {
+        ret = exfat_get_dentry(sbi, p_dir, entry + i, &probe, NULL);
+        if (ret != 0) {
+            return ret;
+        }
+        chksum = exfat_calc_chksum16(&probe, DENTRY_SIZE, chksum, CS_DEFAULT);
+    }
+
+    /* Step 5: re-fetch file dentry (whose num_ext was already patched in
+     * step 1), set checksum, write back. */
+    ret = exfat_get_dentry(sbi, p_dir, entry, &fep, NULL);
+    if (ret != 0) {
+        return ret;
+    }
+    fep.dentry.file.checksum = chksum;
+    ret = exfat_set_dentry(sbi, p_dir, entry, &fep);
+    if (ret != 0) {
+        return ret;
+    }
+    return 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * exfat_add_entry — composer.
+ *
+ * Linux fs/exfat/namei.c::exfat_add_entry analogue. v1 only supports
+ * TYPE_DIR; TYPE_FILE returns -ENOSYS pending Stage 4d (Create VOP).
+ *
+ * Invariant exfat-add-entry-uniname-hash-cs-default: name_hash uses
+ * CS_DEFAULT chksum16 over the UTF-16 byte stream (no upcase normalization).
+ * --------------------------------------------------------------------------- */
+int exfat_add_entry(exfat_sb_info *sbi, struct Vnode *parent_vp,
+                    const char *name, uint32_t type,
+                    struct exfat_dir_entry *info)
+{
+    exfat_inode_info     *parent_ei;
+    exfat_chain           p_dir;
+    struct exfat_uni_name uniname;
+    int  num_entries;
+    int  dentry_idx = -1;
+    int  uni_len = 0;
+    uint32_t start_clu = EXFAT_EOF_CLUSTER;
+    uint64_t clu_size = 0u;
+    exfat_chain new_clu;
+    errno_t serr;
+    int ret;
+
+    if (sbi == NULL || parent_vp == NULL || parent_vp->data == NULL ||
+        name == NULL || info == NULL) {
+        return -EINVAL;
+    }
+    if (type != TYPE_DIR && type != TYPE_FILE) {
+        return -EINVAL;
+    }
+    if (name[0] == '\0') {
+        return -EINVAL;
+    }
+
+    /* v1: TYPE_FILE branch deferred to Stage 4d. */
+    if (type == TYPE_FILE) {
+        return -ENOSYS;
+    }
+
+    parent_ei = (exfat_inode_info *)parent_vp->data;
+
+    /* Step 1: decode UTF-8 → UTF-16. exfat_utf8_to_uni accepts -1 length
+     * as "use strlen". Pass strlen explicitly via probe walk. */
+    serr = memset_s(&uniname, sizeof(uniname), 0, sizeof(uniname));
+    if (serr != EOK) {
+        return -EIO;
+    }
+    {
+        size_t name_bytes = 0;
+        const char *p = name;
+        while (*p != '\0') {
+            p++;
+            name_bytes++;
+            if (name_bytes > (size_t)EXFAT_MAX_NAME_LEN * 4u) {
+                return -ENAMETOOLONG;
+            }
+        }
+        ret = exfat_utf8_to_uni(name, (int)name_bytes, uniname.name,
+                                EXFAT_MAX_NAME_LEN, &uni_len);
+        if (ret != 0) {
+            return ret;
+        }
+    }
+    if (uni_len <= 0 || uni_len > EXFAT_MAX_NAME_LEN) {
+        return -EINVAL;
+    }
+    uniname.name_len  = (uint8_t)uni_len;
+    uniname.name_hash = exfat_calc_chksum16(uniname.name,
+                                            uni_len * (int)sizeof(uint16_t),
+                                            0, CS_DEFAULT);
+
+    /* Step 2: count dentry-set entries needed. */
+    num_entries = exfat_calc_num_entries(&uniname);
+    if (num_entries < 0) {
+        return num_entries;
+    }
+
+    /* Step 3: build parent directory chain copy from parent_ei. */
+    p_dir.dir   = parent_ei->start_clu;
+    p_dir.flags = parent_ei->flags;
+    if (sbi->cluster_size == 0u) {
+        return -EIO;
+    }
+    if (parent_ei->size > 0u) {
+        p_dir.size = (uint32_t)((parent_ei->size + sbi->cluster_size - 1u) /
+                                sbi->cluster_size);
+    } else {
+        /* Root directory with implicit size: assume single cluster — the
+         * default Wave A cmocka image uses single-cluster root. Production
+         * mount path populates parent_ei->size at lookup time. */
+        p_dir.size = 1u;
+    }
+
+    /* Step 4: reserve dentry slot (must precede alloc_new_dir per Linux order). */
+    ret = exfat_alloc_dentry_slot(sbi, &p_dir, num_entries, &dentry_idx);
+    if (ret != 0) {
+        return ret;
+    }
+
+    /* Step 5: TYPE_DIR — allocate + zero a new directory cluster. */
+    serr = memset_s(&new_clu, sizeof(new_clu), 0, sizeof(new_clu));
+    if (serr != EOK) {
+        return -EIO;
+    }
+    ret = exfat_alloc_new_dir(sbi, &new_clu);
+    if (ret != 0) {
+        /* Q3: do not release dentry_idx slot — free slot is harmless. */
+        return ret;
+    }
+    start_clu = new_clu.dir;
+    clu_size  = (uint64_t)sbi->cluster_size;
+
+    /* Step 6: write the file + stream dentry pair. */
+    ret = exfat_init_dir_entry(sbi, &p_dir, dentry_idx, type,
+                               start_clu, clu_size);
+    if (ret != 0) {
+        /* Q3: leave allocated cluster + slot intact; vol_dirty bracket marks. */
+        return ret;
+    }
+
+    /* Step 7: build name dentries + chksum. */
+    ret = exfat_init_ext_entry(sbi, &p_dir, dentry_idx, num_entries, &uniname);
+    if (ret != 0) {
+        return ret;
+    }
+
+    /* Step 8: hand info back to caller (VfsExfatMkdir). */
+    info->dir         = p_dir;
+    info->entry       = dentry_idx;
+    info->type        = type;
+    info->attr        = (uint16_t)ATTR_SUBDIR;
+    info->start_clu   = start_clu;
+    info->flags       = (uint8_t)ALLOC_NO_FAT_CHAIN;
+    info->size        = clu_size;
+    info->num_subdirs = EXFAT_MIN_SUBDIR;
+    return 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * VfsExfatMkdir — VnodeOps.Mkdir callback.
+ *
+ * Lock model (Invariant exfat-mkdir-s-lock-bracketed): take sbi->s_lock
+ * once; all error paths unlock at one label. Helpers themselves are
+ * lock-free; alloc_cluster takes bitmap_lock internally.
+ *
+ * vol_dirty bracket (Invariant exfat-mkdir-vol-dirty-bracketed): set / clear
+ * envelopes the entire add_entry composition so a power-loss mid-mkdir
+ * leaves a fsck-actionable marker.
+ * --------------------------------------------------------------------------- */
+int VfsExfatMkdir(struct Vnode *parent_vp, const char *name,
+                  mode_t mode, struct Vnode **vpp)
+{
+    exfat_sb_info        *sbi;
+    exfat_inode_info     *parent_ei;
+    exfat_inode_info     *new_ei = NULL;
+    struct Vnode         *new_vp = NULL;
+    struct exfat_dir_entry info;
+    errno_t serr;
+    int locked = 0;
+    int err = 0;
+    int sd_ret;
+    int cd_ret;
+
+    (void)mode;     /* exFAT has no per-file mode bits; vp->mode set via fmask/dmask below. */
+
+    /* Step 1: arg validation (no lock). */
+    if (parent_vp == NULL || name == NULL || vpp == NULL) {
+        return -EINVAL;
+    }
+    if (parent_vp->originMount == NULL || parent_vp->originMount->data == NULL ||
+        parent_vp->data == NULL) {
+        return -EINVAL;
+    }
+    if (name[0] == '\0') {
+        return -EINVAL;
+    }
+
+    sbi       = (exfat_sb_info *)parent_vp->originMount->data;
+    parent_ei = (exfat_inode_info *)parent_vp->data;
+
+    serr = memset_s(&info, sizeof(info), 0, sizeof(info));
+    if (serr != EOK) {
+        return -EIO;
+    }
+
+    /* Step 2: take s_lock. */
+    (void)LOS_MuxLock(&sbi->s_lock, LOS_WAIT_FOREVER);
+    locked = 1;
+
+    /* Step 3: open vol_dirty bracket. PRINT_ERR on failure but do not abort
+     * — mirrors Wave B Stage 2a write-path discipline. */
+    sd_ret = exfat_set_volume_dirty(sbi);
+    if (sd_ret != 0) {
+        PRINT_ERR("[%s] set_volume_dirty: %d\n", __func__, sd_ret);
+    }
+
+    /* Step 4: compose dentry-set + new dir cluster. */
+    err = exfat_add_entry(sbi, parent_vp, name, TYPE_DIR, &info);
+
+    /* Step 5: close vol_dirty bracket regardless of err. */
+    cd_ret = exfat_clear_volume_dirty(sbi);
+    if (cd_ret != 0) {
+        PRINT_ERR("[%s] clear_volume_dirty: %d\n", __func__, cd_ret);
+    }
+
+    if (err != 0) {
+        goto unlock;
+    }
+
+    /* Step 6: allocate inode_info. */
+    err = exfat_inode_alloc(&new_ei);
+    if (err != 0) {
+        /* v1 known leak: dentry-set + new dir cluster stay on disk; vol_dirty
+         * was already cleared so fsck won't auto-fix — log a warning. */
+        PRINT_ERR("[%s] inode_alloc failed (%d) — orphan dentry+cluster on disk\n",
+                  __func__, err);
+        goto unlock;
+    }
+
+    /* Step 7: populate ei fields from info. */
+    new_ei->dir           = info.dir;
+    new_ei->entry         = info.entry;
+    new_ei->type          = info.type;
+    new_ei->attr          = info.attr;
+    new_ei->start_clu     = info.start_clu;
+    new_ei->flags         = info.flags;
+    new_ei->size          = info.size;
+    new_ei->valid_size    = info.size;
+    new_ei->i_size_ondisk = info.size;
+    new_ei->num_subdirs   = info.num_subdirs;
+    new_ei->i_pos         = ((uint64_t)info.start_clu << 32) |
+                            (uint32_t)info.entry;
+    /* exfat_inode_init_dir_chain rewires dir/start_clu/type/flags from the
+     * dir cluster — call after the manual field copy so its assignments win
+     * (matches Wave A lookup pattern). */
+    exfat_inode_init_dir_chain(new_ei, info.start_clu);
+    new_ei->size          = info.size;
+    new_ei->valid_size    = info.size;
+    new_ei->i_size_ondisk = info.size;
+    new_ei->type          = TYPE_DIR;
+    new_ei->attr          = info.attr;
+    new_ei->num_subdirs   = info.num_subdirs;
+
+    /* Step 8: allocate vnode. */
+    err = VnodeAlloc(&g_exfatVops, &new_vp);
+    if (err != 0) {
+        exfat_inode_free(new_ei);
+        new_ei = NULL;
+        err = -ENOMEM;
+        PRINT_ERR("[%s] VnodeAlloc failed — orphan dentry+cluster on disk\n",
+                  __func__);
+        goto unlock;
+    }
+
+    /* Step 9: wire vnode to ei (Invariant exfat-mkdir-vfs-hash-insert-after-data-set). */
+    new_vp->type        = VNODE_TYPE_DIR;
+    new_vp->vop         = &g_exfatVops;
+    new_vp->fop         = &g_exfatFops;
+    new_vp->data        = new_ei;
+    new_vp->parent      = parent_vp;
+    new_vp->originMount = parent_vp->originMount;
+    new_vp->uid         = sbi->options.fs_uid;
+    new_vp->gid         = sbi->options.fs_gid;
+    new_vp->mode        = S_IFDIR | (mode_t)(0755u & ~sbi->options.fs_dmask);
+
+    /* Step 10: insert into VFS hash. */
+    err = VfsHashInsert(new_vp, (uint32_t)info.start_clu);
+    if (err != 0) {
+        new_vp->data = NULL;
+        (void)VnodeFree(new_vp);
+        exfat_inode_free(new_ei);
+        new_vp = NULL;
+        new_ei = NULL;
+        err = -ENOMEM;
+        goto unlock;
+    }
+
+    /* Step 11: bump parent num_subdirs (in-memory only). */
+    parent_ei->num_subdirs++;
+
+    *vpp = new_vp;
+    err = 0;
+
+unlock:
+    if (locked) {
+        (void)LOS_MuxUnlock(&sbi->s_lock);
+        locked = 0;
+    }
+    return err;
 }

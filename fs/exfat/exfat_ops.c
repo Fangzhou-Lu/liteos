@@ -54,6 +54,7 @@ struct VnodeOps g_exfatVops = {
     .Closedir   = VfsExfatClosedir,
     .Rewinddir  = VfsExfatRewinddir,
     .Getattr    = VfsExfatGetattr,
+    .Mkdir      = VfsExfatMkdir,
     .Truncate   = VfsExfatTruncate,
     .Truncate64 = VfsExfatTruncate64,
 };

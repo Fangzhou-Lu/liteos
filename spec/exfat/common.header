@@ -228,3 +228,39 @@ extern int  exfat_truncate_shrink(exfat_sb_info *sbi, exfat_inode_info *ei, uint
 struct Vnode;
 extern int VfsExfatTruncate(struct Vnode *vp, off_t len);
 extern int VfsExfatTruncate64(struct Vnode *vp, off64_t len);
+
+/* mkdir stage exports (Wave B Stage 4e; full Linux mkdir composition: 5
+ * helpers + composer + VOP. Helpers lock-free under sbi->s_lock; VOP wires
+ * .Mkdir slot in g_exfatVops. Two new value types — exfat_uni_name (UTF-16
+ * leaf name + hash + length) and exfat_dir_entry (info-handoff struct
+ * between add_entry and the vnode-creation step in VfsExfatMkdir).) */
+struct exfat_uni_name {
+    uint16_t name[EXFAT_MAX_NAME_LEN + 1];
+    uint16_t name_hash;
+    uint8_t  name_len;
+};
+struct exfat_dir_entry {
+    exfat_chain dir;
+    int32_t     entry;
+    uint32_t    type;
+    uint16_t    attr;
+    uint32_t    start_clu;
+    uint8_t     flags;
+    uint64_t    size;
+    uint32_t    num_subdirs;
+};
+#define EXFAT_MIN_SUBDIR        2u
+extern int  exfat_calc_num_entries(const struct exfat_uni_name *p_uniname);
+extern int  exfat_zeroed_cluster(exfat_sb_info *sbi, uint32_t clu);
+extern int  exfat_alloc_new_dir(exfat_sb_info *sbi, exfat_chain *clu_out);
+extern int  exfat_init_dir_entry(exfat_sb_info *sbi, const exfat_chain *p_dir,
+                                 int entry, uint32_t type, uint32_t start_clu,
+                                 uint64_t size);
+extern int  exfat_init_ext_entry(exfat_sb_info *sbi, const exfat_chain *p_dir,
+                                 int entry, int num_entries,
+                                 const struct exfat_uni_name *p_uniname);
+extern int  exfat_add_entry(exfat_sb_info *sbi, struct Vnode *parent_vp,
+                            const char *name, uint32_t type,
+                            struct exfat_dir_entry *info);
+extern int  VfsExfatMkdir(struct Vnode *parent_vp, const char *name,
+                          mode_t mode, struct Vnode **vpp);
