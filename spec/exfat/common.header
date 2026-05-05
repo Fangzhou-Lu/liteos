@@ -152,6 +152,9 @@ extern int  exfat_validate_dentry_set(const struct exfat_dentry *set, int num_en
 extern int  exfat_set_dentry(const exfat_sb_info *sbi, const exfat_chain *dir, int entry_idx, const struct exfat_dentry *in);
 extern int  exfat_set_dentry_set(const exfat_sb_info *sbi, const exfat_chain *dir, int start_entry, const struct exfat_dentry *set, int num_entries);
 
+/* alloc_dentry_slot stage exports (Wave B Stage 4b) */
+extern int  exfat_alloc_dentry_slot(const exfat_sb_info *sbi, const exfat_chain *dir, int n_entries, int *slot_idx_out);
+
 /* nls_utf16 stage exports */
 extern int  exfat_uni_to_utf8(const uint16_t *uni, int uni_len, char *out, int out_max);
 extern int  exfat_utf8_to_uni(const char *utf8, int utf8_len, uint16_t *uni, int uni_max, int *uni_len);

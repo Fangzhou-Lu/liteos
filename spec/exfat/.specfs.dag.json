@@ -3688,6 +3688,69 @@
           "kind": "func"
         }
       ]
+    },
+    {
+      "id": "alloc_dentry_slot",
+      "stage_name": "alloc_dentry_slot",
+      "depends_on": [
+        "dentry_iter",
+        "dentry_set_write"
+      ],
+      "spec": {
+        "path": "spec/exfat/dentry/exfat_alloc_dentry_slot.spec",
+        "approved_at": "2026-05-05T02:20:43+00:00",
+        "common_header_path": "spec/exfat/common.header",
+        "dirty": false
+      },
+      "code": {
+        "path": "fs/exfat/exfat_alloc_dentry_slot.c",
+        "approved_at": "2026-05-05T02:20:43+00:00",
+        "dirty": false
+      },
+      "invariants": [
+        {
+          "id": "exfat-alloc-slot-no-locks",
+          "text": "Helper takes no locks; caller holds parent->inode_lock or sbi->s_lock."
+        },
+        {
+          "id": "exfat-alloc-slot-readonly",
+          "text": "Pure scanner; never writes to disk."
+        },
+        {
+          "id": "exfat-alloc-slot-no-grow",
+          "text": "v1 doesn't auto-grow dir chain; -ENOSPC on no fit."
+        },
+        {
+          "id": "exfat-alloc-slot-bounded",
+          "text": "Scan upper bound = dir->size * dentries_per_clu."
+        },
+        {
+          "id": "exfat-alloc-slot-no-spinlock-callsite",
+          "text": "Contains alloc + IO via get_dentry; spinlock-held entry forbidden."
+        },
+        {
+          "id": "exfat-alloc-slot-no-mutate-on-failure",
+          "text": "-errno paths don't write *slot_idx_out."
+        },
+        {
+          "id": "exfat-alloc-slot-no-chksum-touch",
+          "text": "Doesn't read or write SetChecksum."
+        },
+        {
+          "id": "exfat-alloc-slot-terminator-extends-run",
+          "text": "Terminator (type 0x00) extends free run to dir end."
+        },
+        {
+          "id": "exfat-alloc-slot-no-side-effect-on-enospc",
+          "text": "-ENOSPC return doesn't modify any state."
+        }
+      ],
+      "exports": [
+        {
+          "symbol": "exfat_alloc_dentry_slot",
+          "kind": "func"
+        }
+      ]
     }
   ]
 }

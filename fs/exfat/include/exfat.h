@@ -352,6 +352,15 @@ int  exfat_set_dentry_set(const exfat_sb_info *sbi, const exfat_chain *dir,
                           int start_entry, const struct exfat_dentry *set,
                           int num_entries);
 
+/* ---- dentry slot allocation (Wave B Stage 4b) — fs/exfat/exfat_alloc_dentry_slot.c
+ * Linear scan for n_entries contiguous writable slots (EXFAT_UNUSED or
+ * bit-7-clear deleted) in dir's chain. v1 does NOT auto-grow the chain;
+ * returns -ENOSPC when no run fits. Caller plugs the result into
+ * exfat_set_dentry_set to materialise a new file/dir entry.
+ */
+int  exfat_alloc_dentry_slot(const exfat_sb_info *sbi, const exfat_chain *dir,
+                              int n_entries, int *slot_idx_out);
+
 /* ---- UTF-16 / UTF-8 conversion + upcase compare — fs/exfat/util/exfat_nls_utf16.c
  * Pure compute (spinlock-safe). RFC 3629-strict UTF-8: rejects overlong,
  * surrogate-half input, > 0x10FFFF. Surrogate pairs in cmp are bit-exact
