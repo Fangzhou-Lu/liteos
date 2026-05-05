@@ -227,6 +227,70 @@ def _commit_metrics(repo: Path, stage: str, spec_path: Optional[Path]) -> dict:
     }
 
 
+# ---------- prompt assembly metrics --------------------------------------
+
+# Section headers that appear in the assembled Loop-A prompt; used for
+# breaking it into chunks and counting bytes per role.
+_PROMPT_SECTION_RE = re.compile(r"^\[([A-Z][A-Za-z0-9 \-→/]*)\]\s*$", re.M)
+
+
+def _parse_prompt_sections(text: str) -> dict[str, int]:
+    """Split the assembled prompt by [SECTION] headers; return {name: chars}.
+    Pre-amble (before first header) is keyed as '_preamble'."""
+    parts: dict[str, int] = {}
+    headers = list(_PROMPT_SECTION_RE.finditer(text))
+    if not headers:
+        return {"_full": len(text)}
+    if headers[0].start() > 0:
+        parts["_preamble"] = headers[0].start()
+    for i, m in enumerate(headers):
+        name = m.group(1)
+        end = headers[i + 1].start() if i + 1 < len(headers) else len(text)
+        parts[name] = end - m.start()
+    return parts
+
+
+def _prompt_metrics(repo: Path, stage: str, linux_path: Optional[str],
+                    module: str = "exfat") -> dict:
+    """Invoke plugin's _driver_loop_a.py to capture the assembled spec_gen prompt
+    for stage. Returns prompt_chars + per-section breakdown."""
+    if not linux_path:
+        # Heuristic: pick a Linux fs/exfat/ source by stage name
+        linux_root = Path("/Users/kissa/Codebase/linux/fs/exfat")
+        candidates = {
+            "mount": linux_root / "super.c",
+            "mkdir": linux_root / "namei.c",
+            "create": linux_root / "namei.c",
+            "unlink": linux_root / "namei.c",
+            "rmdir": linux_root / "namei.c",
+            "rename": linux_root / "namei.c",
+            "lookup": linux_root / "namei.c",
+            "read": linux_root / "file.c",
+            "write": linux_root / "file.c",
+            "readdir": linux_root / "dir.c",
+        }
+        guess = candidates.get(stage)
+        linux_path = str(guess) if guess and guess.is_file() else str(linux_root / "namei.c")
+    driver = repo / ".claude" / "plugins" / "specfs-port" / "server" / "_driver_loop_a.py"
+    if not driver.is_file():
+        return {"prompt_metrics_error": "driver not found"}
+    res = subprocess.run(
+        ["python3", str(driver), module, stage, linux_path],
+        cwd=driver.parent, capture_output=True, text=True, check=False,
+    )
+    if res.returncode != 0:
+        return {"prompt_metrics_error": f"driver rc={res.returncode}: {res.stderr[:200]}"}
+    prompt_file = driver.parent / ".assembled_prompt.txt"
+    if not prompt_file.is_file():
+        return {"prompt_metrics_error": "assembled prompt file missing"}
+    text = prompt_file.read_text(encoding="utf-8")
+    return {
+        "prompt_chars": len(text),
+        "prompt_sections": _parse_prompt_sections(text),
+        "prompt_linux_path": linux_path,
+    }
+
+
 # ---------- DAG ----------------------------------------------------------
 
 def _load_dag(repo: Path) -> dict:
@@ -238,7 +302,9 @@ def _load_dag(repo: Path) -> dict:
 
 def _stage_record(repo: Path, stage_node: dict,
                   cmocka_pass: Optional[bool] = None,
-                  build_pass: Optional[bool] = None) -> dict:
+                  build_pass: Optional[bool] = None,
+                  include_prompt: bool = False,
+                  linux_path: Optional[str] = None) -> dict:
     stage = stage_node.get("id") or stage_node.get("stage_name")
     spec = stage_node.get("spec", {})
     code = stage_node.get("code", {})
@@ -291,6 +357,8 @@ def _stage_record(repo: Path, stage_node: dict,
         rec["kernel_build_pass"] = build_pass
     elif rec.get("commit_sha"):
         rec["kernel_build_pass"] = True
+    if include_prompt:
+        rec.update(_prompt_metrics(repo, rec["stage"], linux_path))
     return rec
 
 
@@ -307,9 +375,16 @@ def main() -> int:
                     help="experiment override: did cmocka pass?")
     ap.add_argument("--build-pass", choices=["true", "false"],
                     help="experiment override: did kernel build pass?")
+    ap.add_argument("--include-prompt", action="store_true",
+                    help="invoke plugin's _driver_loop_a.py to capture "
+                         "assembled prompt size + section breakdown")
+    ap.add_argument("--linux-path",
+                    help="Linux source path (for --include-prompt; auto-guessed if omitted)")
     args = ap.parse_args()
     cmocka_pass = (args.cmocka_pass == "true") if args.cmocka_pass else None
     build_pass = (args.build_pass == "true") if args.build_pass else None
+    include_prompt = args.include_prompt
+    linux_path = args.linux_path
 
     repo = Path(args.repo) if args.repo else _repo_root()
     dag = _load_dag(repo)
@@ -320,7 +395,8 @@ def main() -> int:
         if node is None:
             print(f"stage not found: {args.stage}", file=sys.stderr)
             return 2
-        print(json.dumps(_stage_record(repo, node, cmocka_pass=cmocka_pass, build_pass=build_pass), indent=2, ensure_ascii=False))
+        print(json.dumps(_stage_record(repo, node, cmocka_pass=cmocka_pass, build_pass=build_pass,
+                                include_prompt=include_prompt, linux_path=linux_path), indent=2, ensure_ascii=False))
         return 0
 
     if args.all or args.baseline:
