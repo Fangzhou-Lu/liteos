@@ -27,7 +27,6 @@
  */
 
 #include "exfat.h"
-#ifdef LOSCFG_FS_EXFAT
 
 /*
  * exFAT VFS operations tables — Linux-style static initialization.
@@ -73,5 +72,3 @@ struct file_operations_vfs g_exfatFops = {
     .write = VfsExfatWrite,
     .seek  = VfsExfatSeek,
 };
-
-#endif /* LOSCFG_FS_EXFAT */

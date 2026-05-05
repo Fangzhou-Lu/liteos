@@ -24,29 +24,19 @@ LDLIBS  := -lcmocka
 
 # Production sources (compiled with stubs in place).
 PROD_SRCS := \
-    $(EXFAT)/util/exfat_chksum.c     \
-    $(EXFAT)/util/exfat_options.c    \
-    $(EXFAT)/util/exfat_upcase.c     \
-    $(EXFAT)/util/exfat_fat_chain.c  \
-    $(EXFAT)/util/exfat_nls_utf16.c  \
-    $(EXFAT)/util/exfat_vol_flags.c  \
-    $(EXFAT)/util/exfat_free_cluster.c \
-    $(EXFAT)/util/exfat_alloc_cluster.c \
-    $(EXFAT)/exfat_dentry.c          \
-    $(EXFAT)/exfat_dentry_iter.c     \
-    $(EXFAT)/exfat_dentry_set_write.c \
-    $(EXFAT)/exfat_alloc_dentry_slot.c \
-    $(EXFAT)/exfat_balloc.c          \
-    $(EXFAT)/exfat_inode_alloc.c     \
-    $(EXFAT)/exfat_open_close.c      \
-    $(EXFAT)/exfat_attr.c            \
-    $(EXFAT)/exfat_file.c            \
-    $(EXFAT)/exfat_readdir.c         \
-    $(EXFAT)/exfat_lookup.c          \
-    $(EXFAT)/exfat_write.c           \
-    $(EXFAT)/exfat_truncate_extend.c \
-    $(EXFAT)/exfat_truncate_shrink.c \
-    $(EXFAT)/exfat_truncate_vop.c
+    $(EXFAT)/exfat_module.c  \
+    $(EXFAT)/exfat_cluster.c \
+    $(EXFAT)/exfat_nls.c     \
+    $(EXFAT)/exfat_inode.c   \
+    $(EXFAT)/exfat_file.c    \
+    $(EXFAT)/exfat_super.c   \
+    $(EXFAT)/exfat_ops.c
+# All 7 production .c files are compiled. host_stubs/ provides minimal shims
+# for VFS-side surface (fs/fs.h, fs/mount.h, fs/file.h, vnode.h, path_cache.h,
+# los_tables.h) so exfat_super.c + exfat_ops.c — which in real kernel reference
+# linker-section tables and full VFS — compile cleanly without exercising the
+# VFS path. Tests target FS-internal helpers; VFS callbacks like VfsExfatMount
+# are never invoked from cmocka.
 
 # Harness sources.
 HARNESS_SRCS := \

@@ -18,13 +18,9 @@
 
 UINT8 *m_aucSysMem0 = (UINT8 *)0xDEADBEEFul;   /* sentinel; LOS_MemAlloc ignores. */
 
-/* g_exfatVops / g_exfatFops live in fs/exfat/exfat_ops.c (production). The
- * cmocka harness does NOT compile exfat_ops.c (it would drag in Reclaim/Write
- * which depend on super.c/write.c — outside read-path scope). Lookup only
- * uses the *address* of these tables (vp->vop / vp->fop), so an empty stub
- * is sufficient. */
-struct VnodeOps             g_exfatVops;
-struct file_operations_vfs  g_exfatFops;
+/* g_exfatVops / g_exfatFops are defined in fs/exfat/exfat_ops.c (which is
+ * now part of PROD_SRCS). Tests only use the *address* of these tables
+ * (vp->vop / vp->fop) — the production tables are sufficient. */
 
 static uint8_t *g_image = NULL;
 static size_t   g_image_len = 0;

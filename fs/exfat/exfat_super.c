@@ -25,27 +25,30 @@
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#include "exfat.h"
-#ifdef LOSCFG_FS_EXFAT
+/* exfat_super — superblock lifecycle: boot sector parse, Mount,
+ * Unmount, Statfs, Sync. Mirrors Linux fs/exfat/super.c. */
 
 #include <errno.h>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/statfs.h>
-#include "securec.h"
+
+#include "exfat.h"
+#include "disk.h"
+#include "disk_pri.h"
+#include "fs/dirent_fs.h"
+#include "fs/file.h"
+#include "fs/fs.h"
+#include "fs/mount.h"
 #include "los_memory.h"
 #include "los_mux.h"
 #include "los_printf.h"
 #include "los_tables.h"
-#include "fs/file.h"
-#include "fs/fs.h"
-#include "fs/mount.h"
-#include "fs/dirent_fs.h"
-#include "vnode.h"
 #include "path_cache.h"
-#include "disk.h"
-#include "disk_pri.h"
+#include "securec.h"
+#include "vnode.h"
+
+/* ----- merged from exfat_super.c ----- */
 
 extern UINT8 *m_aucSysMem0;
 
@@ -544,5 +547,3 @@ static int VfsExfatSync(struct Mount *mount)
     (void)mount;
     return 0;
 }
-
-#endif /* LOSCFG_FS_EXFAT */

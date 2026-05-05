@@ -30,7 +30,7 @@ include $(LITEOSTOPDIR)/config.mk
 
 MODULE_NAME := $(notdir $(shell pwd))
 
-LOCAL_SRCS := $(wildcard *.c) $(wildcard util/*.c)
+LOCAL_SRCS := $(wildcard *.c)
 
 LOCAL_INCLUDE := -I $(LITEOSTOPDIR)/fs/exfat/include
 

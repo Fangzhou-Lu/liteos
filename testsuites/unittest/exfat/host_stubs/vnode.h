@@ -62,7 +62,38 @@ struct Vnode {
     struct page_mapping     mapping;
 };
 
-struct VnodeOps { int _opaque; };
+/* Mirror of fs/vfs/include/vnode.h::struct VnodeOps. exfat_ops.c statically
+ * initialises g_exfatVops with these slots; cmocka tests never invoke them,
+ * so the slots only need to be addressable for the static initialiser to
+ * type-check. */
+struct fs_dirent_s;
+struct IATTR;
+struct VnodeOps {
+    int (*Create)(struct Vnode *parent, const char *name, int mode, struct Vnode **vnode);
+    int (*Lookup)(struct Vnode *parent, const char *name, int len, struct Vnode **vnode);
+    int (*Open)(struct Vnode *vnode, int fd, int mode, int flags);
+    ssize_t (*ReadPage)(struct Vnode *vnode, char *buffer, off_t pos);
+    ssize_t (*WritePage)(struct Vnode *vnode, char *buffer, off_t pos, size_t buflen);
+    int (*Close)(struct Vnode *vnode);
+    int (*Reclaim)(struct Vnode *vnode);
+    int (*Unlink)(struct Vnode *parent, struct Vnode *vnode, const char *fileName);
+    int (*Rmdir)(struct Vnode *parent, struct Vnode *vnode, const char *dirName);
+    int (*Mkdir)(struct Vnode *parent, const char *dirName, mode_t mode, struct Vnode **vnode);
+    int (*Readdir)(struct Vnode *vnode, struct fs_dirent_s *dir);
+    int (*Opendir)(struct Vnode *vnode, struct fs_dirent_s *dir);
+    int (*Rewinddir)(struct Vnode *vnode, struct fs_dirent_s *dir);
+    int (*Closedir)(struct Vnode *vnode, struct fs_dirent_s *dir);
+    int (*Getattr)(struct Vnode *vnode, struct stat *st);
+    int (*Setattr)(struct Vnode *vnode, struct stat *st);
+    int (*Chattr)(struct Vnode *vnode, struct IATTR *attr);
+    int (*Rename)(struct Vnode *src, struct Vnode *dstParent, const char *srcName, const char *dstName);
+    int (*Truncate)(struct Vnode *vnode, off_t len);
+    int (*Truncate64)(struct Vnode *vnode, off64_t len);
+    int (*Fscheck)(struct Vnode *vnode, struct fs_dirent_s *dir);
+    int (*Link)(struct Vnode *src, struct Vnode *dstParent, struct Vnode **dst, const char *dstName);
+    int (*Symlink)(struct Vnode *parentVnode, struct Vnode **newVnode, const char *path, const char *target);
+    ssize_t (*Readlink)(struct Vnode *vnode, char *buffer, size_t bufLen);
+};
 
 /* VFS service stubs: allocate a zeroed Vnode from heap (no global lists).
  * VfsHashInsert is a no-op (returns 0) — sufficient for unit tests that

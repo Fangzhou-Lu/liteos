@@ -29,8 +29,6 @@
 #ifndef _EXFAT_H
 #define _EXFAT_H
 
-#ifdef LOSCFG_FS_EXFAT
-
 #include <stdint.h>
 #include <stddef.h>
 #include "los_typedef.h"
@@ -458,5 +456,4 @@ off_t VfsExfatSeek(struct file *filep, off_t offset, int whence);
 }
 #endif
 
-#endif /* LOSCFG_FS_EXFAT */
 #endif /* _EXFAT_H */

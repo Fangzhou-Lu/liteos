@@ -2,6 +2,7 @@
 #define _HOST_STUB_FS_MOUNT_H
 
 #include <stdint.h>
+#include <sys/statfs.h>
 #include "vnode.h"
 
 /* PATH_MAX: use system limit if available, else define a safe default. */
@@ -9,7 +10,19 @@
 #define PATH_MAX 4096
 #endif
 
-struct MountOps { int _opaque; };
+struct Mount;
+
+/* Mirror of the real fs/include/fs/mount.h MountOps shape. exfat_super.c
+ * initialises g_exfatMountOps with these slots. The Mount/Unmount/Statfs/Sync
+ * narratives never run during cmocka tests (only FS-internal helpers are
+ * exercised), so the slots only need to be addressable for the static
+ * initialiser to type-check. */
+struct MountOps {
+    int (*Mount)(struct Mount *mount, struct Vnode *vnode, const void *data);
+    int (*Unmount)(struct Mount *mount, struct Vnode **blkdriver);
+    int (*Statfs)(struct Mount *mount, struct statfs *sbp);
+    int (*Sync)(struct Mount *mount);
+};
 
 /* Minimal struct Mount — only the fields accessed by exfat VFS callbacks.
  * The LIST_HEAD/LIST_ENTRY fields come from vnode.h stub. */

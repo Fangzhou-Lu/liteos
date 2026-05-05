@@ -25,21 +25,25 @@
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#include "exfat.h"
-#ifdef LOSCFG_FS_EXFAT
+/* exfat_nls — UTF-16 ↔ UTF-8 conversion + Microsoft upcase compare.
+ * Mirrors Linux fs/exfat/nls.c (LiteOS strict RFC 3629 UTF-8). */
 
 #include <errno.h>
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
-/* UTF-16 / UTF-8 boundary constants. */
+#include "exfat.h"
+
 #define UTF16_HIGH_SURROGATE_MIN  0xD800u
 #define UTF16_HIGH_SURROGATE_MAX  0xDBFFu
 #define UTF16_LOW_SURROGATE_MIN   0xDC00u
 #define UTF16_LOW_SURROGATE_MAX   0xDFFFu
 #define UNICODE_MAX               0x10FFFFu
 #define UNICODE_BMP_MAX           0xFFFFu
+
+/* ----- merged from exfat_nls_utf16.c ----- */
+
+/* UTF-16 / UTF-8 boundary constants. */
 
 /* Helpers (file-static, no external linkage). */
 static int IsHighSurrogate(uint16_t u)
@@ -287,17 +291,3 @@ int exfat_uniname_cmp(const exfat_sb_info *sbi,
     }
     return 0;
 }
-
-#endif /* LOSCFG_FS_EXFAT */
-
-/* Assumptions made:
- * - Caller has already converted UTF-16LE on-disk fields to host endianness
- *   via LE16_TO_HOST before invoking these helpers (Invariant
- *   exfat-nls-utf16-le-host-only).
- * - sbi->vol_utbl is a 65536-entry table populated by exfat_create_upcase_table
- *   in mount path; immutable thereafter (mount-stage invariant).
- * - exfat_utf8_to_uni rejects 5- and 6-byte historical UTF-8 forms (cp >
- *   0x10FFFF) per RFC 3629; matches Linux behaviour.
- * - NUL (uni == 0x0000) is encoded as a single 0x00 byte (matches Linux
- *   exfat); output may legally contain embedded NUL.
- */
