@@ -3751,6 +3751,26 @@
           "kind": "func"
         }
       ]
+    },
+    {
+      "id": "mkdir",
+      "stage_name": "mkdir",
+      "depends_on": [
+        "lookup"
+      ],
+      "code": {},
+      "spec": {
+        "files": [
+          "spec/exfat/inode/exfat_mkdir.spec"
+        ],
+        "git_sha": "89479c8bcb3df989d9aac17913e7ab8b7a0ffb0d",
+        "linux_source_ref": "/Users/kissa/Codebase/linux/fs/exfat/namei.c",
+        "approved_at": "2026-05-05T04:01:56Z",
+        "approval_iterations": 0,
+        "user_clarifications": [],
+        "dirty": false
+      },
+      "invariants": []
     }
   ]
 }
