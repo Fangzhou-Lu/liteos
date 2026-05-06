@@ -9,9 +9,23 @@
 | 单位 | 上限 | 备注 |
 |---|---|---|
 | 模块（merged stage 集合） | **800 LOC** generated C | 论文 500 + 30%–60% LiteOS 工程开销 |
-| 单函数 spec | **150 LOC** | 论文典型 80–200；超过即提示拆 helper |
-| 单模块 spec 总和 | **400 LOC** | spec/code 比 ≤ 0.5 的目标线 |
+| 单模块 spec 总和 | **600 LOC** | spec/code 比 ≤ 0.75 的目标线（codex 警告 0.5 在 LiteOS 不现实） |
 | 单 stage 内 [GUARANTEE] 函数数 | ≤ 7 | 8+ 即提示拆模块 |
+
+### 单函数 spec 分级（2026-05 mkdir 重生实验校准）
+
+按函数的复杂度与并发特征分三级。实验数据：mkdir VOP（两阶段锁 + 6 helper [RELY]）
+最小可达 215 LOC，结构性 [RELY] 块占 85，无法压至 150 而不破坏论文 §4.1 的"用真实 C
+签名而非抽象名"硬规则。
+
+| 函数类型 | 上限 LOC | 论文/实验参照 |
+|---|---|---|
+| 工具函数（≤2 helper, 无锁） | **≤100** | atomfs `malloc_inode.spec` 53 LOC |
+| VOP / helper（无锁路径） | **≤150** | atomfs `atomfs_open.spec` 86 LOC |
+| VOP（持锁两阶段或更多） | **≤220** | exfat `VfsExfatMkdir` v04draft 215 LOC |
+
+**质量门控不放在总 LOC，放在 [SPECIFICATION] + [Refine] 两段总和（去 [RELY]/
+[GUARANTEE] 工程性 boilerplate）**：单函数 ≤ 100 LOC 才算"行为契约不臃肿"。
 
 ## 模块合并示例（exFAT Wave B 后续）
 

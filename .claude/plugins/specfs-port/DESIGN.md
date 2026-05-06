@@ -156,6 +156,32 @@ mount (root)
 
 Topological constraint: a stage's spec generation can begin only after **all ancestor code layers** are approved. Within a stage, multiple specs (e.g., `lookup.spec` + `readdir.spec` + `open.spec`) can be generated in parallel via sub-agents if they share no [RELY] dependencies on each other.
 
+### 2.4 Spec modularity — 1 spec / 1 function (hard rule, v0.4)
+
+Per paper §4.2 and confirmed by the 2026-05 mkdir regen experiment
+(`spec/exfat/inode/exfat_mkdir.spec.v04draft` 223 LOC for VfsExfatMkdir vs
+the legacy 742 LOC bundle for 7 functions):
+
+**One spec file = one [GUARANTEE] function.** Helper functions referenced from
+a public VOP must each get their own `.spec` under the same module directory;
+they are NOT collapsed into a single bundle.
+
+| Past pattern (Wave A/B Stage 4e) | v0.4 pattern |
+|---|---|
+| `inode/exfat_mkdir.spec` containing 7 [GUARANTEE] entries (calc_num_entries, zeroed_cluster, alloc_new_dir, init_dir_entry, init_ext_entry, add_entry, VfsExfatMkdir) → 742 LOC | `inode/exfat_mkdir.spec` for VOP only (~220 LOC); siblings: `exfat_add_entry.spec`, `exfat_init_ext_entry.spec`, `exfat_init_dir_entry.spec`, `exfat_alloc_new_dir.spec`, `exfat_zeroed_cluster.spec`, `exfat_calc_num_entries.spec`. |
+
+Why this matters:
+- **Invariant tracking**: each spec owns its own invariant set; bundles concentrate 13 invariants in one file and create ambiguity about which invariant belongs to which function.
+- **Parallel generation**: sub-agents can take ONE spec each via `Task()` (P4.1), only possible at function granularity.
+- **SpecFine targeting**: when SpecEval flags a defect, F3 SpecFine polishes the SPECIFIC spec that owns the relevant invariant — bundles force the polish to retouch unrelated content.
+- **Module budget enforcement**: BUDGETS.md tiered limits (≤100 / ≤150 / ≤220 LOC per function) only make sense per-function; bundles always violate these.
+
+**Promotion rule**: an existing bundled spec can stay frozen as-is if it
+already approved code; future stages within the same module MUST use 1-per-
+function. Splitting a bundle retroactively is OPTIONAL — doing so requires
+re-running `dag_check_node_complete` and Layer 3 SpecEval to confirm
+invariant set is preserved across the split.
+
 ## 3. File layout
 
 ```
