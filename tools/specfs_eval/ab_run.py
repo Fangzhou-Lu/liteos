@@ -28,8 +28,10 @@ GATES = [
     ("kernel_build_pass", "硬门 2：kernel build 通过",
      lambda b, e: e.get("kernel_build_pass") is True),
     ("invariant_preserve","硬门 3：baseline invariant 全部保留",
+     # v0.4: prefer module_invariant_ids (covers 1-spec-per-function split);
+     # fall back to per-spec ids for legacy baselines lacking the field.
      lambda b, e: set(b.get("spec_invariant_ids", [])) <=
-                  set(e.get("spec_invariant_ids", []))),
+                  set(e.get("module_invariant_ids", e.get("spec_invariant_ids", [])))),
     ("coverage_preserve", "硬门 4：testpoint ≥ baseline × 0.8",
      lambda b, e: (e.get("testpoint_count") or 0) >=
                   0.8 * (b.get("testpoint_count") or 0)),

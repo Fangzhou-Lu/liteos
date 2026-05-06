@@ -1,2 +1,3 @@
 date,optimization,baseline_stage,experiment_stage,gates_passed,signals_passed,merge_decision
 2026-05-05,p0-6-dedupe-style-rules,mkdir,mkdir,4/4,0/6,REJECT-no-signal-revert
+2026-05-07,v04-1spec1function-promotion,mkdir,mkdir,4/4,1/6,ACCEPT

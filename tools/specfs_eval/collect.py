@@ -46,6 +46,21 @@ def _spec_metrics(spec_path: Path) -> dict:
     lines = text.splitlines()
     segs = {seg: f"[{seg}]" in text for seg in ("PROMPT", "RELY", "GUARANTEE", "SPECIFICATION")}
     invariants = re.findall(r"^\s*\*\*Invariant\*\*\s*\(id=([^)]+)\)", text, flags=re.M)
+    # v0.4 module aggregation: walk all .spec siblings in spec/<module>/ tree
+    # so AB protocol gate 3 (invariant_preserve) works after 1-spec-per-function
+    # split. Old bundled specs collapse module_invariant_ids == spec_invariant_ids.
+    module_root = spec_path
+    while module_root.parent != module_root and module_root.parent.name != "spec":
+        module_root = module_root.parent
+    module_invariants: list[str] = []
+    if module_root.is_dir() or module_root.parent.name == "spec":
+        # `module_root` is now spec/<module>/<sub>/<file>; walk spec/<module>/
+        module_dir = module_root if module_root.is_dir() else module_root.parent
+        for p in sorted(module_dir.rglob("*.spec")):
+            sib = p.read_text(encoding="utf-8")
+            for inv in re.findall(r"^\s*\*\*Invariant\*\*\s*\(id=([^)]+)\)", sib, flags=re.M):
+                if inv not in module_invariants:
+                    module_invariants.append(inv)
     refine = len(re.findall(r"^##\s*Refine Prompt", text, flags=re.M))
     rely_externs = re.findall(r"^\s*extern\s+\S", text, flags=re.M)
     # Pull function symbols out of [GUARANTEE] (use as code-export hint when DAG empty).
@@ -66,6 +81,7 @@ def _spec_metrics(spec_path: Path) -> dict:
         "spec_segments_missing": [k for k, v in segs.items() if not v],
         "spec_invariants": len(invariants),
         "spec_invariant_ids": invariants,
+        "module_invariant_ids": module_invariants,
         "spec_refine_prompts": refine,
         "spec_rely_extern_count": len(rely_externs),
         "spec_guarantee_exports": spec_exports,
