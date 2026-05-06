@@ -81,9 +81,41 @@ Use `AskUserQuestion` with these options:
 ## Step 5 — handle user response
 
 **If approve**: call `specfs.spec_gen_approve(session_id, final_spec_text=<draft content>)`.
-The MCP server moves draft → final, updates DAG, returns confirmation. Print
-"Saved to <path>; DAG node `<stage>-` spec layer committed."
-Suggest: "Next: `/specfs-port-code spec/<module>/.../<op>.spec`".
+The MCP server moves draft → final, updates DAG, returns confirmation.
+
+**Layer T — fire spec-derived cmocka test gen** (relocated from Loop B in v0.4):
+
+Test is derived from the spec's `[GUARANTEE]` (function signatures) and
+`[SPECIFICATION]` (Pre/Post-condition cases + Invariants). It does NOT depend
+on the C code, so it runs immediately after spec approval — parallel to
+`/specfs-port-code` rather than after it.
+
+1. Call `specfs.test_gen_start(session_id)` → `{prompt_for_llm, draft_path,
+   harness_dir_exists}`.
+2. If `harness_dir_exists` is False, warn user that the test file will be
+   written but the harness wiring (Makefile / main.c) skip will require manual
+   fix-up; proceed anyway.
+3. Read the prompt and generate the cmocka test source as a single ```c ... ```
+   fenced block. One testpoint per spec Case + one per testable Invariant.
+4. Call `specfs.test_gen_submit(session_id, generated_test_text=<code>)`.
+   Server writes `<draft_path>`. Returns `{next: "review" | "test_speceval"}`.
+5. If `next: "test_speceval"`, the server returns a SpecEval-style auto-check
+   prompt. Generate JSON `{is_good, comments}`; on `is_good=false` loop back
+   to step 3. Max 3 rounds (test gen is usually quick — escalate to user if
+   it doesn't converge).
+6. Auto-approve when self-check passes: call
+   `specfs.test_gen_approve(session_id, final_test_text=<text>)`. Server
+   renames `.draft` → `.c`, applies Makefile + main.c diffs, runs `git add`.
+7. Print: "Saved <test path> ({testpoints} testpoints). Wired into
+   {makefile_diff} / {mainc_diff}. DAG node tests layer auto-approved."
+
+If the harness directory does not exist or auto-wiring fails, surface
+explicitly so the user can fix manually before running cmocka.
+
+After Layer T completes (or skips with warning), print:
+"Saved spec/<...>.spec; DAG node `<stage>-` spec layer committed.
+Test draft auto-approved (or escalated). Next: `/specfs-port-code <spec-path>`
+to generate the C code (test gen will not block code gen)."
 
 **If suggest edits**: capture user's free-form feedback. Call
 `specfs.spec_gen_refine(session_id, user_suggestion=<text>)` to get a refined
@@ -102,6 +134,50 @@ files written." STOP.
 - Default 5 refine rounds before warning user "Spec keeps drifting; consider
  splitting target stage or starting fresh with clarified requirements."
 - No hard cap; user controls.
+
+## Batch mode — parallel sibling spec_gen (P4.1)
+
+When the user asks for multiple stages of the SAME module (e.g. "generate
+specs for create + mkdir + unlink + rmdir + rename" within the dirops
+module), dispatch them in parallel via Claude's built-in `Task()` agent
+mechanism — NOT server-side ThreadPool.
+
+**Pre-check (mandatory) before parallel dispatch:**
+
+1. List each requested sibling stage's [RELY] symbol set. (For Linux→spec
+   abstraction, the [RELY] is derived from Linux source, not from another
+   sibling's spec — siblings should be independent at spec-gen time.)
+2. Call `specfs.dag_check_node_complete(module, node_id=<each ancestor>)`
+   to confirm all ancestor stages are approved.
+3. If ANY pair of sibling stages has a potential cross-[RELY] coupling (e.g.,
+   one references a helper the other defines), fall back to **serial**
+   generation. Cross-coupling defeats parallelism's correctness guarantee.
+4. After parallel completion, run `specfs.dag_check_node_complete` on each
+   sibling's spec layer to detect post-merge invariant conflicts before any
+   `spec_gen_approve` calls.
+
+**Dispatch pattern (per sibling, one `Task()` per agent, all in one message):**
+
+```
+Task(subagent_type="oh-my-claudecode:executor", model="sonnet",
+     prompt="Run /specfs-port-spec <linux-path> create --module=exfat. ...")
+Task(subagent_type="oh-my-claudecode:executor", model="sonnet",
+     prompt="Run /specfs-port-spec <linux-path> mkdir --module=exfat. ...")
+Task(subagent_type="oh-my-claudecode:executor", model="sonnet",
+     prompt="Run /specfs-port-spec <linux-path> unlink --module=exfat. ...")
+```
+
+Each sub-agent reaches `spec_gen_start` independently, gets its own prompt
+with the same `common.header` snapshot, drafts a spec, submits, and parks
+at the user-review HITL. Main Claude reviews drafts in batch (one
+AskUserQuestion per sibling, OR a single multi-spec review prompt) and
+issues `spec_gen_approve` per accepted draft.
+
+**Token cost note:** parallel agents each load common.header / Linux source /
+the prompt template independently — N× context per sibling vs serial sharing.
+Trade off wall time against tokens deliberately. For 3–5 siblings the ratio
+is typically favorable; for ≥ 8 stages, prefer serial unless wall time is
+critical.
 
 ## Important reminders
 

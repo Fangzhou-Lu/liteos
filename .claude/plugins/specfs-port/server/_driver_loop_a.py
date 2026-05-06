@@ -4,10 +4,15 @@ specfs MCP tools this session.
 
 Usage:
     cd .claude/plugins/specfs-port/server
-    uv run python _driver_loop_a.py <module> <target_stage> <linux_path>
+    uv run python _driver_loop_a.py <module> <target_stage> <linux_path> [--filter-by-spec=<path>]
 
 Outputs the assembled Loop-A prompt to stdout (and also writes it to
 .assembled_prompt.txt for inspection).
+
+When --filter-by-spec=<path> is supplied, the driver reads the [RELY] block
+of that approved spec and filters common.header to keep only externs that
+spec references. Used by tools/specfs_eval/collect.py to model the
+optimisation 'shrink common.header per stage [RELY]' in A/B replay mode.
 """
 from __future__ import annotations
 
@@ -19,14 +24,28 @@ import prompts
 
 
 def main() -> int:
-    if len(sys.argv) != 4:
+    args = sys.argv[1:]
+    filter_spec: Path | None = None
+    rest: list[str] = []
+    for a in args:
+        if a.startswith("--filter-by-spec="):
+            filter_spec = Path(a.split("=", 1)[1])
+        else:
+            rest.append(a)
+    if len(rest) != 3:
         print(__doc__)
         return 2
-    module, stage, linux_path = sys.argv[1:]
+    module, stage, linux_path = rest
 
     repo_root = Path(__file__).resolve().parents[4]  # .claude/plugins/specfs-port/server -> repo
     common_header_path = repo_root / "spec" / module / "common.header"
     common_header = common_header_path.read_text() if common_header_path.is_file() else ""
+
+    if filter_spec is not None and filter_spec.is_file():
+        spec_text = filter_spec.read_text()
+        rely_syms = prompts.extract_rely_symbols(spec_text)
+        if rely_syms:
+            common_header = prompts.filter_common_header_by_symbols(common_header, rely_syms)
 
     dag = dag_module.load(module)
     inherited_invariants: list[dict[str, str]] = []  # mount has no ancestors

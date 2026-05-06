@@ -94,6 +94,47 @@ def substitute(template: str, context: dict[str, str]) -> str:
     return _drop_empty_sections(text)
 
 
+def filter_common_header_by_symbols(common_header: str, keep_symbols: set[str]) -> str:
+    """Shrink a common.header by dropping extern function declarations whose name
+    is not in keep_symbols.
+
+    Preserves: leading import line, /* */ comment blocks, #define macros, enums,
+    typedefs, struct forward declarations, extern *variable* declarations
+    (no parens). Only `extern <ret> <name>(...);` function declarations are
+    candidates for elision.
+
+    Used by Loop B codegen and Loop A spec-refine when the [RELY] symbol set is
+    known. For first-pass Loop A generation the set is unknown and the full
+    header is passed.
+    """
+    if not keep_symbols:
+        return common_header
+    pattern = re.compile(r"extern\s+[^;{}]+;", re.DOTALL)
+
+    def repl(match: re.Match[str]) -> str:
+        stmt = match.group(0)
+        fm = re.search(r"\b(\w+)\s*\(", stmt)
+        if not fm:
+            return stmt
+        name = fm.group(1)
+        return stmt if name in keep_symbols else ""
+
+    text = pattern.sub(repl, common_header)
+    text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text)
+    return text
+
+
+def extract_rely_symbols(spec_text: str) -> set[str]:
+    """Extract identifiers referenced in a spec's [RELY] block. Used to drive
+    filter_common_header_by_symbols when shrinking prompts for refine/code-gen
+    rounds where the spec is approved."""
+    m = re.search(r"\[RELY\](.*?)(?=^\[[A-Z])", spec_text, re.DOTALL | re.MULTILINE)
+    if not m:
+        return set()
+    body = m.group(1)
+    return set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\b", body))
+
+
 # ---- Top-level assembly helpers ----------------------------------------------
 
 
@@ -118,22 +159,28 @@ def assemble_codegen_prompt(
     failures: Optional[list[FailureNote]] = None,
     user_clarifications: Optional[list[dict[str, str]]] = None,
 ) -> str:
-    """Assemble the Loop B codegen prompt from prompts/codegen.md."""
+    """Assemble the Loop B codegen prompt from prompts/codegen.md.
+
+    Default code-gen injects the compact LITEOS_DIGEST (~1.7K). The four big
+    legacy fragments (style_rules / linux_to_liteos_table / format_traps /
+    ask_first_rules) are kept as opt-in kwargs for the lazy-injection retry
+    path: when a SpecEval / compile / build round flags a specific class, the
+    plugin passes the matching detailed fragment to expand the digest.
+    """
     template = load("codegen")
-    style_rules = style_rules if style_rules is not None else load("style_rules")
-    linux_to_liteos_table = linux_to_liteos_table if linux_to_liteos_table is not None else load("linux_to_liteos_table")
-    format_traps = format_traps if format_traps is not None else load("format_traps")
-    ask_first_rules = ask_first_rules if ask_first_rules is not None else load("ask_first_rules")
+    liteos_digest = load("liteos_digest")
 
     inv_block = _render_invariants(inherited_invariants)
     refine_block = _render_failures(failures or [])
 
     ctx = {
         "MODULE": module,
-        "STYLE_RULES": style_rules,
-        "LINUX_TO_LITEOS_TABLE": linux_to_liteos_table,
-        "FORMAT_TRAPS": format_traps,
-        "ASK_FIRST_RULES": ask_first_rules,
+        "LITEOS_DIGEST": liteos_digest,
+        # Lazy-injected detailed fragments (empty by default; opt-in on retry).
+        "STYLE_RULES": style_rules or "",
+        "LINUX_TO_LITEOS_TABLE": linux_to_liteos_table or "",
+        "FORMAT_TRAPS": format_traps or "",
+        "ASK_FIRST_RULES": ask_first_rules or "",
         "COMMON_HEADER": common_header.strip() or "(empty — first stage)",
         "INHERITED_INVARIANTS": inv_block,
         "PRIOR_CODE_INTERFACE": prior_code_interface or "(none — first stage)",
@@ -153,19 +200,18 @@ def assemble_linux_to_spec_prompt(
     common_header: str,
     inherited_invariants: list[dict[str, str]],
     prior_spec_index: str,
-    style_rules: Optional[str] = None,
-    linux_to_liteos_table: Optional[str] = None,
-    format_traps: Optional[str] = None,
     ask_first_rules: Optional[str] = None,
     user_clarifications: Optional[list[dict[str, str]]] = None,
     user_suggestions: Optional[list[str]] = None,
     previous_spec: str = "",
 ) -> str:
-    """Assemble the Loop A spec-drafting prompt from prompts/linux_to_spec.md."""
+    """Assemble the Loop A spec-drafting prompt from prompts/linux_to_spec.md.
+
+    Spec stage is intentionally LEAN — no style/map/traps. Those are code-stage
+    concerns and leak implementation choices into the spec when injected here,
+    inflating spec LOC. Only ask-first rules (for disambiguation) are loaded.
+    """
     template = load("linux_to_spec")
-    style_rules = style_rules if style_rules is not None else load("style_rules")
-    linux_to_liteos_table = linux_to_liteos_table if linux_to_liteos_table is not None else load("linux_to_liteos_table")
-    format_traps = format_traps if format_traps is not None else load("format_traps")
     ask_first_rules = ask_first_rules if ask_first_rules is not None else load("ask_first_rules")
 
     ctx = {
@@ -174,9 +220,6 @@ def assemble_linux_to_spec_prompt(
         "TARGET_STAGE": target_stage,
         "SUB_PATH": sub_path,
         "OP": target_stage,
-        "STYLE_RULES": style_rules,
-        "LINUX_TO_LITEOS_TABLE": linux_to_liteos_table,
-        "FORMAT_TRAPS": format_traps,
         "ASK_FIRST_RULES": ask_first_rules,
         "COMMON_HEADER": common_header.strip() or "(empty — first stage)",
         "INHERITED_INVARIANTS": _render_invariants(inherited_invariants),
@@ -194,6 +237,19 @@ def assemble_speceval_prompt(*, generated_code: str, original_spec: str) -> str:
     return substitute(template, {
         "GENERATED_CODE": generated_code.strip(),
         "ORIGINAL_SPEC": original_spec.strip(),
+    })
+
+
+def assemble_spec_fine_prompt(*, original_spec: str, speceval_comments: str) -> str:
+    """F3 SpecFine prompt — polishes existing spec from SpecEval comments.
+
+    Used when SpecEval flags a defect rooted in the spec (not the generated
+    code). Hard cap on 3 rounds is enforced server-side, not in the prompt.
+    """
+    template = load("spec_fine")
+    return substitute(template, {
+        "ORIGINAL_SPEC": original_spec.strip(),
+        "SPECEVAL_COMMENTS": speceval_comments.strip() or "(empty — no comments captured)",
     })
 
 

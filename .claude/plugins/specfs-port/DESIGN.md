@@ -32,6 +32,51 @@
 | **LLM (Claude)** | spec files, code files, response messages, AskUserQuestion calls | own outputs (SpecEvaluator opt-in) | nothing |
 | **Plugin (MCP server)** | DAG state, prompt assemblies, queue ordering | nothing | nothing |
 
+### 2.1.1 Mapping to paper §4.5 (v0.4 alignment)
+
+The SpecFS paper §4.5 defines three components. Our porting variant maps as
+follows — names of our existing tools / commands are NOT renamed (avoid churn);
+this table is the canonical Rosetta stone.
+
+| Paper component (§4.5) | Our component | Tools / commands |
+|---|---|---|
+| **SpecAssistant** — develop/refine spec, run SpecFine on SpecEval feedback | Loop A — `spec_gen_*` (porting variant: input is NL + Linux source, not user draft) + **F3 SpecFine** | `/specfs-port-spec`, `spec_gen_start` / `_submit` / `_refine` / `_approve`, **`spec_fine` / `spec_fine_submit`** (cap 3) |
+| **SpecCompiler** — spec → C; iterative retry-with-feedback | Loop B — `code_gen_*` | `/specfs-port-code`, `code_gen_start` / `_submit` / `_refine` / `_approve` |
+| **SpecValidator** — final holistic verification (spec review + tests) | **F4 holistic validator** at module completion (≤800 LOC budget) | **`validator_run_holistic(module)`** wrapping `tools/regress/run_all.sh` (Wave A cmocka host + Wave B QEMU LTP smoke) |
+
+**Concept-only equivalents (no separate tool):**
+
+- **Intent / domain knowledge injection** (paper §4.1): folded into spec
+  `[PROMPT]` block, plus `// helper-purpose` comments above [RELY] entries.
+- **System Algorithm** (paper §4.1): optional sub-block within spec
+  [SPECIFICATION], same as paper's atomfs_rename example.
+- **SpecEvaluator** (paper §4.5 sub-component of SpecCompiler): Layer 3 in our
+  Loop B, single LLM round per code-gen retry, `prompts/speceval.md`. In v0.4
+  this round also covers LiteOS-A style dimensions (formerly separate Layer S).
+
+**Things we have, paper does not:**
+
+- DAG with multi-stage spec inheritance (`dag_extract_invariants`) — needed
+  because LiteOS porting builds the FS bottom-up across many merges, paper's
+  AtomFS is one shot per FS.
+- Layer T (cmocka test generation, v0.3.4) — runs after `spec_gen_approve`
+  in v0.4 (was after `code_gen_approve` in v0.3.4); auto-approved on internal
+  self-check pass.
+- LITEOS_DIGEST + FRAGMENT INDEX (v0.4) — LiteOS-A-specific rules the paper
+  did not need (BSD-3 license, libsec, FSMAP_ENTRY linker tables, partition
+  vs disk addressing). Compact preamble; LLM pulls full detail on demand via
+  `fetch_prompt_fragment`.
+
+**Things paper has, we explicitly skipped:**
+
+- Two-phase SpecCompiler (sequential logic / concurrency instrumentation
+  separately, paper §4.5). Skipped per user decision: "拆分两阶段是当时 LLM
+  的局限"; current Claude handles single-shot generation. Locking still gets
+  separate treatment via spec's optional `## Refine Prompt` segment.
+- ThreadPoolExecutor parallelism (`spec2code.py:188`). Replaced by P4.1
+  Claude `Task()` agent dispatch — same parallel intent, native to our
+  runtime, no additional process management.
+
 ### 2.2 The two loops
 
 ```

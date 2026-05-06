@@ -89,6 +89,7 @@ class Session:
     # v0.3.4: "test_gen" added (Layer T retry budget; default 3 rounds, see DESIGN §10).
     layer_retries: dict[str, int] = field(default_factory=lambda: {
         "compile": 0, "style": 0, "build": 0, "qemu": 0, "speceval": 0, "test_gen": 0,
+        "spec_fine": 0,  # F3 SpecFine: spec polish via SpecEval feedback (cap 3)
     })
 
     # Plugin v0.2: SpecEvaluator self-audit ON by default. The user explicitly

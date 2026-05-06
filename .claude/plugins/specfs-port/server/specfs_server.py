@@ -1140,6 +1140,216 @@ def sync_common_header(module: str) -> dict[str, str]:
     return {"diff": diff or "(no changes)"}
 
 
+_FRAGMENT_REGISTRY = {
+    "style_rules": "Full LiteOS-A style rules: naming, layout, license, error path, file generation order. Fetch when picking a function-name convention or inventing a helper file.",
+    "linux_to_liteos_table": "Full Linux→LiteOS-A primitive map: types, memory, locking, disk IO, strings, errno, VFS callbacks, linker tables. Fetch when the spec mentions a Linux primitive the digest does not cover.",
+    "format_traps": "Format-compatibility traps: CRC variants, byte order, charsets, packed-struct alignment. Fetch when the spec touches on-disk data with checksums / multi-byte fields / non-UTF-8 charsets.",
+    "ask_first_rules": "Ask-first disambiguation framework. Fetch only if mid-codegen you encounter spec ambiguity that the spec author did not resolve.",
+}
+
+
+@mcp.tool()
+def fetch_prompt_fragment(name: str) -> dict[str, str]:
+    """LLM-driven on-demand expansion of a code-gen reference fragment.
+
+    The default codegen prompt carries only a compact LITEOS_DIGEST plus an
+    INDEX of these fragments. The LLM decides which (if any) to pull while
+    generating; this tool returns the fragment's full markdown content.
+
+    Valid `name` values: style_rules / linux_to_liteos_table / format_traps /
+    ask_first_rules. Other names raise ValueError.
+    """
+    if name not in _FRAGMENT_REGISTRY:
+        raise ValueError(
+            f"Unknown fragment {name!r}. Valid names: "
+            + ", ".join(sorted(_FRAGMENT_REGISTRY.keys()))
+        )
+    content = prompts.load(name)
+    return {
+        "name": name,
+        "content": content,
+        "size": len(content),
+        "hint": _FRAGMENT_REGISTRY[name],
+    }
+
+
+_SPEC_FINE_CAP = 3  # per project memory feedback_specfine_cap_3.md
+
+
+@mcp.tool()
+def validator_run_holistic(module: str) -> dict[str, Any]:
+    """F4 — holistic SpecValidator (paper §4.5).
+
+    Runs at MODULE COMPLETION (not per-stage). Single comprehensive pass:
+    1. Wave A — host cmocka via testsuites/unittest/<module>/Makefile
+    2. Wave B — QEMU LTP smoke via tools/regress/qemu_<module>_run.sh
+    3. Both aggregated by tools/regress/run_all.sh
+
+    Per-stage validation in v0.4 is reduced to LSP only (Layer 1). This
+    holistic validator replaces the per-stage Layer 2 (build + QEMU smoke)
+    that v0.3 ran on every code_gen_approve — wasteful for module sizes
+    that approach the paper's 500 LoC budget.
+
+    Returns:
+      {ok: bool, cmocka_pass: bool, qemu_smoke_pass: bool, exit_code: int,
+       report_path: str, stderr_tail: str}
+
+    Exit codes from run_all.sh: 0=pass, 1=test failure, 2=panic-or-hang.
+    """
+    repo = _repo_root()
+    runner = repo / "tools" / "regress" / "run_all.sh"
+    if not runner.exists():
+        return {
+            "ok": False,
+            "cmocka_pass": False,
+            "qemu_smoke_pass": False,
+            "exit_code": -1,
+            "report_path": "",
+            "stderr_tail": f"run_all.sh not found at {runner}",
+        }
+    log_path = f"/tmp/specfs_holistic_{module}.log"
+    try:
+        res = subprocess.run(
+            ["bash", str(runner)],
+            cwd=str(repo),
+            capture_output=True, text=True, timeout=900,
+            env={**os.environ, "MODULE": module, "REGRESS_LOG": log_path},
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False,
+            "cmocka_pass": False,
+            "qemu_smoke_pass": False,
+            "exit_code": -2,
+            "report_path": "",
+            "stderr_tail": "holistic validator timeout (>15 min)",
+        }
+    except FileNotFoundError as ex:
+        return {
+            "ok": False,
+            "cmocka_pass": False,
+            "qemu_smoke_pass": False,
+            "exit_code": -3,
+            "report_path": "",
+            "stderr_tail": f"failed to run: {ex}",
+        }
+
+    out = (res.stdout or "") + (res.stderr or "")
+    report_link = repo / "docs" / "test" / f"{module}_regression_latest.md"
+    report_path = str(report_link.resolve()) if report_link.exists() else ""
+    return {
+        "ok": res.returncode == 0,
+        "cmocka_pass": "TOTAL FAILURES: 0" in out,
+        "qemu_smoke_pass": "LTP_DONE" in out and "panic" not in out.lower(),
+        "exit_code": res.returncode,
+        "report_path": report_path,
+        "stderr_tail": "\n".join(out.strip().splitlines()[-30:]),
+    }
+
+
+@mcp.tool()
+def spec_fine(session_id: str, speceval_comments: str) -> dict[str, Any]:
+    """F3 SpecFine — polish the approved spec based on SpecEval comments.
+
+    Triggered when Layer 3 (SpecEval) flags a defect that is spec-side, not
+    code-side. Hard cap of 3 rounds; on cap exceeded, returns
+    `{"next": "user_review", "reason": "spec_fine_cap_exceeded"}` and does
+    NOT increment further.
+
+    Returns `{"next": "spec_polish", "prompt": <text>, "attempt": <n>,
+    "cap": 3}` on a fresh round. Caller (LLM) uses the prompt to produce a
+    polished spec, then calls `spec_fine_submit` to record the result.
+
+    Note: this rewires the SpecEval failure path. Prior behaviour: SpecEval
+    fail → code regen only. Now: SpecEval fail → caller decides spec-side or
+    code-side fix; spec-side calls spec_fine; code-side keeps the existing
+    code_gen_refine path.
+    """
+    sess = _get(session_id)
+    cur = sess.layer_retries.get("spec_fine", 0)
+    if cur >= _SPEC_FINE_CAP:
+        return {
+            "next": "user_review",
+            "reason": "spec_fine_cap_exceeded",
+            "attempt": cur,
+            "cap": _SPEC_FINE_CAP,
+            "advice": (
+                "SpecFine reached its 3-round cap without the SpecEval defect "
+                "being resolved. Escalate: ask the user to revise the spec by "
+                "hand or to break the stage into smaller pieces."
+            ),
+        }
+
+    # Resolve the spec to polish
+    spec_path = sess.spec_final_path or sess.code_spec_path
+    if not spec_path:
+        raise ValueError(
+            "Session has no approved spec attached — call spec_gen_approve "
+            "or code_gen_start first."
+        )
+    full = _repo_root() / spec_path
+    if not full.exists():
+        raise FileNotFoundError(f"Spec file missing: {spec_path}")
+    original = full.read_text(encoding="utf-8")
+
+    prompt_text = prompts.assemble_spec_fine_prompt(
+        original_spec=original,
+        speceval_comments=speceval_comments,
+    )
+    sess.last_prompt = prompt_text
+    sess.layer_retries["spec_fine"] = cur + 1
+
+    return {
+        "next": "spec_polish",
+        "prompt": prompt_text,
+        "spec_path": spec_path,
+        "attempt": cur + 1,
+        "cap": _SPEC_FINE_CAP,
+    }
+
+
+@mcp.tool()
+def spec_fine_submit(session_id: str, polished_spec_text: str) -> dict[str, Any]:
+    """Persist a SpecFine round's polished spec back to the approved path.
+
+    Overwrites the approved spec in place. The DAG node spec layer remains
+    approved (the polish is treated as a tightening, not a regression). After
+    this call, downstream code_gen_refine should be invoked so codegen retries
+    against the tighter spec.
+
+    Returns `{"next": "code_regen", "spec_path": <path>, "bytes_written": N}`.
+    """
+    sess = _get(session_id)
+    spec_path = sess.spec_final_path or sess.code_spec_path
+    if not spec_path:
+        raise ValueError("No approved spec attached to session.")
+    full = _repo_root() / spec_path
+    if not full.exists():
+        raise FileNotFoundError(f"Spec file missing: {spec_path}")
+    text = polished_spec_text.strip() + "\n"
+    full.write_text(text, encoding="utf-8")
+    return {
+        "next": "code_regen",
+        "spec_path": spec_path,
+        "bytes_written": len(text),
+        "attempt": sess.layer_retries.get("spec_fine", 0),
+    }
+
+
+@mcp.tool()
+def list_prompt_fragments() -> dict[str, dict[str, str]]:
+    """Return the fragment registry — names, sizes, and when-to-fetch hints —
+    so the LLM can decide whether to call fetch_prompt_fragment(name)."""
+    out: dict[str, dict[str, str]] = {}
+    for name, hint in _FRAGMENT_REGISTRY.items():
+        try:
+            size = len(prompts.load(name))
+        except FileNotFoundError:
+            size = 0
+        out[name] = {"hint": hint, "size_chars": str(size)}
+    return out
+
+
 # ---- Internal helpers --------------------------------------------------------
 
 
