@@ -1,0 +1,11 @@
+# Telemetry log emitted by server/_metrics.py — local-only, not committed.
+# Override location via SPECFS_METRICS_LOG env var.
+.specfs-metrics.jsonl
+
+# Python build / cache artifacts
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.venv/
+*.egg-info/

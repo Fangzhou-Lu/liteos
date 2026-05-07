@@ -3,6 +3,158 @@
 All notable changes to this plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/) loosely; semver applies.
 
+## [0.5.3] — 2026-05-08
+
+### Added — performance / token telemetry for MCP + LLM rounds
+
+User directive 2026-05-08:
+> "请设计 specfs-port 插件的性能检测机制，能够检测 LLM 调用次数时间和 token
+> 消耗以及 MCP 调用次数和时间消耗记录到日志中"
+
+Per-tool telemetry, JSONL log, CLI aggregator. Captures both MCP-tool
+metrics directly and infers LLM round-trip metrics from the gap between
+prompt-issuing tools and tools that ingest LLM-generated text.
+
+#### Captured per tool call (one JSONL line)
+
+```json
+{"type":"mcp_tool","tool":"code_gen_submit","session_id":"abc123",
+ "ts":1715170800.123,"ts_iso":"2026-05-08T...Z",
+ "duration_s":0.0421,"input_tokens_est":1380,"output_tokens_est":0,
+ "is_llm_round_trigger":false,"is_llm_ingest":true,"error":null}
+```
+
+- `duration_s`: MCP-server-side wall-clock (includes timeout-wrapper time)
+- `input_tokens_est`: char-count/4 heuristic on the largest text-shaped
+  kwarg (generated_code / generated_spec_text / payload / ...)
+- `output_tokens_est`: char-count/4 of any prompt the tool returned
+  (`prompt_for_llm` / `next_prompt`)
+- `is_llm_round_trigger`: True when the tool returned a prompt
+  (server just kicked an LLM round)
+- `is_llm_ingest`: True for `*_submit`, `*_approve`, `inject_diagnostics`
+  — tools that consume LLM-generated text
+- `error`: stringified exception if the tool raised
+
+LLM round-trip duration is computed offline as the gap between
+consecutive `is_llm_round_trigger` and `is_llm_ingest` events on the
+same `session_id`.
+
+#### How metrics are wired
+
+1. `server/_metrics.py` (~210 LOC):
+   - `estimate_tokens(text)` — char/4 heuristic.
+   - `emit(event)` — append JSONL, lockfile-protected, never raises.
+   - `install_metrics(mcp)` — monkey-patches `mcp.tool` a SECOND time
+     after `install_default_timeout`. Decoration order ends up:
+     `metrics → timeout → original_fn`. Uses `inspect.signature.bind_partial`
+     so positional and keyword calls both surface session_id correctly.
+     Idempotent (`__specfs_metrics_patched__` tag).
+   - `aggregate(events, session_id?)` → `SessionAggregate` dataclass.
+   - `read_log(path?)` — JSONL reader, skips malformed lines.
+2. `server/specfs_server.py`:
+   - imports + calls `install_metrics(mcp)` right after the timeout
+     installer. Zero per-tool edits.
+   - new `metrics_summary(session_id?)` MCP tool returns the aggregated
+     dict for in-session checks.
+3. `server/specfs_metrics_report.py` (~140 LOC):
+   - CLI: pretty-print per-session counters or `--json` machine output.
+   - Includes Claude Opus pricing estimation
+     ($15/Mtok in, $75/Mtok out — adjust constants if needed).
+4. `.gitignore` (new at plugin root) excludes `.specfs-metrics.jsonl`
+   and the standard Python build artifacts.
+
+#### Configuration (env vars)
+
+- `SPECFS_METRICS_LOG=<path>` — override default log path. Default:
+  `<repo_root>/.specfs-metrics.jsonl`.
+- `SPECFS_METRICS_OFF=1` — disable telemetry entirely (CI / privacy).
+
+#### Tests
+
+`tests/test_metrics.py` (22 testpoints, all green):
+- `estimate_tokens` baseline + Unicode behavior.
+- `emit` writes JSONL, respects `SPECFS_METRICS_OFF`, never raises on
+  hostile path.
+- `_extract_input_tokens` first-match-wins on TEXT_PAYLOAD_KEYS;
+  returns 0 for unrelated kwargs.
+- `_extract_output_tokens` sums LLM_ROUND_TRIGGER_KEYS, handles
+  non-dict.
+- `install_metrics` records: ordinary tool / LLM-round trigger /
+  LLM-ingest tool / exceptions / **positional-arg session_id**
+  (via `inspect.signature.bind_partial`).
+- `install_metrics` idempotent.
+- `read_log` returns events in order, skips malformed lines, handles
+  missing file.
+- `aggregate` rolls up per-session, counts errors, supports no-filter
+  cross-session view, computes `llm_total_gap_s` correctly.
+- End-to-end smoke: real `specfs_server.session_start` writes a real
+  metrics event.
+
+Suite total: **165 passed in 0.72 s** (was 143 in 0.5.2).
+
+#### CLI usage
+
+```
+$ uv run python specfs_metrics_report.py
+=== specfs-port metrics ===
+log: /repo/.specfs-metrics.jsonl
+sessions: 3
+total events: 142
+--
+[session abc123def456]
+  MCP tool calls : 27
+  MCP duration   : 1.342 s  (avg 0.050 s, max 0.310 s)
+  LLM rounds     : 8
+  LLM input tok  : 31420 (~$0.4713 @ Opus)
+  LLM output tok : 4280  (~$0.3210 @ Opus)
+  LLM round-trip : 142.4 s  (avg 17.8 s, slowest 38.1 s)
+  Errors         : 0
+  Top tools:
+    code_gen_submit         : 6 (0.260 s total)
+    inject_diagnostics      : 5 (0.041 s total)
+    code_gen_start          : 1 (0.150 s total)
+```
+
+Or machine-readable: `--json` flag emits per-session aggregate dict.
+
+#### Modified
+
+- `server/specfs_server.py` — imports `install_metrics`, `read_log`,
+  `aggregate as metrics_aggregate`. Calls `install_metrics(mcp)` right
+  after `install_default_timeout(mcp)`. Adds new `metrics_summary` MCP
+  tool returning the aggregated counters.
+- `.claude-plugin/plugin.json` — version 0.5.2 → 0.5.3.
+
+#### Added
+
+- `server/_metrics.py`
+- `server/specfs_metrics_report.py`
+- `server/tests/test_metrics.py`
+- `.claude/plugins/specfs-port/.gitignore`
+
+#### Why now
+
+Repeated user complaints about long codegen rounds (the 卡死
+incidents that motivated 0.5.2 timeout). With timing data in hand,
+operators can:
+- Bisect which tool / LLM round is the bottleneck (vs guessing).
+- Set `SPECFS_DEFAULT_TIMEOUT_S` based on actual p95/p99.
+- Spot tool-error rates across sessions.
+- Cost-track Opus-vs-Sonnet usage decisions.
+
+#### Known caveats
+
+- Token estimates are char/4 heuristic — off ~±15% on Chinese-heavy
+  text. Acceptable for telemetry; do NOT use for billing decisions.
+- Background-thread timeout returns (from 0.5.2) DO write a metrics
+  event because the wrapper's `finally` clause runs synchronously
+  when the Future returns control. The event reflects wrapper
+  wall-clock (close to budget), not the actual fn's runtime.
+- The `metrics_summary` MCP tool itself emits an event on every call,
+  so subsequent reads see one extra `metrics_summary` row. Tagged
+  `is_llm_round_trigger=False / is_llm_ingest=False` so it doesn't
+  distort LLM-side counters — just `mcp_per_tool["metrics_summary"]`.
+
 ## [0.5.2] — 2026-05-07
 
 ### Added — MCP-tool timeout / hang-protection (user-reported workflow stalls)

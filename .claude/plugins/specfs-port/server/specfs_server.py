@@ -30,6 +30,7 @@ import extract
 import prompts
 import state
 from _timeout import install_default_timeout
+from _metrics import install_metrics, read_log, aggregate as metrics_aggregate
 
 
 mcp = FastMCP("specfs")
@@ -40,6 +41,14 @@ mcp = FastMCP("specfs")
 # `@mcp.tool(timeout=N)` — used below for run_build_kernel (620 s) and
 # validator_run_holistic (920 s) to accommodate their subprocess budgets.
 install_default_timeout(mcp)
+
+# v0.5.3 (2026-05-08): emit per-tool telemetry to JSONL log. Captures
+# duration / input+output token estimates / LLM-round flags / errors per
+# tool call. Default log path: <repo>/.specfs-metrics.jsonl (gitignored);
+# override via SPECFS_METRICS_LOG env var. Disable entirely with
+# SPECFS_METRICS_OFF=1. Decorator wraps OUTSIDE the timeout wrapper so
+# metrics see the full wall-clock including timeout returns.
+install_metrics(mcp)
 
 
 # session_id -> Session
@@ -1568,6 +1577,30 @@ def _git_add(paths: list[str]) -> None:
         )
     except (subprocess.SubprocessError, OSError):
         pass  # non-fatal
+
+
+# ---- Section 4.10 — Telemetry --------------------------------------------------
+
+
+@mcp.tool()
+def metrics_summary(session_id: Optional[str] = None) -> dict[str, Any]:
+    """Read the per-tool telemetry log and return aggregate counters.
+
+    Args:
+        session_id: filter to one session (omit for all-sessions rollup).
+
+    Returns:
+        dict with mcp_tool_calls, mcp_total_duration_s, mcp_per_tool,
+        llm_rounds, llm_input_tokens_est, llm_output_tokens_est,
+        llm_total_gap_s (sum of LLM round-trip wall-clock), errors.
+
+    Note: this tool itself emits an event before returning, so its own
+    call shows up in subsequent reads. The event is tagged
+    is_llm_round_trigger=False / is_llm_ingest=False, so it won't
+    distort the LLM-side counters — only the mcp_per_tool count.
+    """
+    events = read_log()
+    return metrics_aggregate(events, session_id=session_id).as_dict()
 
 
 # ---- Entry -------------------------------------------------------------------
