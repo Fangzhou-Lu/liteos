@@ -3,6 +3,69 @@
 All notable changes to this plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/) loosely; semver applies.
 
+## [0.5.5] — 2026-05-08
+
+### Slim — Loop A / Loop B prompt 减重 (P1.6 Wave 1)
+
+User directive 2026-05-08:
+> "LLM 调用过多，请根据日志数据对比原始论文和代码给出优化方案 ...
+>  当前规范存在可读性差以及规范冗余对代码生成无帮助的问题，请参照
+>  论文公开代码优化"
+
+#### 数据对比
+
+Telemetry 累计:212 MCP 调用 / 48 LLM rounds / 138K 输入 token / 10.7K
+输出。Loop A spec_gen 单轮 ~25K input(linux_to_spec 256 行 + ASK_FIRST
+全文 ~70 行 + TWO-PHASE 显式 forbidden list ~50 行)。Loop B code_gen
+~25K(codegen 84 行 + LITEOS_DIGEST + PRIOR INTERFACE)。
+
+上游公开仓 specfs/tools/gencode.py:158-176 codegen prompt 仅 ~25 行,
+spec 写作完全是人工(无 Loop A)。本插件 Loop A 是相对论文新增的能力,
+其提示理应紧凑。本轮优化目标:把"显式行为说明"压缩为"on-demand
+fragment"模式,默认提示精简、按需 fetch。
+
+#### Modified
+
+1. `prompts/linux_to_spec.md`:**256 → 116 行**(-55%)。
+   - 去掉 OUTPUT FORMAT 全段示例,改为每段一行的 terse skeleton。
+   - 去掉 TWO-PHASE METHODOLOGY 全段(50 行 forbidden list),改为
+     5 行触发规则 + 一句"borderline 时 fetch two_phase_rules.md"。
+   - REJECTION CRITERIA 从 9 项压缩为 6 项,合并相似条目。
+   - 估算 spec_gen_start 单轮输入 -3K(25K → 22K)。
+
+2. `prompts/codegen.md`:**84 → 50 行**(-40%)。
+   - "Required (always present)" / "Optional" 段头解释删除——LLM
+     直接读 spec 标题字面即可。
+   - "Output rules" 4 条压缩为 3 条,"Be precise and conservative"
+     语气词去掉。
+   - 估算 code_gen_start 单轮输入 -1K(25K → 24K)。
+
+3. `prompts/two_phase_rules.md` (NEW, ~140 行):
+   存原 linux_to_spec.md 的 TWO-PHASE 全量 forbidden list / 触发条件
+   / 经典示例 / borderline Q&A,fetch 时按需返回。
+
+4. `server/specfs_server.py::_FRAGMENT_REGISTRY`:
+   注册新 `two_phase_rules` 条目;`fetch_prompt_fragment` docstring 更新
+   有效名字列表。
+
+#### Why now
+
+每轮 spec_gen / code_gen 实测都在 22~25K 输入区间,占总开销主体。Loop A 单
+stage 一次性下发"全量两阶段 forbidden list"是大量浪费——LLM 多数时候
+不需要详细规则。fragment 模式对齐了上游的"轻量默认 + 按需展开"设计哲学,
+预计批量移植 12+ stage 时累计省 ~36K 输入 token。
+
+#### Known caveats
+
+- 本轮只动了 Loop A / Loop B 默认提示;尚未实现:
+  (a) 按 Linux 源功能对比生成代码的评估机制(用户原始诉求第 3 项);
+  (b) 反馈回路把评估结果写回 prompt 调优建议。
+  这两项作为 P1.7 候选,下一轮交付。
+- spec_fine.md / speceval.md / unittest_gen.md 暂未瘦身——它们触发频率
+  远低于 spec_gen / code_gen,优先级低。
+- 现有已批准 spec 不需要重写:新提示影响新 spec 写作流程;旧 spec 仍
+  按旧契约。
+
 ## [0.5.4] — 2026-05-08
 
 ### Restored — paper §4.1 two-phase spec methodology (P1.5)

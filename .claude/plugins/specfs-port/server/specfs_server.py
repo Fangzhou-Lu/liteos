@@ -1140,6 +1140,7 @@ _FRAGMENT_REGISTRY = {
     "linux_to_liteos_table": "Full Linux→LiteOS-A primitive map: types, memory, locking, disk IO, strings, errno, VFS callbacks, linker tables. Fetch when the spec mentions a Linux primitive the digest does not cover.",
     "format_traps": "Format-compatibility traps: CRC variants, byte order, charsets, packed-struct alignment. Fetch when the spec touches on-disk data with checksums / multi-byte fields / non-UTF-8 charsets.",
     "ask_first_rules": "Ask-first disambiguation framework. Fetch only if mid-codegen you encounter spec ambiguity that the spec author did not resolve.",
+    "two_phase_rules": "P1.5/P1.6 two-phase methodology — full forbidden lists for Phase 1 / Phase 2, trigger conditions, canonical examples, borderline-case Q&A. Fetch when unsure whether a construct (e.g. LOS_MuxInit) belongs in Phase 1 or Phase 2.",
 }
 
 
@@ -1152,7 +1153,7 @@ def fetch_prompt_fragment(name: str) -> dict[str, str]:
     generating; this tool returns the fragment's full markdown content.
 
     Valid `name` values: style_rules / linux_to_liteos_table / format_traps /
-    ask_first_rules. Other names raise ValueError.
+    ask_first_rules / two_phase_rules. Other names raise ValueError.
     """
     if name not in _FRAGMENT_REGISTRY:
         raise ValueError(
