@@ -1460,6 +1460,10 @@ def _derive_code_path(module: str, spec_path: str) -> str:
         "init_dir_entry":    f"{module}_inode.c",
         "init_ext_entry":    f"{module}_inode.c",
         "add_entry":         f"{module}_inode.c",
+        # mutation paths added in P1.5.2 (2026-05-08)
+        "unlink":            f"{module}_inode.c",
+        "rmdir":             f"{module}_inode.c",
+        "rename":            f"{module}_inode.c",
     }
     fname = SHARED_FILE_MAP.get(op)
     if fname:

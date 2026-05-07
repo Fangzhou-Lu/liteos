@@ -61,6 +61,10 @@ extern "C" {
 #define TYPE_STREAM                0x0201
 #define TYPE_EXTEND                0x0202
 
+/* Tombstone marker for exfat_inode_info::dir.dir after successful unlink /
+ * rmdir. Mirrors Linux fs/exfat/exfat_fs.h::DIR_DELETED. */
+#define DIR_DELETED                0xFFFFFFF7u
+
 /* ---- error policy ----------------------------------------------------- */
 enum exfat_error_mode {
     EXFAT_ERRORS_CONT  = 0,
@@ -497,6 +501,8 @@ int  VfsExfatMkdir(struct Vnode *parent_vp, const char *name,
                    mode_t mode, struct Vnode **vpp);
 int  VfsExfatCreate(struct Vnode *parent_vp, const char *name,
                     int mode, struct Vnode **vpp);
+int  VfsExfatUnlink(struct Vnode *parent_vp, struct Vnode *target_vp,
+                    const char *fileName);
 
 #ifdef __cplusplus
 }

@@ -1509,3 +1509,117 @@ int VfsExfatCreate(struct Vnode *parent_vp, const char *name,
     *vpp = new_vp;
     return 0;
 }
+
+/* ---------------------------------------------------------------------------
+ * VfsExfatUnlink — VnodeOps.Unlink callback (spec/exfat/inode/exfat_unlink.spec).
+ *
+ * Two-phase locking per spec Refine Prompt:
+ *   Phase 1 (under sbi->s_lock): vol_dirty bracket + dentry-set type-bit
+ *           top-bit clear + write-back + in-memory tombstone.
+ *   Phase 2 (lock-free w.r.t. s_lock): exfat_free_cluster releases the
+ *           cluster chain; bitmap_lock taken transitively per cluster.
+ *
+ * Invariants enforced:
+ *   exfat-unlink-dentry-type-top-bit-cleared  (Phase 1 step 5)
+ *   exfat-unlink-tombstone-prevents-reuse     (target_ei->dir.dir = DIR_DELETED)
+ *   exfat-unlink-vol-dirty-bracketed          (set / clear envelope add_entry-style)
+ *   exfat-unlink-free-after-tombstone         (Phase 2 strictly after Phase 1)
+ *   exfat-unlink-no-vnode-free                (target_vp lifetime owned by VFS)
+ *   exfat-unlink-not-for-directories          (Pre-Cond rejects TYPE_DIR)
+ *
+ * Error policy:
+ *   Case 1 (success):                returns 0; on-disk + bitmap + tombstone done.
+ *   Case 2 (validation):             returns -EINVAL / -ENOENT; nothing touched.
+ *   Case 3 (fetch / validate):       returns -EIO; vol_dirty bracket closed.
+ *   Case 4 (write-back):             returns -EIO; bracket closed; partial on-disk.
+ *   Case 5 (cluster-free fail):      returns errno; tombstone already persisted.
+ * --------------------------------------------------------------------------- */
+int VfsExfatUnlink(struct Vnode *parent_vp, struct Vnode *target_vp,
+                   const char *fileName)
+{
+    exfat_sb_info       *sbi       = NULL;
+    exfat_inode_info    *target_ei = NULL;
+    struct exfat_dentry  set[EXFAT_DENTRY_SET_MAX];
+    int                  num_entries = 0;
+    int                  i;
+    int                  step3 = 0;
+    int                  step6 = 0;
+    int                  err = 0;
+    exfat_chain          chain;
+
+    /* ---- Phase 0: argument validation (lock-free) ------------------------ */
+    if (parent_vp == NULL || target_vp == NULL || fileName == NULL) {
+        return -EINVAL;
+    }
+    if (parent_vp->originMount == NULL ||
+        parent_vp->originMount->data == NULL ||
+        target_vp->data == NULL) {
+        return -EINVAL;
+    }
+
+    sbi       = (exfat_sb_info *)parent_vp->originMount->data;
+    target_ei = (exfat_inode_info *)target_vp->data;
+
+    if (target_ei->type != TYPE_FILE) {
+        return -EINVAL;   /* Case 2: rmdir is separate */
+    }
+    if (target_ei->dir.dir == DIR_DELETED || target_ei->entry < 0) {
+        return -ENOENT;   /* Case 2: already tombstoned */
+    }
+
+    /* ---- Phase 1: dentry-set mutation (s_lock held) ---------------------- */
+    (void)LOS_MuxLock(&sbi->s_lock, LOS_WAIT_FOREVER);
+
+    (void)exfat_set_volume_dirty(sbi);
+
+    step3 = exfat_get_dentry_set(sbi, &target_ei->dir, target_ei->entry,
+                                 set, EXFAT_DENTRY_SET_MAX, &num_entries);
+    if (step3 != 0) {
+        err = -EIO;   /* Case 3 */
+        goto phase1_unlock;
+    }
+
+    if (exfat_validate_dentry_set(set, num_entries) != 0) {
+        err = -EIO;   /* Case 3 */
+        goto phase1_unlock;
+    }
+
+    /* Step 5: clear the top bit of every dentry's type byte. exFAT readers
+     * treat such dentries as deleted. */
+    for (i = 0; i < num_entries; i++) {
+        set[i].type &= 0x7Fu;
+    }
+
+    step6 = exfat_set_dentry_set(sbi, &target_ei->dir, target_ei->entry,
+                                 set, num_entries);
+    if (step6 != 0) {
+        err = -EIO;   /* Case 4 — partial write may have hit disk */
+        goto phase1_unlock;
+    }
+
+    /* Step 7: in-memory tombstone (only after on-disk write-back succeeded). */
+    target_ei->dir.dir = DIR_DELETED;
+
+phase1_unlock:
+    /* Step 8: ALWAYS clear the volume-dirty bracket, even on failure. */
+    (void)exfat_clear_volume_dirty(sbi);
+    (void)LOS_MuxUnlock(&sbi->s_lock);
+
+    if (err != 0) {
+        return err;   /* Case 3 / Case 4 */
+    }
+
+    /* ---- Phase 2: cluster release (lock-free w.r.t. s_lock) -------------- */
+    chain.dir   = target_ei->start_clu;
+    chain.size  = 0u;
+    chain.flags = target_ei->flags;
+
+    err = exfat_free_cluster(sbi, &chain);
+    if (err != 0) {
+        PRINT_ERR("[%s] free_cluster failed (%d) — bitmap may carry orphans\n",
+                  __func__, err);
+        return err;   /* Case 5: tombstone already persisted */
+    }
+
+    return 0;
+}

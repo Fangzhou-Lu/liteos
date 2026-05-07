@@ -264,3 +264,50 @@ extern int  exfat_add_entry(exfat_sb_info *sbi, struct Vnode *parent_vp,
                             struct exfat_dir_entry *info);
 extern int  VfsExfatMkdir(struct Vnode *parent_vp, const char *name,
                           mode_t mode, struct Vnode **vpp);
+
+
+/* auto-synced exports — appended by specfs-port code_gen_approve */
+extern int exfat_get_next_cluster(const exfat_sb_info *sbi, uint32_t cur_clu, uint32_t *next_clu);
+extern int exfat_chain_walk(const exfat_sb_info *sbi, uint32_t start_clu, exfat_chain_visitor_t visitor, void *ctx);
+extern int exfat_ent_set(const exfat_sb_info *sbi, uint32_t loc, uint32_t value);
+extern int exfat_load_bitmap(exfat_sb_info *sbi);
+extern int exfat_count_used_clusters(const exfat_sb_info *sbi, uint32_t *out);
+extern int exfat_clear_bitmap(exfat_sb_info *sbi, uint32_t clu);
+extern int exfat_free_cluster(exfat_sb_info *sbi, const exfat_chain *p_chain);
+extern int exfat_set_bitmap(exfat_sb_info *sbi, uint32_t clu);
+extern int exfat_find_free_bitmap(const exfat_sb_info *sbi, uint32_t hint_clu, uint32_t *out_clu);
+extern int exfat_alloc_cluster(exfat_sb_info *sbi, uint32_t num_alloc, exfat_chain *p_chain);
+extern int exfat_get_dentry(const exfat_sb_info *sbi, const exfat_chain *dir, int entry_idx, struct exfat_dentry *out, uint64_t *out_sector);
+extern int exfat_get_dentry_set(const exfat_sb_info *sbi, const exfat_chain *dir, int start_entry, struct exfat_dentry *set, int max_entries, int *num_entries);
+extern int exfat_validate_dentry_set(const struct exfat_dentry *set, int num_entries);
+extern int exfat_set_dentry(const exfat_sb_info *sbi, const exfat_chain *dir, int entry_idx, const struct exfat_dentry *in);
+extern int exfat_set_dentry_set(const exfat_sb_info *sbi, const exfat_chain *dir, int start_entry, const struct exfat_dentry *set, int num_entries);
+extern int exfat_alloc_dentry_slot(const exfat_sb_info *sbi, const exfat_chain *dir, int n_entries, int *slot_idx_out);
+extern int VfsExfatOpendir(struct Vnode *vp, struct fs_dirent_s *idir);
+extern int VfsExfatReaddir(struct Vnode *vp, struct fs_dirent_s *idir);
+extern int VfsExfatClosedir(struct Vnode *vp, struct fs_dirent_s *idir);
+extern int VfsExfatRewinddir(struct Vnode *vp, struct fs_dirent_s *idir);
+extern int exfat_truncate_extend(exfat_sb_info *sbi, exfat_inode_info *ei, uint64_t new_size);
+extern int exfat_truncate_shrink(exfat_sb_info *sbi, exfat_inode_info *ei, uint64_t new_size);
+extern int exfat_inode_alloc(exfat_inode_info **out);
+extern int VfsExfatLookup(struct Vnode *parent, const char *name, int len, struct Vnode **vpp);
+extern int VfsExfatGetattr(struct Vnode *vp, struct stat *st);
+extern int exfat_calc_num_entries(const struct exfat_uni_name *p_uniname);
+extern int exfat_zeroed_cluster(exfat_sb_info *sbi, uint32_t clu);
+extern int exfat_alloc_new_dir(exfat_sb_info *sbi, exfat_chain *clu_out);
+extern int exfat_init_dir_entry(exfat_sb_info *sbi, const exfat_chain *p_dir, int entry, uint32_t type, uint32_t start_clu, uint64_t size);
+extern int exfat_init_ext_entry(exfat_sb_info *sbi, const exfat_chain *p_dir, int entry, int num_entries, const struct exfat_uni_name *p_uniname);
+extern int exfat_add_entry(exfat_sb_info *sbi, struct Vnode *parent_vp, const char *name, uint32_t type, struct exfat_dir_entry *info);
+extern int VfsExfatMkdir(struct Vnode *parent_vp, const char *name, mode_t mode, struct Vnode **vpp);
+extern int VfsExfatCreate(struct Vnode *parent_vp, const char *name, int mode, struct Vnode **vpp);
+extern int VfsExfatUnlink(struct Vnode *parent_vp, struct Vnode *target_vp, const char *fileName);
+extern int exfat_parse_options(const char *data, exfat_mount_options *opts);
+extern int exfat_create_upcase_table(exfat_sb_info *sbi);
+extern int exfat_set_volume_dirty(exfat_sb_info *sbi);
+extern int exfat_clear_volume_dirty(exfat_sb_info *sbi);
+extern int exfat_parse_boot_sector(exfat_sb_info *sbi, const struct exfat_boot_sector *bs, uint32_t logical_sector_size);
+extern int exfat_find_root_dentry(const exfat_sb_info *sbi, uint8_t type, struct exfat_dentry *out);
+extern int exfat_uni_to_utf8(const uint16_t *uni, int uni_len, char *out, int out_max);
+extern int exfat_utf8_to_uni(const char *utf8, int utf8_len, uint16_t *uni, int uni_max, int *uni_len_out);
+extern int exfat_uniname_cmp(const exfat_sb_info *sbi, const uint16_t *a, int a_len, const uint16_t *b, int b_len);
+extern int VfsExfatReclaim(struct Vnode *vnode);
