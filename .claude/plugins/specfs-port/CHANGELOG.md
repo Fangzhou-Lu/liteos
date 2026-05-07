@@ -3,6 +3,129 @@
 All notable changes to this plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/) loosely; semver applies.
 
+## [0.5.2] — 2026-05-07
+
+### Added — MCP-tool timeout / hang-protection (user-reported workflow stalls)
+
+User directive 2026-05-07:
+> "之前使用 mcp 生成代码经常出现卡死的情况，请为 mcp 调用增加超时返回机制"
+
+Two-layer defense against subprocess / I/O stalls that previously froze
+the LLM end of the conversation indefinitely.
+
+#### Layer 1: subprocess timeouts on git operations
+
+- `_git_sha`: added `timeout=10`. Without it, a stale `.git/index.lock`
+  from a crashed prior process or a slow NFS-mounted `.git/` would block
+  forever (witnessed during one Wave B session: 30+ min hang on a
+  partial-write `index.lock`).
+- `_git_add`: added `timeout=10`. Same failure mode — `git add --` blocks
+  on the index lock with no way for the caller to recover.
+- Both also tightened the exception clause from bare `except Exception` to
+  `(subprocess.SubprocessError, OSError)` so timeout-related errors are
+  caught in the same swallow-and-no-op path as the original error
+  handling, but unexpected exceptions still bubble up.
+
+#### Layer 2: process-wide MCP-tool timeout decorator
+
+- New `server/_timeout.py` (~115 LOC) with:
+  - `with_timeout(seconds)` decorator: runs wrapped fn in a daemon
+    `ThreadPoolExecutor` and returns a structured error dict
+    (`{_specfs_error: "timeout", tool, budget_s, hint}`) on overrun.
+    Background thread keeps running but caller is unblocked.
+    `functools.wraps` preserves metadata; exposes `__wrapped__` and
+    `__specfs_timeout_s__` for introspection / testing.
+  - `install_default_timeout(mcp, default_seconds=30)`: monkey-patches
+    `mcp.tool` so every existing `@mcp.tool()` registration is wrapped
+    transparently — zero per-tool edits in `specfs_server.py`. Idempotent
+    (tagged with `__specfs_patched__`).
+  - Per-tool override via `@mcp.tool(timeout=N)`. The patched function
+    pops `timeout=` from kwargs before delegating to FastMCP so the
+    framework doesn't see an unknown kwarg.
+- Default budget: **30 s** (chosen for headroom on `*_gen_approve` flows
+  that touch git + Makefile + main.c on a large repo). Configurable via
+  `SPECFS_DEFAULT_TIMEOUT_S` env var.
+- Per-tool overrides:
+  - `run_build_kernel`: `timeout=620` (≈ internal 600 s subprocess timeout
+    + 20 s wrapper margin).
+  - `validator_run_holistic`: `timeout=920` (≈ 900 s + 20 s margin).
+  - All 35 other tools: 30 s default.
+- Worker pool size 4 (configurable via `SPECFS_TIMEOUT_WORKERS`); daemon
+  threads vanish on process exit.
+
+#### Behavior on timeout
+
+The wrapped tool returns to the LLM as:
+```json
+{
+  "_specfs_error": "timeout",
+  "tool": "<fn_name>",
+  "budget_s": 30,
+  "hint": "Tool exceeded its budget. Background work may still be in
+           progress; consider session_end() and retry with smaller
+           scope, or override the budget via SPECFS_DEFAULT_TIMEOUT_S
+           env var."
+}
+```
+
+The LLM can pattern-match `_specfs_error` to decide whether to retry, end
+the session, or surface the failure to the user. Background thread keeps
+running (Python cannot safely kill threads); for idempotent work this
+is fine, for I/O-heavy work the worst case is a partial-write the next
+round overwrites.
+
+Exceptions raised inside the wrapped function still propagate normally —
+**only wall-clock budget overrun** is converted to a dict.
+
+### Tests
+
+- New `tests/test_timeout.py` (10 testpoints):
+  - Pass-through on success (no schema change).
+  - Structured error dict on overrun + actually returns within budget.
+  - Exceptions propagate unchanged.
+  - `functools.wraps` preserves `__name__` / `__doc__` / introspection attrs.
+  - kwargs preserved.
+  - `install_default_timeout` is idempotent.
+  - `install_default_timeout` default budget applied to registered tools.
+  - Per-tool override works.
+  - `timeout=` kwarg stripped before FastMCP delegation.
+  - Smoke test: real `specfs_server` tools have the timeout attribute,
+    `run_build_kernel`/`validator_run_holistic` carry their overrides.
+- Suite total: **143 passed in 0.72 s** (was 133/0.49 s in 0.5.1).
+
+### Modified
+
+- `server/specfs_server.py` — imports `install_default_timeout`, calls it
+  right after `mcp = FastMCP("specfs")`. `_git_sha` / `_git_add` get
+  explicit `timeout=10`. `run_build_kernel` decorator becomes
+  `@mcp.tool(timeout=620)`, `validator_run_holistic` becomes
+  `@mcp.tool(timeout=920)`. No other tool sites touched (default 30 s
+  applies via the patch).
+- `.claude-plugin/plugin.json` — version 0.5.1 → 0.5.2.
+
+### Why now (vs leave as-is and warn users)
+
+Repeated user-reported stalls during Wave B code generation. Previous
+mitigation was "ctrl-c the MCP server, restart" — destructive, loses
+session state, frustrating. The structured timeout dict lets the LLM
+recover gracefully without operator intervention.
+
+The 30 s default was calibrated against measured `code_gen_approve`
+durations on this repo: typical 2-5 s, p99 ≈ 8 s, so 30 s is ~6× p99
+headroom. If a real workflow regresses to >30 s due to repo growth,
+operators can bump `SPECFS_DEFAULT_TIMEOUT_S` per-session without code
+changes.
+
+### Known caveats
+
+- Threads keep running after timeout. For tools that mutate state
+  (Makefile delta, common.header sync), a timed-out write may leave a
+  partial file that the next retry overwrites. Acceptable risk for the
+  hang-prevention benefit; tracked as a paper cut.
+- `pyright` flags the new `_timeout` module import as unresolved
+  because it doesn't introspect the venv path. Runtime works. Adding
+  `pyrightconfig.json` is deferred until a separate cleanup pass.
+
 ## [0.5.1] — 2026-05-07
 
 ### Added — pytest test suite covering the full MCP tool surface (L3)

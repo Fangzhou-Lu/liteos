@@ -29,9 +29,17 @@ import dag as dag_module
 import extract
 import prompts
 import state
+from _timeout import install_default_timeout
 
 
 mcp = FastMCP("specfs")
+# v0.5.2 (2026-05-07): wrap every @mcp.tool() with a 30 s default timeout
+# (configurable via SPECFS_DEFAULT_TIMEOUT_S env var). On overrun the tool
+# returns a structured `{_specfs_error: "timeout", ...}` dict instead of
+# blocking the LLM caller indefinitely. Per-tool override: pass
+# `@mcp.tool(timeout=N)` — used below for run_build_kernel (620 s) and
+# validator_run_holistic (920 s) to accommodate their subprocess budgets.
+install_default_timeout(mcp)
 
 
 # session_id -> Session
@@ -80,15 +88,22 @@ def _now_iso() -> str:
 
 
 def _git_sha(path: Path) -> str:
+    """Get the git SHA of a file. Returns "" on any failure (lock contention,
+    non-git repo, timeout, etc.) so callers can no-op instead of crashing.
+
+    v0.5.2 (2026-05-07): added timeout=10 s to defend against `.git/index.lock`
+    left by a crashed prior process — without it git could block forever.
+    """
     try:
         out = subprocess.check_output(
             ["git", "hash-object", str(path)],
             cwd=str(_repo_root()),
             stderr=subprocess.DEVNULL,
             text=True,
+            timeout=10,
         ).strip()
         return out
-    except Exception:
+    except (subprocess.SubprocessError, OSError):
         return ""
 
 
@@ -889,7 +904,10 @@ def test_gen_approve(session_id: str, final_test_text: str) -> dict[str, Any]:
 # OMC LSP installed.
 
 
-@mcp.tool()
+# v0.5.2: override default 30 s timeout — build can legitimately run up
+# to its internal subprocess.run(timeout=600), so the MCP wrapper must
+# allow ~620 s before declaring the tool itself stuck.
+@mcp.tool(timeout=620)
 def run_build_kernel() -> dict[str, Any]:
     """Layer 2 (build): direct invocation of kernel/liteos_a/build.sh.
 
@@ -1144,7 +1162,10 @@ def fetch_prompt_fragment(name: str) -> dict[str, str]:
 _SPEC_FINE_CAP = 3  # per project memory feedback_specfine_cap_3.md
 
 
-@mcp.tool()
+# v0.5.2: override default 30 s timeout — holistic validator wraps
+# tools/regress/run_all.sh which itself has subprocess.run(timeout=900).
+# Allow ~920 s at the MCP layer before declaring the wrapper stuck.
+@mcp.tool(timeout=920)
 def validator_run_holistic(module: str) -> dict[str, Any]:
     """F4 — holistic SpecValidator (paper §4.5).
 
@@ -1529,7 +1550,12 @@ def _sync_common_header(module: str, ifaces: dict[str, extract.ExtractedInterfac
 
 
 def _git_add(paths: list[str]) -> None:
-    """Stage paths (no commit). Idempotent. Logs failures to stderr but does not raise."""
+    """Stage paths (no commit). Idempotent. Logs failures to stderr but does not raise.
+
+    v0.5.2 (2026-05-07): added timeout=10 s. `git add` can stall on
+    .git/index.lock from a crashed editor / prior process; without a
+    timeout the parent MCP tool would inherit the hang.
+    """
     if not paths:
         return
     try:
@@ -1538,8 +1564,9 @@ def _git_add(paths: list[str]) -> None:
             cwd=str(_repo_root()),
             check=False,
             capture_output=True,
+            timeout=10,
         )
-    except Exception:
+    except (subprocess.SubprocessError, OSError):
         pass  # non-fatal
 
 
