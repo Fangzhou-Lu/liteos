@@ -3,6 +3,90 @@
 All notable changes to this plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/) loosely; semver applies.
 
+## [0.5.0] — 2026-05-07
+
+### Changed — bundle the methodology skill INSIDE the plugin
+
+User directive 2026-05-07:
+> "specfs-port skill 是 specfs-port 的内置插件，请将 skill 放入 plugin 目录中，
+> 对插件整体使用 plugin-dev 插件进行重构"
+
+The plugin now follows the canonical Claude Code plugin layout (per
+`code.claude.com/docs/en/plugins-reference §Skills`): the `specfs-port`
+methodology skill lives inside the plugin's `skills/specfs-port/` directory
+and is auto-discovered via the standard `skills/<name>/SKILL.md` convention.
+
+Pre-v0.5.0 layout:
+```
+.claude/plugins/specfs-port/  (plugin)
+.claude/skills/specfs-port/   (separate top-level skill, declared via
+                               plugin.json::bundles.skills)
+```
+
+v0.5.0 layout:
+```
+.claude/plugins/specfs-port/
+├── .claude-plugin/plugin.json
+├── .mcp.json
+├── prompts/
+├── commands/
+├── server/
+└── skills/
+    └── specfs-port/                 (auto-discovered, no manifest entry needed)
+        ├── SKILL.md
+        └── references/
+```
+
+### Modified
+
+- **Moved (via `git mv`, history preserved):**
+  - `.claude/skills/specfs-port/SKILL.md` → `.claude/plugins/specfs-port/skills/specfs-port/SKILL.md`
+  - `.claude/skills/specfs-port/references/*` → `.claude/plugins/specfs-port/skills/specfs-port/references/*`
+- **Removed:** the now-empty `.claude/skills/specfs-port/` and `.claude/skills/`
+  directories.
+- **`.claude-plugin/plugin.json`:**
+  - Dropped `bundles.skills` field — auto-discovery handles it; the field is
+    not in the official plugin manifest schema (see `plugin-dev:plugin-structure`
+    skill output).
+  - Bumped `version` from `0.3.4.2` → `0.5.0` to mark the structural refactor.
+  - Description rewritten to (a) mention the bundled skill at `skills/specfs-port/`,
+    (b) reflect P1.4 layered defense ordering (LSP / style / SpecEval / build+cmocka+QEMU / user review).
+- **`README.md`:** file-tree diagram rewritten to show the v0.5.0 layout (skill
+  inside plugin), with all paths now relative to the plugin root.
+- **`skills/specfs-port/SKILL.md`:** "与 specfs-port 插件的关系" table re-anchored
+  on relative-to-plugin-root paths; "自动加载" paragraph updated to point at the
+  plugin reference §Skills convention.
+
+### Validated
+
+- `git mv` preserves history; `git status` shows 8 renames (1 SKILL.md + 7 references).
+- Plugin manifest is valid JSON (matches plugin reference §"Plugin Manifest").
+- `.mcp.json` already used `${CLAUDE_PLUGIN_ROOT}` since v0.3.0 — no portability
+  fixup needed.
+- No path-reference cleanup needed in `commands/`, `prompts/`, or `server/` — the
+  intra-plugin references in those files were already plugin-root-relative or
+  used `${CLAUDE_PLUGIN_ROOT}`.
+
+### Migration notes
+
+- DAG state unchanged — `spec/<module>/.specfs.dag.json` files load identically.
+- Operators who had `.claude/skills/specfs-port/` checked into git will see the
+  rename in their next pull; no manual action required.
+- Anyone with hardcoded references to `.claude/skills/specfs-port/...` in custom
+  scripts or notes should update to `.claude/plugins/specfs-port/skills/specfs-port/...`
+  (the auto-discovery means most uses don't need a path reference at all).
+
+### Why now (vs leave as separate top-level skill)
+
+Two reasons surfaced together:
+1. The plugin and skill always co-evolved — every release moved both in
+   lock-step (P1.2 / P1.3 / P1.4 each touched both directories). Coupling
+   them physically removes the "did I forget to update one of them?"
+   failure mode that bit the v0.3 → P1.2 transition.
+2. Distributing the plugin as a single tarball (for users who don't have
+   project-local `.claude/skills/` discovery) now ships the methodology
+   alongside the tooling without requiring two install paths.
+
 ## [P1.4] — 2026-05-07
 
 ### Changed — full pipeline reorder (5 simultaneous topology moves)

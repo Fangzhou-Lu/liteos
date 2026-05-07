@@ -13,19 +13,22 @@ dcache）。把这些逐行搬到 LiteOS-A 几乎一定会得到一个能编译�
 微妙错乱的产物。规范化把 Linux 味道剥掉，强迫开发者用前置/后置条件描述函数
 **做什么**，再围绕 LiteOS-A 原语把"做什么"落成"怎么做"。
 
-## 与 specfs-port 插件的关系
+## 与 specfs-port 插件的关系（v0.5.0 起内嵌）
 
-| 物件 | 路径 | 所有者 |
+| 物件 | 相对插件根的路径 | 所有者 |
 |---|---|---|
-| **本技能（SKILL.md）** | `.claude/skills/specfs-port/SKILL.md` | 方法论 |
-| **本技能 references/** | `.claude/skills/specfs-port/references/` | 详细操作手册 |
-| **插件（manifest + 服务）** | `.claude/plugins/specfs-port/` | 流程编排 + MCP 工具 |
-| **prompts** | `.claude/plugins/specfs-port/prompts/` | LLM 提示拼装 |
-| **commands** | `.claude/plugins/specfs-port/commands/` | `/specfs-port-spec`、`/specfs-port-code` |
-| **server** | `.claude/plugins/specfs-port/server/` | Python MCP server |
+| **本技能（SKILL.md）** | `skills/specfs-port/SKILL.md` | 方法论 |
+| **本技能 references/** | `skills/specfs-port/references/` | 详细操作手册 |
+| **manifest** | `.claude-plugin/plugin.json` | 插件元数据 |
+| **prompts** | `prompts/` | LLM 提示拼装 |
+| **commands** | `commands/` | `/specfs-port`、`/specfs-port-spec`、`/specfs-port-code` |
+| **server** | `server/` | Python MCP server |
+| **MCP 启动配置** | `.mcp.json` | uv + ${CLAUDE_PLUGIN_ROOT} |
 
-**自动加载**：项目根 `.claude/skills/specfs-port/` 与 `.claude/plugins/specfs-port/`
-同时存在，Claude Code 同步加载。插件 `plugin.json::bundles.skills` 声明依赖，
+**自动加载**：v0.5.0（2026-05-07）将本技能从顶层 `.claude/skills/specfs-port/`
+移入插件目录 `.claude/plugins/specfs-port/skills/specfs-port/`，遵循 Claude Code
+plugin reference §"Skills" 的标准目录约定（`skills/<name>/SKILL.md` 自动发现）。
+**无需** `plugin.json` 声明 `bundles.skills`；该字段在 v0.5.0 已从 manifest 移除。
 **插件不再依赖** `liteos-fs-port` 旧技能。
 
 ## 用户必须给出（或必须确认）的输入

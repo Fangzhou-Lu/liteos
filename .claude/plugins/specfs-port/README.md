@@ -65,45 +65,47 @@ User: /specfs-port-code spec/exfat/interface/exfat_lookup.spec
 ## Files
 
 ```
-.claude/plugins/specfs-port/
-├── .claude-plugin/plugin.json # manifest
-├── .mcp.json # MCP server spawn config
-├── DESIGN.md # full implementation spec
-├── README.md # this file
-├── prompts/ # 8 prompt fragments
-│ ├── codegen.md, speceval.md # verbatim from gencode.py:158/200
-│ ├── linux_to_spec.md # Loop A system prompt
-│ ├── ask_first_rules.md # shared "ask before generate"
-│ ├── style_rules.md # LiteOS-A coding rules
-│ ├── linux_to_liteos_table.md # Linux → LiteOS primitive map
-│ ├── format_traps.md # 4 compatibility-trap classes
-│ └── validation_checklist.md # Layer 4 user review aid
-├── commands/ # 3 slash commands
-│ ├── specfs-port.md
-│ ├── specfs-port-spec.md
-│ └── specfs-port-code.md
-└── server/ # Python MCP server
-    ├── pyproject.toml
-    ├── specfs_server.py # main MCP entry
-    ├── state.py # session state classes
-    ├── dag.py # DAG load/save/walk
-    ├── extract.py # C declaration extractor
-    └── prompts.py # template loading + assembly
+.claude/plugins/specfs-port/                  # plugin root (v0.5.0 self-contained layout)
+├── .claude-plugin/plugin.json                # manifest
+├── .mcp.json                                 # MCP server spawn config (uses ${CLAUDE_PLUGIN_ROOT})
+├── DESIGN.md                                 # full implementation spec
+├── README.md                                 # this file
+├── CHANGELOG.md                              # version history
+├── prompts/                                  # prompt fragments
+│   ├── codegen.md, speceval.md               # verbatim from gencode.py:158/200
+│   ├── linux_to_spec.md                      # Loop A system prompt
+│   ├── ask_first_rules.md                    # shared "ask before generate"
+│   ├── style_rules.md, style_audit.md        # Layer 1a.2 style audit canon + LLM template
+│   ├── linux_to_liteos_table.md              # Linux → LiteOS primitive map
+│   ├── format_traps.md                       # 4 compatibility-trap classes
+│   ├── unittest_gen.md                       # Layer T cmocka test gen template
+│   └── validation_checklist.md               # Layer 4 user review aid
+├── commands/                                 # 3 slash commands
+│   ├── specfs-port.md
+│   ├── specfs-port-spec.md
+│   └── specfs-port-code.md
+├── server/                                   # Python MCP server
+│   ├── pyproject.toml
+│   ├── specfs_server.py                      # main MCP entry
+│   ├── state.py                              # session state classes
+│   ├── dag.py                                # DAG load/save/walk
+│   ├── extract.py                            # C declaration extractor
+│   └── prompts.py                            # template loading + assembly
+└── skills/specfs-port/                       # v0.5.0: bundled methodology skill (auto-discovered)
+    ├── SKILL.md                              # full methodology
+    └── references/                           # specfs-format / liteos-vfs-mapping / liteos-fs-style /
+                                              # exfat-walkthrough / cmocka-host-harness /
+                                              # ltp-qemu-regression / fs-debug-recipe
 
-spec/<module>/ # per-FS spec tree (LLM-authored, user-approved)
-├── common.header # shared contract, GROWS as stages approve
-├── interface/ # VFS-level ops
-├── inode/ file/ path/ util/ bitmap/ # layered subdirs per specfs-port skill
-└── .specfs.dag.json # DAG state (committed to git)
+spec/<module>/                                # per-FS spec tree (LLM-authored, user-approved)
+├── common.header                             # shared contract, GROWS as stages approve
+├── interface/                                # VFS-level ops
+├── inode/ file/ path/ util/ bitmap/          # layered subdirs per specfs-port skill
+└── .specfs.dag.json                          # DAG state (committed to git)
 
-fs/<module>/ # LLM-generated code (frozen after approval)
-
-testsuites/unittest/<module>_host/ # cmocka host harness (Layer A regression)
-tools/regress/run_all.sh # aggregate regression runner (cmocka + QEMU LTP)
-
-.claude/skills/specfs-port/ # bundled companion skill (auto-loads with plugin)
-├── SKILL.md # full methodology
-└── references/ # specfs-format / liteos-vfs-mapping / liteos-fs-style / exfat-walkthrough
+fs/<module>/                                  # LLM-generated code (frozen after approval)
+testsuites/unittest/<module>/                 # cmocka host harness (Layer 2.2 + Layer A regression)
+tools/regress/run_all.sh                      # aggregate regression runner (cmocka + QEMU LTP)
 ```
 
 ## Requirements
