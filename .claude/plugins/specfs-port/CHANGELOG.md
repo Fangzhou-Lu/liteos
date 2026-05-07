@@ -3,6 +3,93 @@
 All notable changes to this plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/) loosely; semver applies.
 
+## [0.5.1] — 2026-05-07
+
+### Added — pytest test suite covering the full MCP tool surface (L3)
+
+User directive 2026-05-07:
+> "请使用 plugin-dev 为 specfs-port 插件完成测试用例"
+
+Added `server/tests/` with 133 testpoints across 8 files, exercising the
+plugin from manifest down to MCP tool returns. Test plan was scoped via
+plugin-dev:plugin-structure guidance to L3 (full coverage including MCP
+end-to-end smoke). Runtime: ~0.5 s on local Apple Silicon.
+
+#### Test inventory
+
+| File | Testpoints | Coverage |
+|---|---|---|
+| `test_state.py` | 8 | Session defaults, layer_retries 7-key invariant, FailureRecord dataclass, repo_root resolution |
+| `test_prompts.py` | 23 | Template loading + cache, comment stripping, drop_empty_sections, substitute, filter_common_header_by_symbols, extract_rely_symbols, every assemble_*_prompt golden path + failure rendering edge cases |
+| `test_extract.py` | 12 | C function/extern/FSMAP_ENTRY/pub_global/LOSCFG guard extraction, **v0.3.4.1 block-comment regex fix regression test**, render_interface_summary, collect_all_symbols |
+| `test_dag.py` | 19 | empty/load/save/find/add/walk_ancestors/walk_descendants/is_*_approved/collect_invariants/mark_dirty_cascade/list_dirty + atomic-write + schema-mismatch reject |
+| `test_commit_node.py` | 11 | parse_invariants from spec, parse_exports_arg, cmd_spec/cmd_code/cmd_show CLI commands, full spec→code commit happy path |
+| `test_drivers.py` | 4 | _driver_loop_a + _driver_loop_b smoke (assembled prompt size, missing-node failure path) |
+| `test_mcp_tools.py` | 29 | Session lifecycle, all 4 toggle_* flags, Loop A end-to-end (start→submit→approve writes file + commits DAG node), Loop B end-to-end, code_gen_refine, inject_diagnostics retry-counter increment + failure recording, dag_get/dag_extract_invariants/dag_check_node_complete/dag_revert, fragment fetch (known + unknown), prompt_override write+read, record_clarification, has_unresolved_ambiguity |
+| `test_manifest.py` | 27 | plugin.json schema (name/version/keywords/no-bundles), .mcp.json portability (${CLAUDE_PLUGIN_ROOT} present, no /Users/ leak), bundled SKILL.md frontmatter, all 3 commands have frontmatter, all 12 prompt fragments present |
+
+#### Added files
+
+- `server/tests/__init__.py`
+- `server/tests/conftest.py` — `tmp_repo` fixture (creates spec/fs/testsuites
+  shape under tmp_path + monkey-patches `state.repo_root` / `dag.repo_root`
+  / `commit_node.repo_root` so DAG operations land in tmp), `fresh_session`,
+  `sample_spec_text`, `sample_dag` (single-node DAG with mount-v1 approved),
+  `reset_template_cache` (autouse, clears `prompts._TEMPLATE_CACHE` between
+  tests), `reset_session_registry` (clears `specfs_server._SESSIONS`).
+- `server/tests/test_*.py` — 8 test modules above
+
+#### Modified
+
+- `server/pyproject.toml` — added `[project.optional-dependencies].dev`
+  with `pytest>=8.0`, `[tool.pytest.ini_options]` with testpaths/file-pattern
+  config so `pytest` works zero-config from server/.
+- `.claude-plugin/plugin.json` — version 0.5.0 → 0.5.1.
+
+#### How to run
+
+```
+cd .claude/plugins/specfs-port/server
+uv pip install -e '.[dev]'
+uv run python -m pytest
+```
+
+Or equivalent:
+```
+cd .claude/plugins/specfs-port/server
+pip install -e '.[dev]'
+pytest
+```
+
+Result: `133 passed in 0.49s`.
+
+#### Why now (vs ship without tests)
+
+Two motivations:
+1. **The MCP server is 2,836 LOC of Python and was completely uncovered.**
+   Manifest-level changes (P1.2 → P1.3 → P1.4 → 0.5.0) cumulatively
+   touched return-shape contracts and retry-budget keys. A test suite
+   pins those contracts so the next refactor surfaces breakage at
+   commit time, not at next-stage codegen time.
+2. **Plugin-dev:plugin-validator agent already passed structural
+   validation in 0.5.0** — but structural validity alone doesn't catch
+   functional regressions (e.g., Wave A → Wave B "v0.3.2 advertised
+   but not implemented" Layer T silent skip — a unit test for
+   `code_gen_approve.next` would have caught it). 0.5.1 closes that
+   gap with regression tests at every layer the validator can't reach.
+
+#### Known caveats
+
+- `test_drivers.py::test_loop_a_driver_assembles_prompt` runs against
+  the REAL repo's spec/exfat/ tree (the driver scripts hardcode
+  `parents[4]` for repo-root resolution; can't be tmp-pathed without
+  module-level refactoring). All other 132 tests are tmp-pathed and
+  hermetic.
+- pyright reports "unused parameter" warnings on every fixture-receiving
+  test function (tmp_repo, sample_dag, reset_session_registry). These
+  are pytest fixtures whose effect is side-effects (monkey-patch +
+  clear registries) — false positives.
+
 ## [0.5.0] — 2026-05-07
 
 ### Changed — bundle the methodology skill INSIDE the plugin
