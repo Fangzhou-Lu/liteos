@@ -495,6 +495,8 @@ int  exfat_add_entry(exfat_sb_info *sbi, struct Vnode *parent_vp,
                      struct exfat_dir_entry *info);
 int  VfsExfatMkdir(struct Vnode *parent_vp, const char *name,
                    mode_t mode, struct Vnode **vpp);
+int  VfsExfatCreate(struct Vnode *parent_vp, const char *name,
+                    int mode, struct Vnode **vpp);
 
 #ifdef __cplusplus
 }

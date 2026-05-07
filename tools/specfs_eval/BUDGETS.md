@@ -50,12 +50,12 @@
 
 | 旧细分 stage | 合并为模块 | 估 LOC | 状态 |
 |---|---|---|---|
-| 4d create | dirops | ~80 | 未起 |
-| 4e mkdir | dirops | spec 431 / code 138 | ✅ v0.4 落地 (2026-05-07) |
+| 4d create | dirops | spec 229 / code 135 | ✅ v0.4 落地 (2026-05-07) |
+| 4e mkdir | dirops | spec 265 / code 138 | ✅ v0.4 落地 (2026-05-07) |
 | 4f unlink | dirops | ~150 | 未起 |
 | 4g rmdir | dirops | ~100 | 未起 |
 | 4h rename | dirops | ~250 | 未起 |
-| **总计** | **dirops 模块** | ≤ 800 LOC（强制） | mkdir 占 17% |
+| **总计** | **dirops 模块** | ≤ 800 LOC（强制） | mkdir+create 占 34% |
 
 ## v0.4 mkdir 落地实测
 

@@ -49,6 +49,7 @@
 struct VnodeOps g_exfatVops = {
     .Lookup     = VfsExfatLookup,
     .Reclaim    = VfsExfatReclaim,
+    .Create     = VfsExfatCreate,
     .Opendir    = VfsExfatOpendir,
     .Readdir    = VfsExfatReaddir,
     .Closedir   = VfsExfatClosedir,

@@ -68,6 +68,8 @@ int exfat_add_entry(exfat_sb_info *sbi, struct Vnode *parent_vp,
                     struct exfat_dir_entry *info);
 int VfsExfatMkdir(struct Vnode *parent_vp, const char *name,
                   mode_t mode, struct Vnode **vpp);
+int VfsExfatCreate(struct Vnode *parent_vp, const char *name,
+                   int mode, struct Vnode **vpp);
 
 /* helper used by chksum verification. */
 int exfat_get_dentry(const exfat_sb_info *sbi, const exfat_chain *dir,
@@ -557,13 +559,22 @@ static void test_add_entry_dir_success(void **state)
     assert_int_not_equal((unsigned int)info.start_clu, EXFAT_EOF_CLUSTER);
 }
 
-static void test_add_entry_file_enosys(void **state)
+static void test_add_entry_file_success(void **state)
 {
     (void)state;
+    /* Stage 4d: TYPE_FILE branch now produces an empty regular file with
+     * NO data cluster allocated. start_clu == EXFAT_EOF_CLUSTER, size 0,
+     * attr ATTR_ARCHIVE, num_subdirs 0. */
     struct exfat_dir_entry info;
     memset(&info, 0, sizeof(info));
     int rc = exfat_add_entry(g_sbi, &g_pvnode, "newfile", TYPE_FILE, &info);
-    assert_int_equal(rc, -ENOSYS);
+    assert_int_equal(rc, 0);
+    assert_int_equal((unsigned int)info.start_clu, EXFAT_EOF_CLUSTER);
+    assert_int_equal((unsigned int)info.attr, ATTR_ARCHIVE);
+    assert_int_equal((unsigned int)info.size, 0u);
+    assert_int_equal((unsigned int)info.num_subdirs, 0u);
+    assert_int_equal((unsigned int)info.type, TYPE_FILE);
+    assert_int_equal((unsigned int)info.flags, ALLOC_NO_FAT_CHAIN);
 }
 
 static void test_add_entry_enospc_no_dir_cluster(void **state)
@@ -625,6 +636,114 @@ static void test_mkdir_enospc_passthrough(void **state)
     assert_null(new_vp);
 }
 
+/* ---- VfsExfatCreate tests (Stage 4d) ----------------------------------- */
+
+static void test_create_success(void **state)
+{
+    (void)state;
+    struct Vnode *new_vp = NULL;
+    int rc = VfsExfatCreate(&g_pvnode, "newfile.txt", 0644, &new_vp);
+    assert_int_equal(rc, 0);
+    assert_non_null(new_vp);
+    assert_int_equal((int)new_vp->type, VNODE_TYPE_REG);
+    assert_non_null(new_vp->data);
+
+    /* exfat-create-no-cluster-on-empty: empty file has no cluster. */
+    exfat_inode_info *ei = (exfat_inode_info *)new_vp->data;
+    assert_int_equal((unsigned int)ei->type, TYPE_FILE);
+    assert_int_equal((unsigned int)ei->attr, ATTR_ARCHIVE);
+    assert_int_equal((unsigned int)ei->start_clu, EXFAT_EOF_CLUSTER);
+    assert_int_equal((unsigned int)ei->size, 0u);
+    assert_int_equal((unsigned int)ei->valid_size, 0u);
+    assert_int_equal((unsigned int)ei->num_subdirs, 0u);
+
+    /* exfat-create-no-parent-subdir-bump: parent unchanged. */
+    assert_int_equal((unsigned int)g_pei->num_subdirs, 0u);
+
+    /* Cleanup. */
+    new_vp->data = NULL;
+    free(new_vp);
+    exfat_inode_free(ei);
+}
+
+static void test_create_einval(void **state)
+{
+    (void)state;
+    struct Vnode *new_vp = NULL;
+    assert_int_equal(VfsExfatCreate(NULL, "x", 0644, &new_vp), -EINVAL);
+    assert_int_equal(VfsExfatCreate(&g_pvnode, NULL, 0644, &new_vp), -EINVAL);
+    assert_int_equal(VfsExfatCreate(&g_pvnode, "x", 0644, NULL), -EINVAL);
+    assert_int_equal(VfsExfatCreate(&g_pvnode, "", 0644, &new_vp), -EINVAL);
+}
+
+static void test_create_attr_archive_on_disk(void **state)
+{
+    (void)state;
+    struct Vnode *new_vp = NULL;
+    int rc = VfsExfatCreate(&g_pvnode, "f", 0644, &new_vp);
+    assert_int_equal(rc, 0);
+    assert_non_null(new_vp);
+
+    exfat_inode_info *ei = (exfat_inode_info *)new_vp->data;
+    /* Read back the on-disk file dentry: it lives at ei->entry in parent. */
+    exfat_chain p_dir;
+    p_dir.dir   = MK_PARENT_CLU;
+    p_dir.flags = (uint8_t)ALLOC_NO_FAT_CHAIN;
+    p_dir.size  = 1u;
+
+    struct exfat_dentry de;
+    int gret = exfat_get_dentry(g_sbi, &p_dir, ei->entry, &de, NULL);
+    assert_int_equal(gret, 0);
+    assert_int_equal((unsigned int)de.type, EXFAT_FILE);
+    assert_true((de.dentry.file.attr & ATTR_ARCHIVE) != 0u);
+    assert_true((de.dentry.file.attr & ATTR_SUBDIR) == 0u);
+
+    new_vp->data = NULL;
+    free(new_vp);
+    exfat_inode_free(ei);
+}
+
+static void test_create_used_clusters_unchanged(void **state)
+{
+    (void)state;
+    /* exfat-create-no-cluster-on-empty: bitmap usage MUST NOT grow. */
+    uint32_t before = g_sbi->used_clusters;
+    struct Vnode *new_vp = NULL;
+    int rc = VfsExfatCreate(&g_pvnode, "g", 0644, &new_vp);
+    assert_int_equal(rc, 0);
+    assert_int_equal(g_sbi->used_clusters, before);
+
+    exfat_inode_info *ei = (exfat_inode_info *)new_vp->data;
+    new_vp->data = NULL;
+    free(new_vp);
+    exfat_inode_free(ei);
+}
+
+static void test_create_then_mkdir_subdir_count(void **state)
+{
+    (void)state;
+    /* Sequencing test: create() does not bump num_subdirs but a subsequent
+     * mkdir() does. Catches accidental shared-state bugs in add_entry. */
+    struct Vnode *file_vp = NULL;
+    int rc1 = VfsExfatCreate(&g_pvnode, "a.txt", 0644, &file_vp);
+    assert_int_equal(rc1, 0);
+    assert_int_equal((unsigned int)g_pei->num_subdirs, 0u);
+
+    struct Vnode *dir_vp = NULL;
+    int rc2 = VfsExfatMkdir(&g_pvnode, "d", 0755, &dir_vp);
+    assert_int_equal(rc2, 0);
+    assert_int_equal((unsigned int)g_pei->num_subdirs, 1u);
+
+    exfat_inode_info *fei = (exfat_inode_info *)file_vp->data;
+    exfat_inode_info *dei = (exfat_inode_info *)dir_vp->data;
+    file_vp->data = NULL;
+    dir_vp->data  = NULL;
+    free(file_vp);
+    free(dir_vp);
+    exfat_inode_free(fei);
+    exfat_inode_free(dei);
+}
+
 /* ============================================================
  * Suite table
  * ============================================================ */
@@ -655,12 +774,18 @@ const struct CMUnitTest test_mkdir_tests[] = {
     cmocka_unit_test_setup_teardown(test_init_ext_entry_einval,          mk_setup,  mk_teardown),
     /* add_entry (3) */
     cmocka_unit_test_setup_teardown(test_add_entry_dir_success,          mk_setup,  mk_teardown),
-    cmocka_unit_test_setup_teardown(test_add_entry_file_enosys,          mk_setup,  mk_teardown),
+    cmocka_unit_test_setup_teardown(test_add_entry_file_success,         mk_setup,  mk_teardown),
     cmocka_unit_test_setup_teardown(test_add_entry_enospc_no_dir_cluster,mk_setup,  mk_teardown),
     /* VfsExfatMkdir (3) */
     cmocka_unit_test_setup_teardown(test_mkdir_success,                  mk_setup,  mk_teardown),
     cmocka_unit_test_setup_teardown(test_mkdir_einval,                   mk_setup,  mk_teardown),
     cmocka_unit_test_setup_teardown(test_mkdir_enospc_passthrough,       mk_setup,  mk_teardown),
+    /* VfsExfatCreate — Stage 4d (5) */
+    cmocka_unit_test_setup_teardown(test_create_success,                 mk_setup,  mk_teardown),
+    cmocka_unit_test_setup_teardown(test_create_einval,                  mk_setup,  mk_teardown),
+    cmocka_unit_test_setup_teardown(test_create_attr_archive_on_disk,    mk_setup,  mk_teardown),
+    cmocka_unit_test_setup_teardown(test_create_used_clusters_unchanged, mk_setup,  mk_teardown),
+    cmocka_unit_test_setup_teardown(test_create_then_mkdir_subdir_count, mk_setup,  mk_teardown),
 };
 
 const size_t test_mkdir_tests_count =

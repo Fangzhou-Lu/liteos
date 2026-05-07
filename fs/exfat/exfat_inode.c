@@ -1084,8 +1084,10 @@ int exfat_init_ext_entry(exfat_sb_info *sbi, const exfat_chain *p_dir,
 /* ---------------------------------------------------------------------------
  * exfat_add_entry — composer.
  *
- * Linux fs/exfat/namei.c::exfat_add_entry analogue. v1 only supports
- * TYPE_DIR; TYPE_FILE returns -ENOSYS pending Stage 4d (Create VOP).
+ * Linux fs/exfat/namei.c::exfat_add_entry analogue. Both TYPE_DIR (mkdir)
+ * and TYPE_FILE (create) call this composer; the only difference is whether
+ * a fresh data cluster is allocated (TYPE_DIR) or the file is left empty
+ * with start_clu = EXFAT_EOF_CLUSTER (TYPE_FILE).
  *
  * Invariant exfat-add-entry-uniname-hash-cs-default: name_hash uses
  * CS_DEFAULT chksum16 over the UTF-16 byte stream (no upcase normalization).
@@ -1115,11 +1117,6 @@ int exfat_add_entry(exfat_sb_info *sbi, struct Vnode *parent_vp,
     }
     if (name[0] == '\0') {
         return -EINVAL;
-    }
-
-    /* v1: TYPE_FILE branch deferred to Stage 4d. */
-    if (type == TYPE_FILE) {
-        return -ENOSYS;
     }
 
     parent_ei = (exfat_inode_info *)parent_vp->data;
@@ -1182,18 +1179,23 @@ int exfat_add_entry(exfat_sb_info *sbi, struct Vnode *parent_vp,
         return ret;
     }
 
-    /* Step 5: TYPE_DIR — allocate + zero a new directory cluster. */
-    serr = memset_s(&new_clu, sizeof(new_clu), 0, sizeof(new_clu));
-    if (serr != EOK) {
-        return -EIO;
+    /* Step 5: TYPE_DIR — allocate + zero a new directory cluster.
+     *         TYPE_FILE — empty file: skip alloc, leave start_clu at EOF
+     *         (Linux fs/exfat/namei.c::exfat_add_entry mirrors this). */
+    if (type == TYPE_DIR) {
+        serr = memset_s(&new_clu, sizeof(new_clu), 0, sizeof(new_clu));
+        if (serr != EOK) {
+            return -EIO;
+        }
+        ret = exfat_alloc_new_dir(sbi, &new_clu);
+        if (ret != 0) {
+            /* Q3: do not release dentry_idx slot — free slot is harmless. */
+            return ret;
+        }
+        start_clu = new_clu.dir;
+        clu_size  = (uint64_t)sbi->cluster_size;
     }
-    ret = exfat_alloc_new_dir(sbi, &new_clu);
-    if (ret != 0) {
-        /* Q3: do not release dentry_idx slot — free slot is harmless. */
-        return ret;
-    }
-    start_clu = new_clu.dir;
-    clu_size  = (uint64_t)sbi->cluster_size;
+    /* TYPE_FILE: start_clu remains EXFAT_EOF_CLUSTER, clu_size remains 0. */
 
     /* Step 6: write the file + stream dentry pair. */
     ret = exfat_init_dir_entry(sbi, &p_dir, dentry_idx, type,
@@ -1209,15 +1211,25 @@ int exfat_add_entry(exfat_sb_info *sbi, struct Vnode *parent_vp,
         return ret;
     }
 
-    /* Step 8: hand info back to caller (VfsExfatMkdir). */
+    /* Step 8: hand info back to caller (VfsExfatMkdir / VfsExfatCreate).
+     * TYPE_DIR uses the freshly allocated cluster as start_clu and reports
+     * EXFAT_MIN_SUBDIR; TYPE_FILE marks an empty regular file with
+     * ATTR_ARCHIVE / EXFAT_EOF_CLUSTER / size 0 / num_subdirs 0. */
     info->dir         = p_dir;
     info->entry       = dentry_idx;
     info->type        = type;
-    info->attr        = (uint16_t)ATTR_SUBDIR;
-    info->start_clu   = start_clu;
     info->flags       = (uint8_t)ALLOC_NO_FAT_CHAIN;
-    info->size        = clu_size;
-    info->num_subdirs = EXFAT_MIN_SUBDIR;
+    if (type == TYPE_DIR) {
+        info->attr        = (uint16_t)ATTR_SUBDIR;
+        info->start_clu   = start_clu;
+        info->size        = clu_size;
+        info->num_subdirs = EXFAT_MIN_SUBDIR;
+    } else {
+        info->attr        = (uint16_t)ATTR_ARCHIVE;
+        info->start_clu   = EXFAT_EOF_CLUSTER;
+        info->size        = 0u;
+        info->num_subdirs = 0u;
+    }
     return 0;
 }
 
@@ -1356,6 +1368,143 @@ int VfsExfatMkdir(struct Vnode *parent_vp, const char *name,
     }
 
     parent_ei->num_subdirs++;   /* in-memory only; on-disk sync deferred */
+
+    *vpp = new_vp;
+    return 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * VfsExfatCreate — VnodeOps.Create callback. (Wave B Stage 4d, 2026-05-07)
+ *
+ * Creates an empty regular file under parent_vp. Mirrors VfsExfatMkdir's
+ * Phase 1 / Phase 2 lock split, but:
+ *   - exfat_add_entry receives TYPE_FILE; no data cluster is allocated.
+ *     The on-disk dentry has start_clu = EXFAT_EOF_CLUSTER, size = 0.
+ *   - parent num_subdirs is NOT incremented (files do not count).
+ *   - vnode->type = VNODE_TYPE_REG; mode uses fs_fmask (file mask).
+ *   - VfsHashInsert keys on (uint32_t)info.entry — the dentry index in the
+ *     parent — to match the lookup-side convention. start_clu is identical
+ *     (EXFAT_EOF_CLUSTER) for every empty file and would otherwise collide.
+ *
+ * Invariants enforced:
+ *   exfat-create-no-cluster-on-empty       (start_clu == EXFAT_EOF_CLUSTER)
+ *   exfat-create-attr-archive              (ATTR_ARCHIVE set, ATTR_SUBDIR clear)
+ *   exfat-create-vol-dirty-bracketed       (set/clear envelope add_entry)
+ *   exfat-create-no-parent-subdir-bump     (parent num_subdirs untouched)
+ *   exfat-create-vfs-hash-insert-after-data-set
+ *   exfat-create-s-lock-bracketed          (lock spans Phase 1 only)
+ *   exfat-create-leak-free-success         (success path zero leak)
+ *
+ * Error policy: same Case 1/2/3/4 shape as VfsExfatMkdir.
+ * --------------------------------------------------------------------------- */
+int VfsExfatCreate(struct Vnode *parent_vp, const char *name,
+                   int mode, struct Vnode **vpp)
+{
+    exfat_sb_info        *sbi    = NULL;
+    exfat_inode_info     *new_ei = NULL;
+    struct Vnode         *new_vp = NULL;
+    struct exfat_dir_entry info;
+    errno_t serr;
+    int     sd_ret;
+    int     cd_ret;
+    int     err = 0;
+
+    (void)mode;   /* exFAT carries no per-file permission bits on disk. */
+
+    if (parent_vp == NULL || name == NULL || vpp == NULL) {
+        return -EINVAL;
+    }
+    if (parent_vp->originMount == NULL ||
+        parent_vp->originMount->data == NULL ||
+        parent_vp->data == NULL) {
+        return -EINVAL;
+    }
+    if (name[0] == '\0') {
+        return -EINVAL;
+    }
+
+    sbi = (exfat_sb_info *)parent_vp->originMount->data;
+
+    serr = memset_s(&info, sizeof(info), 0, sizeof(info));
+    if (serr != EOK) {
+        return -EIO;
+    }
+
+    /* ---- Phase 1: disk mutation (s_lock held) ----------------------------- */
+    (void)LOS_MuxLock(&sbi->s_lock, LOS_WAIT_FOREVER);
+
+    sd_ret = exfat_set_volume_dirty(sbi);
+    if (sd_ret != 0) {
+        PRINT_ERR("[%s] set_volume_dirty: %d\n", __func__, sd_ret);
+    }
+
+    err = exfat_add_entry(sbi, parent_vp, name, TYPE_FILE, &info);
+
+    cd_ret = exfat_clear_volume_dirty(sbi);
+    if (cd_ret != 0) {
+        PRINT_ERR("[%s] clear_volume_dirty: %d\n", __func__, cd_ret);
+    }
+
+    (void)LOS_MuxUnlock(&sbi->s_lock);
+
+    if (err != 0) {
+        return err;   /* Case 2 */
+    }
+
+    /* ---- Phase 2: vnode creation (lock-free) ------------------------------ */
+    err = exfat_inode_alloc(&new_ei);
+    if (err != 0) {
+        PRINT_ERR("[%s] inode_alloc failed (%d) — orphan dentry on disk\n",
+                  __func__, err);
+        return -ENOMEM;   /* Case 3 */
+    }
+
+    /* Empty file: no init_dir_chain (file is not a directory chain). Copy
+     * fields straight from info. */
+    new_ei->dir           = info.dir;
+    new_ei->entry         = info.entry;
+    new_ei->type          = info.type;          /* TYPE_FILE */
+    new_ei->attr          = info.attr;          /* ATTR_ARCHIVE */
+    new_ei->start_clu     = info.start_clu;     /* EXFAT_EOF_CLUSTER */
+    new_ei->flags         = info.flags;
+    new_ei->size          = info.size;          /* 0 */
+    new_ei->valid_size    = 0u;
+    new_ei->i_size_ondisk = 0u;
+    new_ei->num_subdirs   = info.num_subdirs;   /* 0 */
+    new_ei->i_pos         = ((uint64_t)info.start_clu << 32) |
+                            (uint32_t)info.entry;
+
+    err = VnodeAlloc(&g_exfatVops, &new_vp);
+    if (err != 0) {
+        exfat_inode_free(new_ei);
+        PRINT_ERR("[%s] VnodeAlloc failed — orphan dentry on disk\n", __func__);
+        return -ENOMEM;   /* Case 3 */
+    }
+
+    new_vp->type        = VNODE_TYPE_REG;
+    new_vp->vop         = &g_exfatVops;
+    new_vp->fop         = &g_exfatFops;
+    new_vp->data        = new_ei;
+    new_vp->parent      = parent_vp;
+    new_vp->originMount = parent_vp->originMount;
+    new_vp->uid         = sbi->options.fs_uid;
+    new_vp->gid         = sbi->options.fs_gid;
+    new_vp->mode        = S_IFREG | (mode_t)(0644u & ~sbi->options.fs_fmask);
+
+    /* Hash key: dentry index in parent. start_clu would collide across all
+     * empty files (all EXFAT_EOF_CLUSTER); entry is unique per parent and
+     * matches lookup's `(uint32_t)ei->i_pos` convention. */
+    err = VfsHashInsert(new_vp, (uint32_t)info.entry);
+    if (err != 0) {
+        new_vp->data = NULL;
+        (void)VnodeFree(new_vp);
+        exfat_inode_free(new_ei);
+        PRINT_ERR("[%s] VfsHashInsert failed — orphan dentry on disk\n", __func__);
+        return -ENOMEM;   /* Case 4 */
+    }
+
+    /* Files do NOT count toward parent num_subdirs (Linux fs/exfat/namei.c
+     * exfat_create matches: no inc_subdirs path). */
 
     *vpp = new_vp;
     return 0;
