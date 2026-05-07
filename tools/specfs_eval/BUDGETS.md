@@ -27,6 +27,25 @@
 **质量门控不放在总 LOC，放在 [SPECIFICATION] + [Refine] 两段总和（去 [RELY]/
 [GUARANTEE] 工程性 boilerplate）**：单函数 ≤ 100 LOC 才算"行为契约不臃肿"。
 
+## 函数 spec 覆盖原则（v0.4 修订 2026-05-07）
+
+依 atomfs sysspec/specfs/ 实际分布 + Linux exfat_fs.h 公共接口，**不是每个
+函数都要 spec**。覆盖原则：
+
+| 覆盖 | 不覆盖 |
+|---|---|
+| (a) Public VFS 回调 (`Vfs<Fs><Op>`) | mkdir 内部组装步骤（add_entry / alloc_new_dir / init_*_entry） |
+| (b) Linux exfat_fs.h 公共导出函数 | 实现细节 helper（rollback 顺序、loop 策略、字段位填充）|
+| (c) 窄语义稳定工具（≤100 LOC，公式/纯计算）| 编排器（≥2 helper 组合的中间封装） |
+| (d) 跨阶段 check 类辅助 | 临时实现选择（per-iter loop count、特定 flag 值）|
+
+工具 `tools/specfs_eval/collect.py::_classify_invariant` 自动按此规则归类
+`behavioral` vs `implementation`。AB gate 3 只对 behavioral 子集守门。
+
+**反例**：2026-05-07 之前的 mkdir 拆分尝试为 7 个函数都建了 spec，包括
+4 个实现编排器（add_entry / alloc_new_dir / init_dir_entry / init_ext_entry）。
+按上面原则属过度规约，已 prune 移到 `backup/spec/exfat/inode/v04-pruned-2026-05-07/`。
+
 ## 模块合并示例（exFAT Wave B 后续）
 
 | 旧细分 stage | 合并为模块 | 估 LOC |

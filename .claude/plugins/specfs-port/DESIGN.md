@@ -156,31 +156,54 @@ mount (root)
 
 Topological constraint: a stage's spec generation can begin only after **all ancestor code layers** are approved. Within a stage, multiple specs (e.g., `lookup.spec` + `readdir.spec` + `open.spec`) can be generated in parallel via sub-agents if they share no [RELY] dependencies on each other.
 
-### 2.4 Spec modularity — 1 spec / 1 function (hard rule, v0.4)
+### 2.4 Spec coverage rule — interface + narrow utilities only (hard rule, v0.4)
 
-Per paper §4.2 and confirmed by the 2026-05 mkdir regen experiment
-(`spec/exfat/inode/exfat_mkdir.spec.v04draft` 223 LOC for VfsExfatMkdir vs
-the legacy 742 LOC bundle for 7 functions):
+**Refined 2026-05-07 after the mkdir over-spec experience.** Initial v0.4 read
+of "1 spec / 1 function" was too literal — promoted 6 helper specs for mkdir
+including 4 implementation orchestrators (`exfat_add_entry`,
+`exfat_alloc_new_dir`, `exfat_init_dir_entry`, `exfat_init_ext_entry`) that
+the paper's AtomFS reference does NOT spec. Implementation orchestrators are
+high-volatility code internals; speccing them creates fragile fixed contracts
+where flexibility is needed.
 
-**One spec file = one [GUARANTEE] function.** Helper functions referenced from
-a public VOP must each get their own `.spec` under the same module directory;
-they are NOT collapsed into a single bundle.
+**The actual rule:** spec a function only if it falls into one of these
+classes:
 
-| Past pattern (Wave A/B Stage 4e) | v0.4 pattern |
-|---|---|
-| `inode/exfat_mkdir.spec` containing 7 [GUARANTEE] entries (calc_num_entries, zeroed_cluster, alloc_new_dir, init_dir_entry, init_ext_entry, add_entry, VfsExfatMkdir) → 742 LOC | `inode/exfat_mkdir.spec` for VOP only (~220 LOC); siblings: `exfat_add_entry.spec`, `exfat_init_ext_entry.spec`, `exfat_init_dir_entry.spec`, `exfat_alloc_new_dir.spec`, `exfat_zeroed_cluster.spec`, `exfat_calc_num_entries.spec`. |
+| Class | Examples in AtomFS | Examples in our tree |
+|---|---|---|
+| (a) **Public VFS callbacks** | `atomfs_open`, `atomfs_rename`, `atomfs_ins` | `VfsExfatMkdir`, `VfsExfatLookup`, `VfsExfatRead` |
+| (b) **Linux exFAT public-header functions** | (n/a, AtomFS is FUSE) | `exfat_zeroed_cluster`, `exfat_alloc_cluster`, `exfat_set_volume_dirty`, ... (see `exfat_fs.h`) |
+| (c) **Narrow stable utilities** (single concern, ≤100 LOC, formula or pure compute) | `getlen`, `hash_name`, `calculate`, `malloc_inode` | `exfat_calc_num_entries`, `exfat_inode_alloc` |
+| (d) **Cross-stage check helpers** with stable contract | `check_open`, `check_src_exist_dst_delete` | `exfat_validate_dentry_set` (when promoted) |
 
-Why this matters:
-- **Invariant tracking**: each spec owns its own invariant set; bundles concentrate 13 invariants in one file and create ambiguity about which invariant belongs to which function.
-- **Parallel generation**: sub-agents can take ONE spec each via `Task()` (P4.1), only possible at function granularity.
-- **SpecFine targeting**: when SpecEval flags a defect, F3 SpecFine polishes the SPECIFIC spec that owns the relevant invariant — bundles force the polish to retouch unrelated content.
-- **Module budget enforcement**: BUDGETS.md tiered limits (≤100 / ≤150 / ≤220 LOC per function) only make sense per-function; bundles always violate these.
+**Do NOT spec:**
+- Implementation orchestrators (compose ≥2 helpers into a sequence): `add_entry`, `alloc_new_dir`
+- Field-layout step helpers (set bit pattern N at offset M): `init_dir_entry`, `init_ext_entry`
+- Internal rollback / loop strategies (these are commit-message + cmocka concerns)
 
-**Promotion rule**: an existing bundled spec can stay frozen as-is if it
-already approved code; future stages within the same module MUST use 1-per-
-function. Splitting a bundle retroactively is OPTIONAL — doing so requires
-re-running `dag_check_node_complete` and Layer 3 SpecEval to confirm
-invariant set is preserved across the split.
+**Mkdir module worked example** (post-v0.4, post-prune):
+```
+spec/exfat/inode/
+├── exfat_mkdir.spec            (a) — VOP, 7 invariants
+├── exfat_calc_num_entries.spec (c) — formula, 2 invariants
+├── exfat_zeroed_cluster.spec   (b) — Linux public, 3 invariants
+└── exfat_inode_alloc.spec      (c) — narrow util, predates v0.4
+```
+
+The 4 deleted helper specs (`add_entry`, `alloc_new_dir`, `init_dir_entry`,
+`init_ext_entry`) were moved to `backup/spec/exfat/inode/v04-pruned-2026-05-07/`
+for archival.
+
+**Auto-classifier** in `tools/specfs_eval/collect.py::_classify_invariant`
+implements this rule deterministically:
+1. Host function is a `Vfs<Op>` or `exfat_<vop>` → behavioral
+2. Host function is in Linux `exfat_fs.h` public surface → behavioral
+3. Host spec is ≤100 LOC (narrow utility tier) → behavioral
+4. Invariant text mentions cross-module / observable keyword → behavioral
+5. Otherwise → implementation (excluded from AB protocol gate 3)
+
+`tools/specfs_eval/ab_run.py` gate 3 (invariant_preserve) uses
+`behavioral_invariant_ids` only; impl-class invariants do not block merge.
 
 ## 3. File layout
 

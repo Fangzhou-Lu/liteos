@@ -197,6 +197,16 @@ int VfsExfatMkdir(struct Vnode *parent_vp, const char *name,
   before `VnodeAlloc` failure MUST be freed via `exfat_inode_free`; on
   hash-insert failure (Case 4) cleanup follows the explicit Case 4 path.
 
+**Invariant** (id=exfat-mkdir-uniname-hash-cs-default):
+  The `name_hash` written into the new directory's stream dentry MUST be
+  computed with `exfat_calc_chksum16` over the raw UTF-16 byte stream
+  (`name_len * sizeof(uint16_t)` bytes), seed `0`, type `CS_DEFAULT`. No
+  upcase normalization is applied during write; lookup re-applies upcase
+  on mismatching characters. Cross-module pairing: this hash MUST match
+  the formula used by Wave A `VfsExfatLookup`, otherwise mkdir-then-lookup
+  silently misses. Internal helper choice (where exactly the hash is
+  computed) is unconstrained.
+
 **System Algorithm**:
 1. Acquire `sbi->s_lock`; call `exfat_set_volume_dirty`.
 2. Call `exfat_add_entry(sbi, parent_vp, name, TYPE_DIR, &info)` — this

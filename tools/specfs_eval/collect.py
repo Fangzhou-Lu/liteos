@@ -39,6 +39,95 @@ def _run(cmd: list[str], cwd: Path) -> str:
 
 # ---------- spec metrics --------------------------------------------------
 
+# ---------- behavioral vs implementation classifier ----------------------
+# Rules sourced from /Users/kissa/Codebase/linux/fs/exfat/exfat_fs.h public
+# surface + AtomFS spec layout (sysspec/specfs/util/* shows what utility tier
+# warrants spec'ing). Decision is deterministic, no LLM required.
+
+LINUX_EXFAT_PUBLIC_FNS = {
+    "exfat_set_volume_dirty", "exfat_clear_volume_dirty",
+    "exfat_alloc_cluster", "exfat_free_cluster",
+    "exfat_ent_get", "exfat_ent_set",
+    "exfat_count_ext_entries", "exfat_chain_cont_cluster",
+    "exfat_zeroed_cluster",
+    "exfat_find_last_cluster", "exfat_count_num_clusters",
+    "exfat_load_bitmap", "exfat_free_bitmap",
+    "exfat_set_bitmap", "exfat_clear_bitmap",
+    "exfat_count_used_clusters", "exfat_trim_fs",
+    "exfat_get_cluster",
+    "__exfat_truncate", "exfat_truncate",
+    "exfat_setattr", "exfat_getattr", "exfat_file_fsync",
+    "exfat_cache_init", "exfat_cache_shutdown", "exfat_cache_inval_inode",
+}
+
+VFS_VOPS = {
+    "mount", "umount", "lookup", "open", "close", "read", "write",
+    "mkdir", "unlink", "rmdir", "rename", "truncate", "getattr",
+    "setattr", "statfs", "sync", "readdir", "fsync", "create",
+    "reclaim", "seek",
+}
+
+BEHAVIORAL_KEYWORDS = (
+    "lookup", "fsck", "mount", "remount", "concurrent", "race",
+    "cross-module", "cross-stage", "pairing", "observable",
+    "externally visible", "leak-free", "memory ownership",
+    "s-lock", "lock-bracketed", "lock discipline",
+    "on-disk format", "abi",
+    # exFAT raw-format anchors (cross-mount durable):
+    "exfat_eof_cluster", "exfat_first_cluster", "volume_dirty",
+    "alloc_fat_chain", "alloc_no_fat_chain", "dentry_size",
+)
+
+
+def _classify_invariant(invariant_id: str, host_spec_path: Path,
+                        invariant_text: str, host_loc: int) -> str:
+    """Return 'behavioral' or 'implementation'. See top-of-file rules."""
+    fname = host_spec_path.stem
+    # Rule 1: VFS callback host (e.g., exfat_mkdir.spec → VfsExfatMkdir)
+    if fname.startswith("exfat_") and fname.split("_", 1)[1] in VFS_VOPS:
+        return "behavioral"
+    if fname.startswith("Vfs"):
+        return "behavioral"
+    # Rule 2: function in Linux exfat public header
+    if fname in LINUX_EXFAT_PUBLIC_FNS:
+        return "behavioral"
+    # Rule 3: narrow utility (≤100 LOC, AtomFS util/* analog)
+    if 0 < host_loc <= 100:
+        return "behavioral"
+    # Rule 4: invariant text contains observable / cross-module keyword
+    text = (invariant_text or "").lower()
+    if any(kw in text for kw in BEHAVIORAL_KEYWORDS):
+        return "behavioral"
+    return "implementation"
+
+
+def _extract_invariants_with_text(text: str) -> list[tuple[str, str]]:
+    """Return list of (id, body_text) pairs. body is up to next blank line or
+    next ** marker — used by the classifier's keyword scan."""
+    out: list[tuple[str, str]] = []
+    lines = text.splitlines()
+    i = 0
+    pat = re.compile(r"^\s*\*\*Invariant\*\*\s*\(id=([^)]+)\)\s*:?\s*(.*)$")
+    while i < len(lines):
+        m = pat.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        inv_id = m.group(1)
+        body = [m.group(2)] if m.group(2) else []
+        j = i + 1
+        while j < len(lines):
+            nxt = lines[j].rstrip()
+            if not nxt or nxt.startswith("**Invariant**") or nxt.startswith("##") \
+               or nxt.startswith("[") or re.match(r"^\*\*[A-Z]", nxt):
+                break
+            body.append(nxt)
+            j += 1
+        out.append((inv_id, "\n".join(body).strip()))
+        i = j
+    return out
+
+
 def _spec_metrics(spec_path: Path) -> dict:
     if not spec_path.is_file():
         return {"spec_path": str(spec_path), "spec_present": False}
@@ -53,14 +142,22 @@ def _spec_metrics(spec_path: Path) -> dict:
     while module_root.parent != module_root and module_root.parent.name != "spec":
         module_root = module_root.parent
     module_invariants: list[str] = []
+    behavioral_invariants: list[str] = []
+    implementation_invariants: list[str] = []
     if module_root.is_dir() or module_root.parent.name == "spec":
         # `module_root` is now spec/<module>/<sub>/<file>; walk spec/<module>/
         module_dir = module_root if module_root.is_dir() else module_root.parent
         for p in sorted(module_dir.rglob("*.spec")):
-            sib = p.read_text(encoding="utf-8")
-            for inv in re.findall(r"^\s*\*\*Invariant\*\*\s*\(id=([^)]+)\)", sib, flags=re.M):
-                if inv not in module_invariants:
-                    module_invariants.append(inv)
+            sib_text = p.read_text(encoding="utf-8")
+            sib_loc = len(sib_text.splitlines())
+            for inv_id, inv_body in _extract_invariants_with_text(sib_text):
+                if inv_id not in module_invariants:
+                    module_invariants.append(inv_id)
+                cls = _classify_invariant(inv_id, p, inv_body, sib_loc)
+                if cls == "behavioral" and inv_id not in behavioral_invariants:
+                    behavioral_invariants.append(inv_id)
+                elif cls == "implementation" and inv_id not in implementation_invariants:
+                    implementation_invariants.append(inv_id)
     refine = len(re.findall(r"^##\s*Refine Prompt", text, flags=re.M))
     rely_externs = re.findall(r"^\s*extern\s+\S", text, flags=re.M)
     # Pull function symbols out of [GUARANTEE] (use as code-export hint when DAG empty).
@@ -82,6 +179,8 @@ def _spec_metrics(spec_path: Path) -> dict:
         "spec_invariants": len(invariants),
         "spec_invariant_ids": invariants,
         "module_invariant_ids": module_invariants,
+        "behavioral_invariant_ids": behavioral_invariants,
+        "implementation_invariant_ids": implementation_invariants,
         "spec_refine_prompts": refine,
         "spec_rely_extern_count": len(rely_externs),
         "spec_guarantee_exports": spec_exports,

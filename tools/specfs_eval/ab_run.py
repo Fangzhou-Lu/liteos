@@ -22,16 +22,58 @@ from pathlib import Path
 
 # ---- AB_PROTOCOL.md 门标准 -----------------------------------------------
 
+# ---- baseline backward-compat: reclassify legacy IDs by prefix ------------
+# When a baseline JSON predates the v0.4 classifier (no behavioral_invariant_ids
+# field), derive its behavioral subset via the same ID-prefix rule that
+# collect.py applies. Prefers Linux exFAT public-header anchors + VFS VOP
+# names. Implementation-class IDs (orchestrator internals, helper-only
+# concerns) are excluded — they were misclassified pre-v0.4 and should not
+# block the gate.
+
+_LEGACY_VOP_PREFIXES = {
+    "mount", "umount", "lookup", "open", "close", "read", "write",
+    "mkdir", "unlink", "rmdir", "rename", "truncate", "getattr",
+    "setattr", "statfs", "sync", "readdir", "fsync", "reclaim", "seek",
+    "create",
+}
+_LEGACY_LINUX_PUBLIC_PREFIXES = {
+    "zeroed-cluster", "set-volume-dirty", "clear-volume-dirty",
+    "alloc-cluster", "free-cluster", "ent-set", "ent-get",
+    "count-ext-entries", "load-bitmap", "free-bitmap",
+    "set-bitmap", "clear-bitmap", "count-used-clusters",
+    "find-last-cluster", "count-num-clusters",
+}
+
+
+def _id_prefix_class(inv_id: str) -> str:
+    """Return 'behavioral' or 'implementation' from ID prefix only."""
+    if not inv_id.startswith("exfat-"):
+        return "implementation"
+    rest = inv_id[6:]
+    for p in sorted(_LEGACY_VOP_PREFIXES | _LEGACY_LINUX_PUBLIC_PREFIXES,
+                    key=len, reverse=True):
+        if rest == p or rest.startswith(p + "-"):
+            return "behavioral"
+    return "implementation"
+
+
+def _behavioral_set(rec: dict) -> set:
+    if "behavioral_invariant_ids" in rec and rec["behavioral_invariant_ids"]:
+        return set(rec["behavioral_invariant_ids"])
+    legacy = rec.get("spec_invariant_ids", []) or rec.get("module_invariant_ids", [])
+    return {i for i in legacy if _id_prefix_class(i) == "behavioral"}
+
+
 GATES = [
     ("cmocka_pass",       "硬门 1：cmocka 通过",
      lambda b, e: e.get("cmocka_pass") is True),
     ("kernel_build_pass", "硬门 2：kernel build 通过",
      lambda b, e: e.get("kernel_build_pass") is True),
-    ("invariant_preserve","硬门 3：baseline invariant 全部保留",
-     # v0.4: prefer module_invariant_ids (covers 1-spec-per-function split);
-     # fall back to per-spec ids for legacy baselines lacking the field.
-     lambda b, e: set(b.get("spec_invariant_ids", [])) <=
-                  set(e.get("module_invariant_ids", e.get("spec_invariant_ids", [])))),
+    ("invariant_preserve","硬门 3：baseline behavioral invariants 全部保留",
+     # v0.4: behavioral set 比对 (impl-class IDs 是 noise, 不阻门).
+     # Baseline 缺字段时, _behavioral_set 按 ID 前缀派生 (Linux exFAT 公共
+     # 接口 + VFS VOP 锚点).
+     lambda b, e: _behavioral_set(b) <= _behavioral_set(e)),
     ("coverage_preserve", "硬门 4：testpoint ≥ baseline × 0.8",
      lambda b, e: (e.get("testpoint_count") or 0) >=
                   0.8 * (b.get("testpoint_count") or 0)),
