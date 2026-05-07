@@ -71,6 +71,28 @@ Print:
  - [GUARANTEE] has calling-convention comment block above each fn?
  - [SPECIFICATION] has at least one Invariant with unique id?
  - Any clarifications recorded this session?
+ - **Two-phase lock check (P1.5)** — run a 2-step trigger scan:
+   1. Grep the Linux source files at `<linux-path>` for `mutex_lock` /
+      `mutex_unlock` / `spin_lock` / `spin_unlock` / `down_` / `up_` /
+      `read_lock` / `write_lock` / `_lock_irqsave`.
+   2. Grep the draft spec text for `LOS_MuxLock` / `LOS_MuxUnlock` /
+      `LOS_MuxInit` / `LOS_MuxDestroy` / `LOS_SpinLock` / `LOS_SpinUnlock`
+      as bare function-call references in `[RELY]` (NOT struct-field types).
+   - If EITHER scan hits → spec MUST contain a `## Refine Prompt` section
+     opened by a leading `## First Prompt` separator. Verify both markers
+     are present in the draft. If missing, REJECT the draft — print the
+     violation, call `spec_gen_refine(session_id, user_suggestion="P1.5
+     two-phase trigger fired (locks present in <Linux source | spec [RELY]>
+     — list the matched primitives). Re-author the spec in two-phase
+     format: ## First Prompt opens Phase 1 (functional, no lock state in
+     [SPECIFICATION]); ## Refine Prompt opens Phase 2 (lock-state
+     pre/post + initialization-order constraint + deadlock note). See
+     prompts/linux_to_spec.md TWO-PHASE METHODOLOGY section.")` and loop
+     back to Step 3 with the refined prompt.
+   - If NEITHER scan hits → spec MUST NOT contain `## Refine Prompt`
+     (empty Phase 2 section is also rejected). Same auto-refine path.
+   - This sanity check happens BEFORE the AskUserQuestion below — the user
+     should never see a draft that fails the two-phase gate.
 
 Use `AskUserQuestion` with these options:
 - (a) Approve — save to `spec/<module>/.../<op>.spec` (drop `.draft`), commit DAG node spec layer

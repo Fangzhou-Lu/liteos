@@ -33,6 +33,20 @@ pass owns those. Focus exclusively on the items below.
 - Hallucinated helpers not in [RELY] and not in [PRIOR CODE INTERFACE]
 - Branch / Case behavior diverges from [SPECIFICATION] cases
 - Logic that satisfies post-condition but ignores **System Algorithm** phases
+- **Phase-layering mismatch (P1.5)**: code uses lock-acquisition primitives
+  (`LOS_MuxLock` / `LOS_MuxUnlock` / `LOS_SpinLock` / `LOS_SpinUnlock` and
+  variants) but the spec lacks a `## Refine Prompt` section that anchors
+  the expected lock state. Treat this as a SPEC GAP, not a code defect:
+  set `"is_good": false` and write `comments` like
+  `"phase_layering_violation: code acquires <X> but spec has no Phase 2.
+   Either spec should be SpecFine'd to add Phase 2 lock-state contract, or
+   code should remove the lock acquisition. Recommend: spec polish."`
+  This routes to F3 SpecFine instead of code regen.
+- **Phase-1 lock leakage in spec → wrong code expectation**: if spec's
+  Phase 1 [SPECIFICATION] mentions held locks (e.g. "caller holds X") but
+  there is no `## Refine Prompt`, the spec is malformed. Flag with
+  `"phase_layering_violation: spec leaks lock state into Phase 1 with no
+   Phase 2; ambiguous lock contract. Recommend: spec polish."`
 
 # What NOT to flag here
 

@@ -78,8 +78,27 @@ inode/ file/ path/ bitmap/ util/）。**用户拍板分层后才进阶段 2**。
 质量门槛：
 - 规范 LOC < 生成代码 LOC（SpecFS 生产力命题）；
 - `[RELY]` 必须列具体 LiteOS-A 函数签名（不能"使用互斥锁"这种泛指）；
-- `[GUARANTEE]` 必须紧跟一段调用约定注释（持锁状态、返回值含义、副作用）；
-- 加锁是单独的 `## Refine Prompt` 轮次，不是一轮的关注点。
+- `[GUARANTEE]` 必须紧跟一段调用约定注释（返回值含义、副作用；**持锁
+  状态留到 Phase 2**）；
+- **两阶段 spec 写法（P1.5 起硬约束，paper §4.1 + delalloc.spec + exfat_mount.spec）**——
+  spec 必须把"功能"和"加锁"切成两段同输出：
+  - Phase 1（`## First Prompt` 之后到 `## Refine Prompt` 之前）：[RELY] +
+    [GUARANTEE] + [SPECIFICATION]，**只描述功能契约**。Pre/Post-Condition
+    禁止出现"持有 X 锁 / 获取 X / 释放 X"。
+  - Phase 2（`## Refine Prompt` 之后）：仅追加 lock state pre/post +
+    初始化顺序约束 + deadlock note。**不重复 Phase 1 的 Cases**，
+    **不改 [GUARANTEE] 签名**。
+  - 触发条件（任一命中 → 必须两阶段）：① Linux 源文件出现 `mutex_lock` /
+    `spin_lock*` / `down_*` / `*_lock_irqsave`；② 自己的 [RELY] 会
+    forward-declare `LOS_MuxLock` / `LOS_MuxUnlock` / `LOS_MuxInit` /
+    `LOS_MuxDestroy` / `LOS_SpinLock` / `LOS_SpinUnlock` 等**调用形式**
+    （仅 `LosMux` 字段嵌在 struct 里不算）。
+  - 反例：`feature/exfat-port-spec-first:fs/exfat/spec/interface/exfat_mount.spec`
+    是按本约束写的范本——`## First Prompt` 段含 5 个功能 Case + goto-stack
+    回滚 Invariant，`## Refine Prompt` 段只放 lock state Pre/Post + 5 步
+    初始化顺序 + deadlock note。
+  - 触发未命中时（纯无锁 helper），`## First Prompt` / `## Refine Prompt`
+    **不能**作为空占位写——直接从 [RELY] 起即可。
 
 ### 阶段 3 — Linux → LiteOS-A 映射
 

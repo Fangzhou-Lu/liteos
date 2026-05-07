@@ -3,6 +3,92 @@
 All notable changes to this plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/) loosely; semver applies.
 
+## [0.5.4] — 2026-05-08
+
+### Restored — paper §4.1 two-phase spec methodology (P1.5)
+
+User directive 2026-05-08:
+> "请回复论文中的两阶段 spec 方法，第一阶段不处理锁序，第二阶段处理"
+> "之前已经实现该功能，后面去掉了，可以参考之前的提交"
+
+`feature/exfat-port-spec-first:fs/exfat/spec/interface/exfat_mount.spec`
+shows the original pattern verbatim — `## First Prompt` opens Phase 1
+(functional contract: 5 Cases + goto-stack rollback Invariant), then
+`## Refine Prompt` opens Phase 2 (lock-state Pre/Post + 5-step
+initialization-order constraint + deadlock note). At v0.4 (commit
+`7c5244bd`) the two-phase methodology was demoted from "required when
+locks involved" to OPTIONAL with a note `"声明已跳过 paper two-phase
+SpecCompiler（用户：当时 LLM 局限）"`. P1.5 restores it as a hard gate.
+
+#### Modified
+
+1. `prompts/linux_to_spec.md`:
+   - New `[TWO-PHASE METHODOLOGY]` segment ahead of `[OUTPUT FORMAT]`.
+   - Trigger rule: two-phase REQUIRED if either (a) Linux source uses
+     `mutex_lock` / `spin_lock*` / `down_*` / `*_lock_irqsave` etc., or
+     (b) draft [RELY] declares lock-call primitives like `LOS_MuxLock` /
+     `LOS_MuxUnlock` (struct-field lock types alone don't trigger).
+   - Phase 1 forbidden list: Pre/Post-Condition cannot mention "holds X
+     lock" / acquire / release; [GUARANTEE] calling-convention block
+     describes return value + side effects only, NOT lock state.
+   - Phase 2 forbidden list: cannot restate Phase 1 Cases, cannot change
+     [GUARANTEE] signatures, cannot introduce new functional facts.
+   - REJECTION CRITERIA expanded with 5 two-phase violation cases.
+   - Canonical example pointer to `feature/exfat-port-spec-first` mount
+     spec + paper's `delalloc.spec` Phase 1/2 with AA-deadlock note.
+
+2. `prompts/speceval.md`:
+   - New "Phase-layering mismatch" check in spec conformance bucket.
+     Code uses lock-acquire primitives but spec lacks `## Refine Prompt`
+     → flag as SPEC GAP (routes to F3 SpecFine, not codegen retry).
+   - Phase 1 lock-leakage variant: spec mentions held locks in Phase 1
+     with no Phase 2 → also flag with SpecFine recommendation.
+
+3. `commands/specfs-port-spec.md` Step 4:
+   - New "Two-phase lock check (P1.5)" sanity check ahead of HITL
+     review. Two-step trigger scan (Linux source + draft [RELY]). On
+     trigger-fired-but-spec-missing, auto-call `spec_gen_refine` with a
+     P1.5-specific user_suggestion and loop back to Step 3 — user
+     never sees a draft that fails the two-phase gate.
+   - Mirror check on the negative path: trigger NOT fired but spec
+     emits empty `## Refine Prompt` placeholder → also rejected.
+
+4. `skills/specfs-port/SKILL.md`:
+   - Stage 2 quality gate list: replaced "加锁是单独的 Refine Prompt
+     轮次" one-liner with a full two-phase methodology block (5
+     bullets) covering trigger conditions, Phase 1 / Phase 2 boundary
+     rules, and pointer to `exfat_mount.spec` as canonical example.
+   - [GUARANTEE] gate updated: "持锁状态留到 Phase 2".
+
+#### Why now
+
+The "lenient single-pass spec with optional Refine Prompt" stance from
+v0.4 produced spec drift: codegen would emit lock acquisitions that the
+spec never sanctioned, then SpecEvaluator and Layer 2 cmocka exec would
+flag concurrency bugs that traced back to spec gaps, not code defects.
+Forcing two-phase output puts lock contracts under the same review gate
+as functional contracts, eliminating that class of feedback drift.
+
+LLM capability has improved enough since v0.4 that the original "skip
+two-phase" rationale no longer applies. The format is single-output
+(LLM emits both phases in one round; the markdown markers separate
+them), so there is no extra LLM round cost — only stricter format
+enforcement.
+
+#### Known caveats
+
+- The auto-detection happens in two places (LLM via [TWO-PHASE
+  METHODOLOGY] section + Step 4 sanity check). They use the same trigger
+  rule but are independently coded; if the rule changes, update BOTH.
+- Phase 2's Initialization-order constraint sub-block is currently a
+  free-form numbered list; future work could formalize it as a phase
+  System Algorithm with its own retry budget.
+- Server-side `spec_gen_submit` does not yet run the trigger scan — the
+  enforcement is in the LLM prompt + the client-side Step 4 check. A
+  future revision could add server-side validation as a defense in
+  depth, returning a structured `{validation_error: "phase_layering_*"}`
+  before the spec text reaches the user.
+
 ## [0.5.3] — 2026-05-08
 
 ### Added — performance / token telemetry for MCP + LLM rounds
