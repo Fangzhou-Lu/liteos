@@ -1222,37 +1222,46 @@ int exfat_add_entry(exfat_sb_info *sbi, struct Vnode *parent_vp,
 }
 
 /* ---------------------------------------------------------------------------
- * VfsExfatMkdir — VnodeOps.Mkdir callback.
+ * VfsExfatMkdir — VnodeOps.Mkdir callback. (v0.4 promote 2026-05-07)
  *
- * Lock model (Invariant exfat-mkdir-s-lock-bracketed): take sbi->s_lock
- * once; all error paths unlock at one label. Helpers themselves are
- * lock-free; alloc_cluster takes bitmap_lock internally.
+ * Two-phase locking per spec Refine Prompt:
+ *   Phase 1 (disk mutation):  s_lock held; vol_dirty bracket; add_entry.
+ *   Phase 2 (vnode creation): lock-free; heap + VFS helpers only.
  *
- * vol_dirty bracket (Invariant exfat-mkdir-vol-dirty-bracketed): set / clear
- * envelopes the entire add_entry composition so a power-loss mid-mkdir
- * leaves a fsck-actionable marker.
+ * Invariants enforced:
+ *   exfat-mkdir-s-lock-bracketed         (lock spans Phase 1 only)
+ *   exfat-mkdir-vol-dirty-bracketed      (set/clear envelopes add_entry)
+ *   exfat-mkdir-vfs-hash-insert-after-data-set
+ *   exfat-mkdir-subdir-count             (parent num_subdirs++)
+ *   exfat-mkdir-no-parent-dentry-write   (in-memory only)
+ *   exfat-mkdir-leak-free-success        (success path zero leak)
+ *
+ * Error policy:
+ *   Case 1 (success):              returns 0; *vpp set.
+ *   Case 2 (add_entry failure):    s_lock released; *vpp untouched; returns errno.
+ *   Case 3 (vnode setup failure):  s_lock already released; orphan dentry+cluster
+ *                                  on disk (v1 no-rollback policy); returns -ENOMEM.
  * --------------------------------------------------------------------------- */
 int VfsExfatMkdir(struct Vnode *parent_vp, const char *name,
                   mode_t mode, struct Vnode **vpp)
 {
-    exfat_sb_info        *sbi;
-    exfat_inode_info     *parent_ei;
-    exfat_inode_info     *new_ei = NULL;
-    struct Vnode         *new_vp = NULL;
+    exfat_sb_info        *sbi       = NULL;
+    exfat_inode_info     *parent_ei = NULL;
+    exfat_inode_info     *new_ei    = NULL;
+    struct Vnode         *new_vp    = NULL;
     struct exfat_dir_entry info;
     errno_t serr;
-    int locked = 0;
-    int err = 0;
-    int sd_ret;
-    int cd_ret;
+    int     sd_ret;
+    int     cd_ret;
+    int     err = 0;
 
-    (void)mode;     /* exFAT has no per-file mode bits; vp->mode set via fmask/dmask below. */
+    (void)mode;   /* exFAT carries no per-file permission bits. */
 
-    /* Step 1: arg validation (no lock). */
     if (parent_vp == NULL || name == NULL || vpp == NULL) {
         return -EINVAL;
     }
-    if (parent_vp->originMount == NULL || parent_vp->originMount->data == NULL ||
+    if (parent_vp->originMount == NULL ||
+        parent_vp->originMount->data == NULL ||
         parent_vp->data == NULL) {
         return -EINVAL;
     }
@@ -1268,41 +1277,35 @@ int VfsExfatMkdir(struct Vnode *parent_vp, const char *name,
         return -EIO;
     }
 
-    /* Step 2: take s_lock. */
+    /* ---- Phase 1: disk mutation (s_lock held) ----------------------------- */
     (void)LOS_MuxLock(&sbi->s_lock, LOS_WAIT_FOREVER);
-    locked = 1;
 
-    /* Step 3: open vol_dirty bracket. PRINT_ERR on failure but do not abort
-     * — mirrors Wave B Stage 2a write-path discipline. */
     sd_ret = exfat_set_volume_dirty(sbi);
     if (sd_ret != 0) {
         PRINT_ERR("[%s] set_volume_dirty: %d\n", __func__, sd_ret);
     }
 
-    /* Step 4: compose dentry-set + new dir cluster. */
     err = exfat_add_entry(sbi, parent_vp, name, TYPE_DIR, &info);
 
-    /* Step 5: close vol_dirty bracket regardless of err. */
     cd_ret = exfat_clear_volume_dirty(sbi);
     if (cd_ret != 0) {
         PRINT_ERR("[%s] clear_volume_dirty: %d\n", __func__, cd_ret);
     }
 
+    (void)LOS_MuxUnlock(&sbi->s_lock);
+
     if (err != 0) {
-        goto unlock;
+        return err;   /* Case 2 */
     }
 
-    /* Step 6: allocate inode_info. */
+    /* ---- Phase 2: vnode creation (lock-free) ------------------------------ */
     err = exfat_inode_alloc(&new_ei);
     if (err != 0) {
-        /* v1 known leak: dentry-set + new dir cluster stay on disk; vol_dirty
-         * was already cleared so fsck won't auto-fix — log a warning. */
-        PRINT_ERR("[%s] inode_alloc failed (%d) — orphan dentry+cluster on disk\n",
+        PRINT_ERR("[%s] inode_alloc failed (%d) — orphan on disk\n",
                   __func__, err);
-        goto unlock;
+        return -ENOMEM;   /* Case 3 */
     }
 
-    /* Step 7: populate ei fields from info. */
     new_ei->dir           = info.dir;
     new_ei->entry         = info.entry;
     new_ei->type          = info.type;
@@ -1315,29 +1318,24 @@ int VfsExfatMkdir(struct Vnode *parent_vp, const char *name,
     new_ei->num_subdirs   = info.num_subdirs;
     new_ei->i_pos         = ((uint64_t)info.start_clu << 32) |
                             (uint32_t)info.entry;
-    /* exfat_inode_init_dir_chain rewires dir/start_clu/type/flags from the
-     * dir cluster — call after the manual field copy so its assignments win
-     * (matches Wave A lookup pattern). */
+
+    /* init_dir_chain rewires dir/start_clu/type/flags from the new cluster;
+     * call after the manual copy so its values win (matches lookup pattern),
+     * then restore fields it does not cover. */
     exfat_inode_init_dir_chain(new_ei, info.start_clu);
     new_ei->size          = info.size;
     new_ei->valid_size    = info.size;
     new_ei->i_size_ondisk = info.size;
-    new_ei->type          = TYPE_DIR;
     new_ei->attr          = info.attr;
     new_ei->num_subdirs   = info.num_subdirs;
 
-    /* Step 8: allocate vnode. */
     err = VnodeAlloc(&g_exfatVops, &new_vp);
     if (err != 0) {
         exfat_inode_free(new_ei);
-        new_ei = NULL;
-        err = -ENOMEM;
-        PRINT_ERR("[%s] VnodeAlloc failed — orphan dentry+cluster on disk\n",
-                  __func__);
-        goto unlock;
+        PRINT_ERR("[%s] VnodeAlloc failed — orphan on disk\n", __func__);
+        return -ENOMEM;   /* Case 3 */
     }
 
-    /* Step 9: wire vnode to ei (Invariant exfat-mkdir-vfs-hash-insert-after-data-set). */
     new_vp->type        = VNODE_TYPE_DIR;
     new_vp->vop         = &g_exfatVops;
     new_vp->fop         = &g_exfatFops;
@@ -1348,28 +1346,17 @@ int VfsExfatMkdir(struct Vnode *parent_vp, const char *name,
     new_vp->gid         = sbi->options.fs_gid;
     new_vp->mode        = S_IFDIR | (mode_t)(0755u & ~sbi->options.fs_dmask);
 
-    /* Step 10: insert into VFS hash. */
     err = VfsHashInsert(new_vp, (uint32_t)info.start_clu);
     if (err != 0) {
         new_vp->data = NULL;
         (void)VnodeFree(new_vp);
         exfat_inode_free(new_ei);
-        new_vp = NULL;
-        new_ei = NULL;
-        err = -ENOMEM;
-        goto unlock;
+        PRINT_ERR("[%s] VfsHashInsert failed — orphan on disk\n", __func__);
+        return -ENOMEM;   /* Case 3 */
     }
 
-    /* Step 11: bump parent num_subdirs (in-memory only). */
-    parent_ei->num_subdirs++;
+    parent_ei->num_subdirs++;   /* in-memory only; on-disk sync deferred */
 
     *vpp = new_vp;
-    err = 0;
-
-unlock:
-    if (locked) {
-        (void)LOS_MuxUnlock(&sbi->s_lock);
-        locked = 0;
-    }
-    return err;
+    return 0;
 }

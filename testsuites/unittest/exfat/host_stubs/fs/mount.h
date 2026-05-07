@@ -2,7 +2,7 @@
 #define _HOST_STUB_FS_MOUNT_H
 
 #include <stdint.h>
-#include <sys/statfs.h>
+#include <sys/statfs.h>  /* host_stubs/sys/statfs.h shims macOS → sys/mount.h */
 #include "vnode.h"
 
 /* PATH_MAX: use system limit if available, else define a safe default. */

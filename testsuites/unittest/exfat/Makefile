@@ -22,6 +22,17 @@ CFLAGS  := -std=c11 -O0 -g -Wall -Wextra -Wno-unused-parameter \
 LDFLAGS :=
 LDLIBS  := -lcmocka
 
+# macOS: cmocka from Homebrew lives outside the default search paths.
+# Detect at make time and prepend; harmless on Linux/CI where files don't exist.
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+  BREW_PREFIX := $(shell brew --prefix cmocka 2>/dev/null)
+  ifneq ($(BREW_PREFIX),)
+    CFLAGS  += -I$(BREW_PREFIX)/include
+    LDFLAGS += -L$(BREW_PREFIX)/lib
+  endif
+endif
+
 # Production sources (compiled with stubs in place).
 PROD_SRCS := \
     $(EXFAT)/exfat_module.c  \

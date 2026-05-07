@@ -48,19 +48,27 @@
 
 ## 模块合并示例（exFAT Wave B 后续）
 
-| 旧细分 stage | 合并为模块 | 估 LOC |
-|---|---|---|
-| 4d create | dirops | ~80 |
-| 4e mkdir | dirops | ~250（已 generated 1375 — **超预算**，待 P3.1 重写） |
-| 4f unlink | dirops | ~150 |
-| 4g rmdir | dirops | ~100 |
-| 4h rename | dirops | ~250 |
-| **总计** | **dirops 模块** | ≤ 800 LOC（强制） |
+| 旧细分 stage | 合并为模块 | 估 LOC | 状态 |
+|---|---|---|---|
+| 4d create | dirops | ~80 | 未起 |
+| 4e mkdir | dirops | spec 431 / code 138 | ✅ v0.4 落地 (2026-05-07) |
+| 4f unlink | dirops | ~150 | 未起 |
+| 4g rmdir | dirops | ~100 | 未起 |
+| 4h rename | dirops | ~250 | 未起 |
+| **总计** | **dirops 模块** | ≤ 800 LOC（强制） | mkdir 占 17% |
 
-## 既有违例
+## v0.4 mkdir 落地实测
 
-mkdir 当前 spec 742 LOC + code 1375 LOC（生成于 2026-05-05）— spec/code 1.16，
-显著超预算。F1 + P3.1 一并应用后重生时压到 spec ≤150 + code ≤250。
+mkdir 重生 (2026-05-07, commit 0f396595 spec / 本次 promote code)：
+- spec 模块总和 = 431 LOC（mkdir.spec 265 + calc_num_entries.spec 85 +
+  zeroed_cluster.spec 81）— 远低于模块 600 LOC 上限。
+- VfsExfatMkdir 函数 138 LOC — 在"VOP（持锁两阶段）≤220"内，且通过
+  Phase 1/Phase 2 split 把 s_lock 收窄到只覆盖 disk mutation。
+- spec/code 比 = 431/138 = 3.12（mkdir 单函数视角 0.61，含 helper 视角更宽
+  松）。基线 742/1375 = 0.54（看似低，但实为 spec 因 [RELY] 工程化膨胀；
+  v0.4 spec [SPECIFICATION] body 净 LOC 反而更小）。
+- AB 协议两次 ACCEPT：c6e98410（initial promote）+ 0f396595（prune 编排器）。
+- cmocka 24 testpoint 全绿；24 suites / 419 testpoints 总绿。
 
 ## 预算检测
 
