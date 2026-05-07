@@ -1,6 +1,9 @@
 [PROMPT]
-Provide complete `exfat_mkdir.c` that implements `VfsExfatMkdir`. Only include
-`<exfat.h>` as the header; output a single C code block with no other code.
+Provide complete `exfat_inode.c` addition that implements `VfsExfatMkdir`.
+Only include `<exfat.h>` as the header; output a single C code block with no
+other code. The block is appended to `fs/exfat/exfat_inode.c` (mkdir is part
+of the inode-management TU together with lookup / create / open_close /
+getattr / seek), NOT written as a standalone file.
 
 VfsExfatMkdir is the VnodeOps.Mkdir callback for the exFAT filesystem on
 LiteOS-A. It creates a new sub-directory under an existing parent directory.

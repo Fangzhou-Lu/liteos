@@ -101,8 +101,24 @@ A SYSSPEC spec is a plain-text document with these segments, in order:
 ```
 [PROMPT]
 A short paragraph that:
-1. Names the file you must produce (e.g. "Provide complete `exfat_lookup.c`
-   that implements `VfsExfatLookup`.").
+1. Names the destination file. The destination is decided **server-side** by
+   `_derive_code_path`'s SHARED_FILE_MAP — keyed off the spec's stage stem
+   (e.g. `mount` → `<m>_super.c`, `mkdir` → `<m>_inode.c`). Your [PROMPT]
+   text mirrors that mapping for human readers; it does NOT override the
+   server. Two visible patterns:
+   (a) **Standalone TU** — stage stem maps to its own file. Example:
+       "Provide complete `exfat_lookup.c` that implements `VfsExfatLookup`."
+       (server returns `fs/exfat/exfat_lookup.c`.)
+   (b) **Addition to shared TU** — stage stem maps to a multi-stage file
+       (inode-management cluster, super-ops cluster, file-ops cluster).
+       Example: "Provide complete `exfat_inode.c` addition that implements
+       `VfsExfatMkdir`." (server returns `fs/exfat/exfat_inode.c`; the
+       codegen output is the new function body only — append manually OR
+       pass the merged whole-file blob to `code_gen_approve(final_code=...,
+       files_to_save=["fs/exfat/exfat_inode.c"])`.)
+   If you want a NEW stage to follow pattern (b), update SHARED_FILE_MAP
+   in `server/specfs_server.py::_derive_code_path` first; spec [PROMPT]
+   wording alone does not redirect the file.
 2. Names the only header to include and the output wrapping rule
    (e.g. "Only include `<exfat.h>`; output a single C code block.").
 3. Optionally states the high-level intent — what the function does for the

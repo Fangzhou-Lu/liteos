@@ -1435,11 +1435,31 @@ def _derive_code_path(module: str, spec_path: str) -> str:
     op = stem.split("_", 1)[1] if "_" in stem else stem
 
     SHARED_FILE_MAP = {
+        # super-ops cluster
         "mount":  f"{module}_super.c",
         "umount": f"{module}_super.c",
         "statfs": f"{module}_super.c",
         "sync":   f"{module}_super.c",
+        # file-ops cluster
         "read":   f"{module}_file.c",
+        # inode-management cluster (P1.5.1, 2026-05-08)
+        # All inode-side helpers + VFS callbacks land in <m>_inode.c. The
+        # spec [PROMPT] for these stages uses the "addition to <m>_inode.c"
+        # pattern — see prompts/linux_to_spec.md TWO-PHASE METHODOLOGY note
+        # on standalone vs shared-TU patterns.
+        "mkdir":             f"{module}_inode.c",
+        "create":            f"{module}_inode.c",
+        "lookup":            f"{module}_inode.c",
+        "open_close":        f"{module}_inode.c",
+        "getattr":           f"{module}_inode.c",
+        "seek":              f"{module}_inode.c",
+        "inode_alloc":       f"{module}_inode.c",
+        "calc_num_entries":  f"{module}_inode.c",
+        "zeroed_cluster":    f"{module}_inode.c",
+        "alloc_new_dir":     f"{module}_inode.c",
+        "init_dir_entry":    f"{module}_inode.c",
+        "init_ext_entry":    f"{module}_inode.c",
+        "add_entry":         f"{module}_inode.c",
     }
     fname = SHARED_FILE_MAP.get(op)
     if fname:
