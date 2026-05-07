@@ -25,7 +25,7 @@ SessionPhase = Literal[
     "idle",                # session_start just returned
     "spec_drafting",       # Loop A in flight
     "code_drafting",       # Loop B Step 4
-    "compile_check",       # Layer 1: clangd LSP (preferred) + gcc -fsyntax-only fallback
+    "compile_check",       # Layer 1a: clangd LSP only (P1.3 dropped gcc -fsyntax-only fallback)
     "build_check",         # Layer 2 (build)
     "qemu_check",          # Layer 2 (qemu)
     "speceval",            # Layer 3
@@ -84,8 +84,9 @@ class Session:
     current_artifact: str = ""           # spec text or code text
 
     # Layered defense per-layer counters
-    # v0.3.3: Layer 0 (LSP) merged into Layer 1 (compile). The "compile" layer
-    # now runs clangd diagnostics (preferred) with gcc -fsyntax-only as fallback.
+    # v0.3.3: Layer 0 (LSP) merged into Layer 1 (compile).
+    # P1.3 (2026-05-07): gcc -fsyntax-only fallback removed; the "compile"
+    # layer is now LSP-only (clangd via OMC LSP). LSP is a hard prerequisite.
     # v0.3.4: "test_gen" added (Layer T retry budget; default 3 rounds, see DESIGN §10).
     # P1.2 (2026-05-07): "style" repositioned as a SIBLING of "compile" — both
     # gate Layer 2 in parallel (was a serial Layer S after compile in v0.3).

@@ -116,7 +116,7 @@ Plugin: assemble codegen prompt
 LLM: scan for ambiguities (Layer -1) → AskUserQuestion if needed → generate code
     ▼
 Plugin: Layer 1 tier (parallel siblings, both must pass before Layer 2)
-    ├── Layer 1a compile  (clangd LSP preferred + gcc fsyntax-only fallback) — max 4 retries
+    ├── Layer 1a compile  (clangd LSP only — P1.3 dropped gcc fsyntax-only fallback) — max 4 retries
     └── Layer 1b style    (LLM self-judge against prompts/style_rules.md)   — max 5 retries
     ▼
     Layer 2 (build+QEMU) — max 3 retries
@@ -318,8 +318,9 @@ specfs.test_gen_approve(session_id, final_test_text)
 
 ### 4.4 Layered defense
 ```
-specfs.run_compile_check(file_paths) → {ok, stderr} # v0.3.3: caller runs OMC LSP first;
-    # this tool is gcc -fsyntax-only fallback
+# Layer 1a (compile) is LSP-only: caller runs OMC clangd LSP and feeds
+# diagnostics back via specfs.inject_diagnostics(layer="compile", source="lsp", ...).
+# The gcc -fsyntax-only `run_compile_check` MCP tool was removed in P1.3 (2026-05-07).
 specfs.run_build_kernel() → {ok, stderr, image_path} # build.sh fast path
 specfs.run_qemu_smoke(commands) → {ok, serial_log}
 specfs.inject_diagnostics(session_id, layer, payload)
@@ -420,8 +421,7 @@ You need to generate code according to provided specification and comments.
 
 [Modification suggestions] ← gencode.py:180, only on retry — multi-source
 {tagged segments by origin:
-    <source: compile (lsp)>...</source> ← v0.3.3 merged: clangd preferred
-    <source: compile (gcc)>...</source> ← v0.3.3 merged: gcc -fsyntax-only fallback
+    <source: compile (lsp)>...</source> ← v0.3.3 merged Layer 0; P1.3 dropped gcc fallback (LSP-only)
     <source: style>...</source>
     <source: build>...</source>
     <source: qemu>...</source>
@@ -511,7 +511,7 @@ Example phrasings:
 | Layer | Trigger | Tool | On failure | Max retries |
 |---|---|---|---|---|
 | -1 Ask-first | Before any LLM gen | LLM self-scan + AskUserQuestion | Pause until user clarifies | (not iterative) |
-| **1a Compile** (v0.3.3 merged: LSP + gcc) | After every codegen | clangd via OMC LSP (preferred, real headers) → gcc -fsyntax-only with stub (fallback when LSP unavailable) | Inject diagnostics with source=lsp\|gcc → re-codegen | 4 |
+| **1a Compile** (P1.3: LSP-only) | After every codegen | clangd via OMC LSP — reads repo `.clangd` config so it sees real LiteOS-A headers (no stub-drift). gcc -fsyntax-only fallback removed in P1.3. | Inject diagnostics with source=lsp → re-codegen | 4 |
 | **1b Style** (P1.2: sibling of 1a, was Layer S in v0.3) | After every codegen, parallel to 1a | auto-check (clang-format dry-run + libsec scan + length heuristic) → LLM self-judge against `prompts/style_rules.md` → JSON {is_good, score, violations} | Inject violations with source=style → re-codegen | 5 |
 | 2 Build+QEMU | After 1a + 1b both pass; per-stage | build.sh + qemu-system-arm with smoke | Inject build/qemu log → re-codegen | 3 |
 | 3 SpecEvaluator (v0.2, ON by default) | After Layer 2 pass | LLM self-judge → JSON {is_good, comments} — **spec conformance only**, style stays in Layer 1b | Inject comments → re-codegen | 8 (paper) |

@@ -3,6 +3,74 @@
 All notable changes to this plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/) loosely; semver applies.
 
+## [P1.3] — 2026-05-07
+
+### Removed — gcc -fsyntax-only fallback dropped from Layer 1a
+
+User directive 2026-05-07: "Tier 1 中去掉 gcc fsyntax-only 检查, 只保留 clangd
+LSP". Layer 1a (compile) is now LSP-exclusive. Rationale:
+
+- **Stub-drift was chronic.** `_ensure_compile_stub` hand-maintained a
+  ~60-line stub header (`Vnode`, `Mount`, `LosMux`, `LOS_MemAlloc`, etc.)
+  that had to be extended every time a new LiteOS-A type touched an FS
+  file. clangd via OMC LSP reads the repo's real `.clangd` config and
+  sees the actual headers — zero drift.
+- **The fallback was always second-class.** The "preferred path" was
+  already LSP via `inject_diagnostics(layer="compile", source="lsp")`;
+  the gcc tool only ran when LSP was missing. Modern dev setups + CI
+  images all ship OMC LSP. Hard prerequisite simplifies the contract.
+- **Two retry budgets confused the gate semantics.** Some failures
+  produced `source=lsp`, others `source=gcc` — both used `layer=compile`
+  but had different stub-vs-real signal quality. Operators couldn't
+  tell whether a clean Layer 1 meant "real headers said OK" or "stub
+  said OK".
+
+### Removed code
+
+- `server/specfs_server.py::run_compile_check` (43 LOC, was an `@mcp.tool()`)
+  — deleted. Layer 1a is now driven entirely by caller-side LSP +
+  `inject_diagnostics(layer="compile", source="lsp", payload=...)`.
+- `server/specfs_server.py::_ensure_compile_stub` (62 LOC) — deleted.
+- `server/_stubs/specfs_stub.h` — moved to `backup/.claude/plugins/specfs-port/server/_stubs-removed-P1.3/`.
+
+### Modified
+
+- `server/specfs_server.py` — `_passed_layers` "compile" comment now
+  "clangd LSP only (P1.3 dropped gcc fallback)".
+- `server/state.py` — `STAGE_NAMES` and `Session` docstrings updated.
+- `server/prompts.py` — `assemble_style_audit_prompt` docstring no
+  longer references `gcc -fsyntax-only` (only LSP).
+- `commands/specfs-port-code.md` — Active layers footer note + the
+  "Removed in v0.4" bullet now read "P1.3 fully removed".
+- `DESIGN.md` — §4.4 MCP tool table drops `run_compile_check`; §6
+  layer-pipeline diagram drops gcc fallback; §7 defense table updates
+  Layer 1a column to "clangd via OMC LSP, no fallback"; §6
+  `[Modification suggestions]` source list drops `<source: compile (gcc)>`.
+- `README.md` — workflow ASCII art and prerequisite list updated.
+- `prompts/validation_checklist.md` — §7 Build status checklist line
+  "Layer 1 gcc -fsyntax-only" replaced with "Layer 1a clangd LSP".
+- `.claude/skills/specfs-port/SKILL.md` — frontmatter description and
+  body "防御层次" section now read "Layer 1a [P1.3 起 clangd LSP-only]".
+
+### Migration notes
+
+- DAG nodes carrying `code.validations_passed.compile: true` keep the
+  same shape — just the underlying signal source narrows from
+  "lsp-or-gcc" to "lsp-only".
+- Existing sessions: `state.layer_retries["compile"]` keeps its semantics.
+- Operators relying on the gcc fallback in offline / no-LSP environments:
+  install OMC LSP via `oh-my-claudecode:mcp-setup`. There is no longer
+  a graceful degradation path.
+
+### Why now (vs let it fade)
+
+Two consecutive sessions hit the stub-drift wall: Wave B Stage 4d added
+`exfat_inode_info.fs_fmask` + `VnodeOps.Create` slot, both unknown to
+the stub. Each forced a stub edit before the gcc path would even run,
+yet LSP reported the same error in seconds without intervention.
+Keeping a fallback whose maintenance cost > its no-LSP coverage value
+was no longer defensible.
+
 ## [P1.2] — 2026-05-07
 
 ### Changed — Layer S split back out of Layer 3 SpecEval, repositioned as Layer 1 sibling

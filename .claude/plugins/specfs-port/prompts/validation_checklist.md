@@ -75,8 +75,8 @@ Diff highlighted:
 User confirms equivalence or that differences are intentional improvements.
 
 ## 7. Build status (Layer 1 + Layer 2)
-- [ ] Layer 0 LSP diagnostics: {LSP_STATUS} (clean / N issues)
-- [ ] Layer 1 gcc -fsyntax-only: {COMPILE_STATUS} (pass / fail)
+- [ ] Layer 1a clangd LSP: {COMPILE_STATUS} (clean / N issues)  — P1.3 LSP-only (gcc fallback dropped)
+- [ ] Layer 1b style audit: {STYLE_STATUS} (is_good / score / violations)
 - [ ] Layer 2 build.sh: {BUILD_STATUS} (pass / fail / image_path)
 - [ ] Layer 2 QEMU smoke: {QEMU_STATUS} (pass / fail)
 

@@ -43,7 +43,7 @@ User: /specfs-port-spec /Users/kissa/Codebase/linux/fs/exfat lookup
 
 User: /specfs-port-code spec/exfat/interface/exfat_lookup.spec
     ↓ (Loop B — spec → C code)
-[ask-first → Layer 0 LSP → Layer 1 gcc -fsyntax-only → Layer 2 build + QEMU
+[ask-first → (Layer 1a clangd LSP || Layer 1b 风格审计) → Layer 2 build + QEMU
     → Layer 3 SpecEval (opt-in) → Layer 4 user review]
     ↓ saves to fs/exfat/exfat_lookup.c, DAG node code layer committed
     ↓ common.header auto-synced with new exports
@@ -99,7 +99,7 @@ tools/regress/run_all.sh # aggregate regression runner (cmocka + QEMU LTP)
 - Python 3.11+
 - `uv` (https://docs.astral.sh/uv/) — for dependency management
 - The `mcp` Python package (auto-installed by uv)
-- For Layer 1: a working `gcc` on PATH (used with `-fsyntax-only`)
+- For Layer 1a: OMC LSP (clangd) — see `oh-my-claudecode:mcp-setup`. P1.3 (2026-05-07) made LSP a hard prerequisite; the gcc -fsyntax-only fallback was removed because clangd reads the repo's real `.clangd` config and never has stub-drift.
 - For Layer 2: SSH access to the build host (default `192.168.1.15` per project memory)
 
 ## Roles (HITL contract)

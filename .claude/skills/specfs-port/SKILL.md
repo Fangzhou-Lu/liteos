@@ -1,6 +1,6 @@
 ---
 name: specfs-port
-description: 凡用户提到将 Linux 内核文件系统（exFAT、F2FS、EROFS、BTRFS、ext4、NTFS 等）移植到 OpenHarmony LiteOS-A 内核，或在本仓库下新增/重写文件系统时，必须立即调用本技能；同时也是 specfs-port Claude Code 插件的伴生技能（自动随插件加载）。触发短语包括："port exFAT to LiteOS-A"、"添加 F2FS 支持"、"重写 FAT"、"把 Linux fs/<name> 翻译过来"、"SpecFS"、"sysspec"、"spec-first 文件系统"、"specfs-port"、"/specfs-port-spec"、"/specfs-port-code"，以及任何将 Linux FS 实现转写为 LiteOS-A 版本的请求；用户希望用 SpecFS 规范优先方法重构现有 LiteOS-A 文件系统（fs/fat、fs/jffs2）时同样触发。本技能驱动一条五阶段流水线（摄取 → 规范 → 映射 → 代码 → 接线），并绑定六层防御（Layer 1a compile [LSP+gcc 合一] || Layer 1b 风格审计 [P1.2 起为 1a sibling，原 Layer S] / Layer 2 build+QEMU / Layer 3 SpecEvaluator 自审 [spec conformance only] / Layer T cmocka 测试派生 [Loop A 触发] / Layer 4 用户审核）+ 两层回归套件（cmocka host + QEMU LTP smoke）。本技能取代过去的 liteos-fs-port 同名技能，与 specfs-port 插件**统一命名、协同工作**。
+description: 凡用户提到将 Linux 内核文件系统（exFAT、F2FS、EROFS、BTRFS、ext4、NTFS 等）移植到 OpenHarmony LiteOS-A 内核，或在本仓库下新增/重写文件系统时，必须立即调用本技能；同时也是 specfs-port Claude Code 插件的伴生技能（自动随插件加载）。触发短语包括："port exFAT to LiteOS-A"、"添加 F2FS 支持"、"重写 FAT"、"把 Linux fs/<name> 翻译过来"、"SpecFS"、"sysspec"、"spec-first 文件系统"、"specfs-port"、"/specfs-port-spec"、"/specfs-port-code"，以及任何将 Linux FS 实现转写为 LiteOS-A 版本的请求；用户希望用 SpecFS 规范优先方法重构现有 LiteOS-A 文件系统（fs/fat、fs/jffs2）时同样触发。本技能驱动一条五阶段流水线（摄取 → 规范 → 映射 → 代码 → 接线），并绑定六层防御（Layer 1a compile [P1.3 起 clangd LSP-only，去掉 gcc 兜底] || Layer 1b 风格审计 [P1.2 起为 1a sibling，原 Layer S] / Layer 2 build+QEMU / Layer 3 SpecEvaluator 自审 [spec conformance only] / Layer T cmocka 测试派生 [Loop A 触发] / Layer 4 用户审核）+ 两层回归套件（cmocka host + QEMU LTP smoke）。本技能取代过去的 liteos-fs-port 同名技能，与 specfs-port 插件**统一命名、协同工作**。
 ---
 
 # specfs-port — 规范优先的 Linux→LiteOS-A 文件系统移植（plugin 伴生技能）
@@ -133,7 +133,7 @@ P1.2 (2026-05-07) 拓扑：Layer 1 内拆 1a/1b 两个并行 sibling，二者都
 Layer 2；SpecEval (Layer 3) 只看 spec conformance，不再内联 style 规则。
 
 ```
-Layer 1a: compile gate ← v0.3.3 合并：clangd LSP（首选）+ gcc -fsyntax-only（兜底）
+Layer 1a: compile gate ← v0.3.3 合并 Layer 0; P1.3 起 LSP-only（去掉 gcc 兜底）
 Layer 1b: 编码风格审计 ← v0.3 引入（旧 Layer S）, P1.1 短暂折入 Layer 3,
                           P1.2 重新独立, 与 1a 平行（任一不过都 block）
 Layer 2:  全量 build + QEMU smoke

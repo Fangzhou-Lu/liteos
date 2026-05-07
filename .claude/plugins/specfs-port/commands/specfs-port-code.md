@@ -38,7 +38,7 @@ P1.2 (2026-05-07) topology change:
 
 Removed in v0.4 (per arxiv 2512.13047 §4.5 fidelity):
 - Ask-first at code-gen — disambiguation belongs in spec gen, not code gen
-- gcc `-fsyntax-only` fallback — clangd via OMC LSP is the single path
+- gcc `-fsyntax-only` fallback (P1.3 fully removed — clangd via OMC LSP is the single path; this was already implicit in v0.4 but P1.3 deletes the dead `run_compile_check` MCP tool + `_ensure_compile_stub` helper)
 - Layer T (cmocka) — moved to Loop A, fires after `spec_gen_approve`
 
 ## Step 0 — parse arguments

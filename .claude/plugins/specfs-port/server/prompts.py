@@ -288,9 +288,9 @@ def assemble_style_audit_prompt(*, generated_code: str, auto_checks: str = "") -
 
     P1.2 (2026-05-07) repositioning: this layer is no longer a Layer S
     serial step AFTER compile (Layer 1). It now sits at the SAME tier as
-    Layer 1 — runs in parallel with clangd LSP / gcc -fsyntax-only, and
-    both must pass before Layer 2 (build+QEMU). Spec conformance is
-    handled by Layer 3 SpecEvaluator (see `assemble_speceval_prompt`),
+    Layer 1 — runs in parallel with clangd LSP (Layer 1a, P1.3 LSP-only).
+    Both 1a and 1b must pass before Layer 2 (build+QEMU). Spec conformance
+    is handled by Layer 3 SpecEvaluator (see `assemble_speceval_prompt`),
     which deliberately does NOT inline style rules — that's this layer's
     job.
 
