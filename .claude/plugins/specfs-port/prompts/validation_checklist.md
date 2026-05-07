@@ -74,14 +74,16 @@ Diff highlighted:
 
 User confirms equivalence or that differences are intentional improvements.
 
-## 7. Build status (Layer 1 + Layer 2)
-- [ ] Layer 1a clangd LSP: {COMPILE_STATUS} (clean / N issues)  — P1.3 LSP-only (gcc fallback dropped)
-- [ ] Layer 1b style audit: {STYLE_STATUS} (is_good / score / violations)
+## 7. Auto-layer status (P1.4 ordering: Layer 1a → Layer 3 → Layer 2)
+- [ ] Layer 1a.1 clangd LSP: {COMPILE_STATUS} (clean / N issues)  — P1.3 LSP-only (gcc fallback dropped)
+- [ ] Layer 1a.2 style audit: {STYLE_STATUS} (is_good / score / violations)  — P1.4 sequential after LSP (was P1.2 sibling Layer 1b)
+- [ ] Layer 3 SpecEvaluator: {SPECEVAL_STATUS} (skipped / is_good=true / comments=...)  — P1.4 moved BEFORE Layer 2
 - [ ] Layer 2 build.sh: {BUILD_STATUS} (pass / fail / image_path)
+- [ ] Layer 2 cmocka unit-tests: {CMOCKA_STATUS} (pass N/N / fail / skipped)  — P1.4 absorbed from holistic SpecValidator
 - [ ] Layer 2 QEMU smoke: {QEMU_STATUS} (pass / fail)
 
-## 8. SpecEvaluator (Layer 3, if enabled)
-- [ ] Layer 3: {SPECEVAL_STATUS} (skipped / is_good=true / comments=...)
+## 8. Layer T (cmocka test gen, Loop B Step 3a)
+- [ ] Layer T test draft: {TESTGEN_STATUS} (skipped / N testpoints / iterations=M)  — P1.4 moved from Loop A to Loop B
 
 ## 9. Diff vs ancestor / vs backup
 ```

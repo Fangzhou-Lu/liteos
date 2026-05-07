@@ -83,39 +83,16 @@ Use `AskUserQuestion` with these options:
 **If approve**: call `specfs.spec_gen_approve(session_id, final_spec_text=<draft content>)`.
 The MCP server moves draft → final, updates DAG, returns confirmation.
 
-**Layer T — fire spec-derived cmocka test gen** (relocated from Loop B in v0.4):
+**Layer T (cmocka test gen) is NO LONGER fired here.** P1.4 (2026-05-07)
+moved Layer T from Loop A → Loop B (Step 3a of `/specfs-port-code`). Tests
+now generate against real C code (function signatures, file paths) rather
+than spec abstractions, eliminating a class of test/code drift bugs where
+the spec promised a helper that the code chose not to expose.
 
-Test is derived from the spec's `[GUARANTEE]` (function signatures) and
-`[SPECIFICATION]` (Pre/Post-condition cases + Invariants). It does NOT depend
-on the C code, so it runs immediately after spec approval — parallel to
-`/specfs-port-code` rather than after it.
-
-1. Call `specfs.test_gen_start(session_id)` → `{prompt_for_llm, draft_path,
-   harness_dir_exists}`.
-2. If `harness_dir_exists` is False, warn user that the test file will be
-   written but the harness wiring (Makefile / main.c) skip will require manual
-   fix-up; proceed anyway.
-3. Read the prompt and generate the cmocka test source as a single ```c ... ```
-   fenced block. One testpoint per spec Case + one per testable Invariant.
-4. Call `specfs.test_gen_submit(session_id, generated_test_text=<code>)`.
-   Server writes `<draft_path>`. Returns `{next: "review" | "test_speceval"}`.
-5. If `next: "test_speceval"`, the server returns a SpecEval-style auto-check
-   prompt. Generate JSON `{is_good, comments}`; on `is_good=false` loop back
-   to step 3. Max 3 rounds (test gen is usually quick — escalate to user if
-   it doesn't converge).
-6. Auto-approve when self-check passes: call
-   `specfs.test_gen_approve(session_id, final_test_text=<text>)`. Server
-   renames `.draft` → `.c`, applies Makefile + main.c diffs, runs `git add`.
-7. Print: "Saved <test path> ({testpoints} testpoints). Wired into
-   {makefile_diff} / {mainc_diff}. DAG node tests layer auto-approved."
-
-If the harness directory does not exist or auto-wiring fails, surface
-explicitly so the user can fix manually before running cmocka.
-
-After Layer T completes (or skips with warning), print:
+After spec_gen_approve completes, print:
 "Saved spec/<...>.spec; DAG node `<stage>-` spec layer committed.
-Test draft auto-approved (or escalated). Next: `/specfs-port-code <spec-path>`
-to generate the C code (test gen will not block code gen)."
+Next: `/specfs-port-code <spec-path>` to generate the C code AND its
+cmocka test (test gen happens immediately after code gen in Loop B)."
 
 **If suggest edits**: capture user's free-form feedback. Call
 `specfs.spec_gen_refine(session_id, user_suggestion=<text>)` to get a refined

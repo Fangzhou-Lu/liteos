@@ -1,9 +1,12 @@
 <!--
 v0.3.2 起：从已批准的 spec 派生 cmocka 单元测试草稿。
-v0.3.4 起：调用时机迁移到 Loop A 的 `spec_gen_approve` 之后，与 Loop B
-代码生成并行；不再耦合 Layer S / Layer 3 的通过条件。
-P1.2 (2026-05-07) 拓扑：style 审计回归为 Layer 1 sibling，但与本 prompt
-无依赖（test_gen 只看已批准 spec + 生成的代码 + harness 骨架）。
+v0.3.4 起：服务端真正接通 test_gen_{start,submit,refine,approve}。
+v0.3.4 ~ P1.3 期：调用时机在 Loop A 的 `spec_gen_approve` 之后，与 Loop B
+代码生成并行；不耦合 Layer 1 / Layer 3 的通过条件。
+P1.4 (2026-05-07) 拓扑：本层从 Loop A 移到 Loop B 的 Step 3a，紧跟代码
+生成之后，取代了原"测试看 spec 抽象、代码看具体符号"的解耦——现在测试
+看到的是刚生成的 C 代码真实符号，避免 spec/code 命名漂移导致的 test 失配。
+通过后等待 Step 7 与代码同审批。
 
 输入：原 spec（含 [SPECIFICATION] 各 Case）+ 刚生成的代码 + 已存在的
 testsuites/unittest/<name>_host/ 目录骨架。

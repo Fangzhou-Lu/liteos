@@ -22,15 +22,20 @@ See `DESIGN.md` for full implementation spec, `CHANGELOG.md` for version history
 Optional flags for `/specfs-port-code`:
 - `--speceval-off` — disable Layer 3 SpecEvaluator self-audit
  (default **ON** since plugin v0.2; user explicitly required self-audit before
- user review — see `commands/specfs-port-code.md` Step 8 hard contract)
-- `--style-off` — disable Layer 1b coding-style audit (sibling of Layer 1a compile)
+ user review. P1.4 (2026-05-07) moved this layer BEFORE Layer 2 build/QEMU —
+ cheap-first ordering catches spec-conformance defects without paying build cost.)
+- `--style-off` — disable the style-audit sub-step inside Layer 1a
  (default **ON** since plugin v0.3; user directive "加入编码风格评估环节".
- P1.1 briefly folded the audit into Layer 3 SpecEval; P1.2 (2026-05-07) split
- it back out as a Layer 1 sibling so style nits stop blurring spec-violation
- feedback. Rule canon: `prompts/style_rules.md`; LLM template: `prompts/style_audit.md`.
- Layer 3 SpecEval no longer references style at all.)
-- `--no-build` — skip Layer 2 (build + QEMU smoke)
-- `--no-regress` — skip Step 11 regression-suite reminder
+ P1.1 briefly folded the audit into Layer 3 SpecEval; P1.2 split it back out
+ as a Layer 1 sibling (Layer 1b); P1.4 (2026-05-07) folded it back into
+ Layer 1a as a SEQUENTIAL second sub-step (LSP first, then style; separate
+ retry budgets). Rule canon: `prompts/style_rules.md`; LLM template:
+ `prompts/style_audit.md`. Layer 3 SpecEval no longer references style.)
+- `--test-off` — disable Layer T cmocka test gen AND Layer 2.2 cmocka exec
+ (default **ON** since v0.3.4; P1.4 moved Layer T from Loop A → Loop B Step 3a
+ so tests reference real generated symbols instead of spec abstractions.)
+- `--no-build` — skip Layer 2 entirely (no build, no cmocka exec, no QEMU smoke)
+- `--no-regress` — skip the module-completion `tools/regress/run_all.sh` reminder
 - `--prompt-override <file>` — bypass spec-derived prompt assembly
 
 ## Workflow
@@ -40,13 +45,20 @@ User: /specfs-port-spec /Users/kissa/Codebase/linux/fs/exfat lookup
     ↓ (Loop A — Linux source → SYSSPEC spec)
 [ask-first scan, generate, user review/refine, approve]
     ↓ saves to spec/exfat/interface/exfat_lookup.spec, DAG node spec layer committed
+    ↓ (P1.4: Layer T cmocka test gen NO LONGER fired here — moved to Loop B)
 
 User: /specfs-port-code spec/exfat/interface/exfat_lookup.spec
-    ↓ (Loop B — spec → C code)
-[ask-first → (Layer 1a clangd LSP || Layer 1b 风格审计) → Layer 2 build + QEMU
-    → Layer 3 SpecEval (opt-in) → Layer 4 user review]
-    ↓ saves to fs/exfat/exfat_lookup.c, DAG node code layer committed
+    ↓ (Loop B — spec → C code + cmocka tests, P1.4 ordering)
+[Step 3   gen C code
+ Step 3a  Layer T  cmocka test gen (≤ 3)
+ Step 4   Layer 1a sequential: 4.1 LSP compile (≤ 4) → 4.2 style audit (≤ 5)
+ Step 5   Layer 3  SpecEval — spec conformance only (≤ 8)
+ Step 6   Layer 2  unified: 6.1 build → 6.2 cmocka exec → 6.3 QEMU smoke (≤ 3)
+ Step 7   Layer 4  user review (code + test together)]
+    ↓ saves to fs/exfat/exfat_lookup.c + testsuites/unittest/exfat/test_lookup.c
+    ↓ DAG node code + tests layers committed
     ↓ common.header auto-synced with new exports
+    ↓ Makefile::HARNESS_SRCS + main.c::run_suite() auto-applied
     ↓ git add (no commit — user runs `git commit` themselves)
 ```
 

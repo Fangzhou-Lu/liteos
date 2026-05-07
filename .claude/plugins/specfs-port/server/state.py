@@ -90,8 +90,12 @@ class Session:
     # v0.3.4: "test_gen" added (Layer T retry budget; default 3 rounds, see DESIGN §10).
     # P1.2 (2026-05-07): "style" repositioned as a SIBLING of "compile" — both
     # gate Layer 2 in parallel (was a serial Layer S after compile in v0.3).
-    # Style stays out of Layer 3 SpecEvaluator entirely; SpecEval is spec
-    # conformance ONLY now.
+    # P1.4 (2026-05-07): "style" folded back into Layer 1a as a SEQUENTIAL
+    # second sub-step (LSP first, then style). Retry budgets stay separate
+    # ("compile" 4 / "style" 5). Layer 2 also absorbed SpecValidator: build,
+    # cmocka exec, qemu now share the SAME 3-round budget. SpecEval moved
+    # BEFORE Layer 2 (cheap-first ordering). Layer T moved from Loop A to
+    # Loop B — same retry slot ("test_gen", cap 3), different trigger point.
     layer_retries: dict[str, int] = field(default_factory=lambda: {
         "compile": 0, "style": 0, "build": 0, "qemu": 0, "speceval": 0, "test_gen": 0,
         "spec_fine": 0,  # F3 SpecFine: spec polish via SpecEval feedback (cap 3)
@@ -99,14 +103,18 @@ class Session:
 
     # Plugin v0.2: SpecEvaluator self-audit ON by default. The user explicitly
     # required self-audit BEFORE user review (see commands/specfs-port-code.md
-    # Step 8 hard contract). Disable per-session with --speceval-off.
+    # Step 5 hard contract — P1.4 moved this layer BEFORE Layer 2 build/QEMU,
+    # was Step 6 in P1.2). Disable per-session with --speceval-off.
     speceval_enabled: bool = True
 
     # Plugin v0.3 introduced Layer S (style audit) as a serial step AFTER
     # compile. P1.2 (2026-05-07) repositioned this layer as a SIBLING of
-    # compile — both run in parallel and both must pass before Layer 2.
-    # SpecEval (Layer 3) is now spec-conformance only; it does not inline
-    # style rules. Toggle this layer with `--style-off`.
+    # compile (Layer 1b), running in parallel. P1.4 (2026-05-07) folded
+    # it back into Layer 1a as a SEQUENTIAL second sub-step — LSP runs
+    # first; style runs only if LSP is clean. Keeps each retry round's
+    # diagnostic source crisp (LSP error vs. style violation never mix).
+    # SpecEval (Layer 3) is spec-conformance only; it does not inline
+    # style rules. Toggle this sub-step with `--style-off`.
     style_audit_enabled: bool = True
 
     # Build/QEMU opt-out (--no-build)

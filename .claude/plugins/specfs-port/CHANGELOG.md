@@ -3,6 +3,131 @@
 All notable changes to this plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/) loosely; semver applies.
 
+## [P1.4] — 2026-05-07
+
+### Changed — full pipeline reorder (5 simultaneous topology moves)
+
+User directive 2026-05-07:
+> "请将 specfs-port-spec loop A 中生成 unittest 测试放到 loop B spec 生成 C
+> 代码之后；执行 unittest 单元测试放在 build 之后 qemu 冒烟测试之前；1b
+> liteos-A style audit 合并到 1a lsp compile 中；specEvaluator 放在 lsp 检查
+> 之后 build 之前；SpecValidator 和 2 build + qemu smoke 合并"
+
+Five concurrent topology changes consolidate the pipeline that had grown
+five distinct layers (1a / 1b / 2 / 3 / T + holistic Step 9 SpecValidator)
+into three auto layers + 1 HITL, with cleaner cheap-first ordering:
+
+1. **Layer T cmocka test gen moves Loop A → Loop B (Step 3a).**
+   Tests now generate IMMEDIATELY after the C code, against real generated
+   symbols. Removes a class of test/code drift bugs where the spec promised
+   a helper that the code chose not to expose. Trigger: between Step 3
+   codegen and Step 4 Layer 1a (instead of post-spec_gen_approve).
+
+2. **cmocka exec moves into Layer 2 between build and QEMU.**
+   Per-stage Layer 2 now runs build → cmocka unit tests → QEMU smoke as a
+   single shared retry budget (3 rounds). Cheap regressions fail fast
+   before the expensive QEMU pass. Failing testpoint generated this round
+   → loops to Step 3a (test regen); failing pre-existing testpoint →
+   loops to Step 3 (code regen).
+
+3. **Layer 1b style audit folds back into Layer 1a as a SEQUENTIAL second
+   sub-step.** P1.2 had promoted style to a sibling of compile; P1.4
+   collapses the sibling back inside Layer 1a (4.1 LSP → 4.2 style)
+   while keeping retry budgets separate (LSP 4 / style 5). Diagnostic
+   sources stay crisp (LSP error vs. style violation never mix in the
+   same retry round) but the layer count drops back to pre-P1.2.
+
+4. **Layer 3 SpecEvaluator moves BEFORE Layer 2.** Spec-conformance
+   defects are cheap to catch (one LLM round) and expensive to bury under
+   build/QEMU iteration. Reordering so SpecEval gates first cuts retry
+   cycles when the codegen drifts from the spec.
+
+5. **Holistic SpecValidator merges into Layer 2.** The former `Step 9
+   validator_run_holistic` (build + cmocka + QEMU) at module-completion
+   time is now folded into the per-stage Layer 2 contract. The
+   `tools/regress/run_all.sh` aggregator still exists for manual / CI
+   runs (and is reminded at module-completion if `--no-regress` is not
+   set), but per-stage Layer 2 is the in-loop gate.
+
+Final pipeline (Loop B, per stage):
+
+```
+Step 3   gen C code
+Step 3a  Layer T  cmocka test gen (≤ 3)
+Step 4   Layer 1a sequential: 4.1 LSP compile (≤ 4) → 4.2 style audit (≤ 5)
+Step 5   Layer 3  SpecEval — spec conformance only (≤ 8)
+Step 6   Layer 2  unified: 6.1 build → 6.2 cmocka exec → 6.3 QEMU smoke (≤ 3)
+Step 7   Layer 4  user review (code + test together)
+```
+
+### Modified
+
+- `commands/specfs-port-code.md` — full rewrite of Steps 3-9 to reflect new
+  ordering: Step 3a Layer T inserted; Step 4 Layer 1a now sequential
+  (4.1+4.2); Step 5 Layer 3 promoted; Step 6 Layer 2 unified with cmocka
+  in the middle; Step 9 demoted from holistic SpecValidator to a
+  module-completion regression-suite reminder.
+- `commands/specfs-port-spec.md` — Layer T section removed entirely;
+  spec_gen_approve no longer fires test gen. Replaced with note pointing
+  users to `/specfs-port-code` Step 3a.
+- `server/state.py` — `layer_retries` retains all keys (compile / style /
+  build / qemu / speceval / test_gen / spec_fine); comments updated to
+  reflect the new ordering. `style_audit_enabled` and `speceval_enabled`
+  docstrings updated; no functional change to defaults.
+- `prompts/validation_checklist.md` — §7 reordered (Layer 1a.1 → 1a.2 →
+  Layer 3 → Layer 2 build → Layer 2 cmocka → Layer 2 QEMU); §8 added
+  for Layer T status.
+- `DESIGN.md` — §2.2 Loop B pipeline diagram fully rewritten; §7 defense
+  table re-ordered + Layer 2 cell updated to "build + cmocka exec + QEMU
+  smoke = SpecValidator"; §8 flag list updated for `--style-off` /
+  `--test-off` / `--no-build` / `--no-regress` semantics.
+- `README.md` — `--style-off` / `--test-off` / `--no-build` / `--no-regress`
+  flag descriptions rewritten; workflow ASCII art shows Step 3 → 3a → 4
+  → 5 → 6 → 7 sequence with explicit Layer references.
+- `.claude/skills/specfs-port/SKILL.md` — frontmatter description rewritten
+  to enumerate P1.4 ordering; "防御层次" section body rewritten to show the
+  new Step ladder; "完成后向用户输出的报告" section split per-stage Layer
+  2 cmocka exec from module-completion regression aggregator.
+
+### Migration notes
+
+- DAG nodes carry no Layer 1a/1b discriminator — both wrote
+  `code.validations_passed.style: true|false`. Existing nodes load fine.
+- `specfs.validator_run_holistic(module=...)` MCP tool unchanged in
+  signature; it is now invoked per-stage from Layer 2 (sub-step 6.2 +
+  6.3) AND remains available for manual / CI run via
+  `tools/regress/run_all.sh`.
+- Operators with `--style-off` / `--test-off` / `--speceval-off` /
+  `--no-build` / `--no-regress` in muscle memory: all flags work as
+  before; only `--style-off` and `--test-off` had their referenced
+  layer position move (they now skip a sub-step rather than a top-level
+  layer).
+- Layer 2 retry budget is now SHARED across build / cmocka / QEMU
+  sub-steps (was 3 retries each in pre-P1.4 wording, but the holistic
+  pass already shared one budget; this just formalizes the per-stage
+  contract).
+
+### Why now (vs leave as P1.2 + P1.3)
+
+Cumulative experience with Wave A + Wave B:
+- The Layer 1b sibling cost an extra layer-pivot per codegen round
+  without payoff — diagnostic source already had `source=lsp|style`
+  attribution, so a sequential pass through Layer 1a captures the same
+  signal with one fewer top-level retry counter to reason about.
+- Multiple stages caught spec-conformance bugs only after a successful
+  build + clean QEMU smoke, then had to re-run all of Layer 2 after a
+  spec_fine round. Promoting Layer 3 to before Layer 2 ends that
+  rework.
+- The holistic Step 9 SpecValidator was effectively duplicating Layer 2
+  for the LAST stage of every module, while non-last stages had cheaper
+  Layer 2 coverage. Folding holistic into per-stage Layer 2 spreads the
+  cost evenly and removes the "module-last special case" branch.
+- Layer T fired post-spec_gen_approve was correct in theory but in
+  practice the test referenced spec-abstraction symbols that the
+  codegen later renamed or omitted. Moving Layer T to immediately after
+  Step 3 codegen lets the test reference real generated names —
+  catching test/code drift at the cheapest possible moment.
+
 ## [P1.3] — 2026-05-07
 
 ### Removed — gcc -fsyntax-only fallback dropped from Layer 1a

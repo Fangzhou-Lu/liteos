@@ -1,14 +1,17 @@
 <!--
-Layer S — LiteOS-A coding-style audit (added in plugin v0.3 per user
-"加入编码风格评估环节").
+LiteOS-A coding-style audit (added in plugin v0.3 per user "加入编码风格
+评估环节"). Topology evolution: Layer S (v0.3 serial after compile) →
+Layer 1b (P1.2 sibling of compile, parallel) → Layer 1a.2 (P1.4 sequential
+sub-step inside Layer 1a, runs only AFTER 1a.1 LSP is clean).
 
 Loaded as {STYLE_AUDIT} placeholder via prompts.py::assemble_style_audit_prompt.
 Output MUST be JSON: {"is_good": bool, "score": int (0..100), "comments": str, "violations": [...]}.
 
 Output is parsed by specfs_server.py and either:
- - is_good=true & score >= 80 → advance to Layer 2 (build)
+ - is_good=true & score >= 80 → advance to Layer 3 SpecEval (P1.4 promoted
+   ahead of Layer 2 build/QEMU)
  - otherwise → inject violations as [Modification suggestions] source=style and
- loop back to codegen (max 5 rounds).
+ loop back to codegen (max 5 rounds — independent of LSP retry budget).
 
 Companion runtime checks (run BEFORE this prompt is shown to the LLM):
  - clang-format --dry-run against fs/<module>/.clang-format anchor — captured
