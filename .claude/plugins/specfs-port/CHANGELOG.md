@@ -3,6 +3,113 @@
 All notable changes to this plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/) loosely; semver applies.
 
+## [0.5.6] — 2026-05-08
+
+### Add — Loop C: linux_compare 评估 + prompt-template 反向优化 (P1.6 Wave 2)
+
+User directive 2026-05-08（v0.5.5 已记入 Known caveats，本轮交付）:
+> "实现评估prompt 和生成C代码的评估机制（通过对比linux 代码功能）来通过反馈
+>  优化spec 抽取prompt ，以及代码生成prompt"
+
+#### 关键修正
+
+用户在实现过程中两次澄清了优化目标：
+1. "这里是优化prompt 不是优化spec 和代码，不能直接复用之前的流程" — Loop C
+   产出反馈给 **prompt 模板自身**，不是当前 stage 的 spec/code 产物。
+   `linux_compare_submit` 不能往 `sess.failures` 里塞 FailureRecord（那会
+   触发 `code_gen_refine`）。本轮严格遵守此边界。
+2. "进行优化prompt 测试的时候，只对比第一次spec 或C代码生成结果" + "优化
+   prompt 提供快速路径，spec 和代码都只生成一遍，无反馈机制" — 评估必须
+   测的是 prompt 的引导能力，而非 LLM 的迭代修复能力，否则 prompt 质量信号
+   被反馈循环污染。本轮通过 `.first` 快照 + `fast_eval` 模式双管落实。
+
+#### Added
+
+1. **`prompts/linux_compare.md` (NEW, ~120 行)**:
+   Loop C 元提示。LLM 比对生成的 SYSSPEC spec + LiteOS-A C 与 Linux 原始 TU
+   的功能等价性，输出 JSON 包括 `spec_gaps[] / code_gaps[]` （带 severity /
+   linux_evidence / root_cause）以及 ADDITIVE 的 `spec_prompt_recommendations
+   / codegen_prompt_recommendations`。SCOPE 显式排除 Layer 3 SpecEval 已覆
+   盖的 spec↔code 一致性、Layer 1b 已覆盖的命名/libsec/锁原语，以及
+   "linux_intentional_drop" 类（RCU / page cache / jbd2 等）。
+
+2. **`prompts/prompt_optimize.md` (NEW, ~70 行)**:
+   元元提示 — 把累计的 Loop C 推荐滚动注入到一个具体的 prompt 模板（如
+   `linux_to_spec.md` / `codegen.md` / 任一 fragment）。强制约束:加性编辑、
+   开头 `<!-- ... -->` 开发注释块必须保留并追加日期分项、长度增长 ≤30%、
+   遇结构性变更（如拆分一个 `[SCOPE]` 段）输出 `# RESTRUCTURE NEEDED:` 标记
+   留给人审决定。
+
+3. **MCP 工具 5 个**:
+   - `linux_compare_start(session_id, linux_source_path, code_path?)`:
+     组装比对提示。**只读 `.first` 快照**——若 `<draft>.spec.first` 或
+     `<code>.first` 存在则用之，确保比对的是首次生成产物；否则回退到当前
+     文件并在 `spec_source / code_source` 字段里报"no .first snapshot"。
+   - `linux_compare_submit(session_id, comparison_json)`:
+     解析 JSON，把 spec_gaps / code_gaps / 推荐项追加到
+     `docs/<module>_prompt_feedback.md`。**不**注入 `sess.failures`。
+   - `prompt_optimize_propose(target_prompt_name, module)`:
+     读 `_OPTIMIZABLE_PROMPTS` 白名单中的目标 prompt 文件 + 累计推荐，按
+     `_TARGET_REC_TYPE` 选 spec / codegen 子集，组装元元提示。空推荐时返回
+     `skipped_reason` 而非空字符串提示。
+   - `prompt_optimize_apply(target, new_text, dry_run)`:
+     dry_run=True 仅返回 unified diff；dry_run=False 把当前模板 backup 到
+     `<name>.md.bak.<unix_ts>`，写入新文本，并清掉 `prompts._TEMPLATE_CACHE`
+     的对应条目使下一次 `assemble_*` 立即生效。
+     非致命 sanity warnings:缩水 >20% / 膨胀 >50% / 缺失开头注释块。
+   - `prompt_feedback_summary(module)`:
+     读 `docs/<module>_prompt_feedback.md`，返回 stage 数 + 截断到 30K 的
+     原文。
+
+4. **`.first` 首次产物快照** (per 用户约束 #2):
+   - `spec_gen_submit`: 首次提交时写 `<draft>.spec.first`（再次提交不覆盖）。
+   - `code_gen_submit`: 首次提交时写 `<code>.first`（再次提交不覆盖）。
+   - `linux_compare_start`: 优先读 `.first`，回退当前文件。
+
+5. **`fast_eval` 单次生成模式** (per 用户约束 #3):
+   - `state.Session.fast_eval_mode: bool = False`。
+   - `session_start(mode="fast_eval")` 自动关 speceval / style_audit /
+     test_gen，置 skip_build_layer=True。
+   - 新工具 `toggle_fast_eval_mode` 用于罕见的中途切换。
+   - `_refuse_if_fast_eval` 闸接到 `spec_gen_refine` / `code_gen_refine` /
+     `spec_fine` / `inject_diagnostics` 上——fast_eval 模式下统统 raise
+     ValueError，确保单次产物不被任何反馈循环污染。
+
+6. **`prompts/prompts.py::assemble_linux_compare_prompt`** +
+   **`assemble_prompt_optimize_prompt`** 两个新 assembler。
+
+#### Modified
+
+- `state.py::Session.mode` 类型扩到 `Literal["gen", "evolve", "fast_eval"]`。
+- `state.py::Session` 新增 `fast_eval_mode: bool` 字段（默认 False）。
+
+#### Tests
+
+- `tests/test_prompts.py`: +4 测试覆盖 linux_compare / prompt_optimize 两个
+  新 assembler（含空 invariants 段消除、空推荐占位符、加性约束）。
+- `tests/test_mcp_tools.py`: +25 测试覆盖
+  - linux_compare_start 组装 / 缺源文件错误 / 缺 spec session 错误
+  - linux_compare_submit JSON 解析（含 ```json fence 容错）/ 文档写入 /
+    sess.failures 不被污染
+  - `.first` 快照写入 / 不被二次提交覆盖 / linux_compare 优先读 / 缺失时回退
+  - prompt_optimize_propose 空推荐返回 skipped / 多 stage 滚动 / 白名单错误
+  - prompt_optimize_apply dry_run / 实际备份 / 缩水告警 / 缺注释块告警
+  - prompt_feedback_summary 文档存在性 + stage 计数
+  - fast_eval 模式 e2e + 4 个 refuse 闸 / 中途 toggle / 错误 mode 拒绝
+
+测试总数 165 → **194** (+29)，全部通过。
+
+#### Known caveats
+
+(无遗留——本轮交付了 v0.5.5 CHANGELOG 列出的全部"待办 (a) (b) 第3项"。)
+后续 P1.7 候选:
+- `prompt_optimize_propose` 目前的累计推荐去重仅按 lowercased-trim 字面
+  匹配，语义近似项（措辞不同但等价）需 LLM 在元元提示里二次去重——可考
+  虑加 `embedding_dedup` 选项。
+- `fast_eval` 模式目前不支持自动 batch 跑多 stage 的 harness 命令，HITL
+  仍需逐 stage 调 spec_gen → code_gen → linux_compare。后续可加
+  `fast_eval_run_stage(stage_name)` 一键串联。
+
 ## [0.5.5] — 2026-05-08
 
 ### Slim — Loop A / Loop B prompt 减重 (P1.6 Wave 1)

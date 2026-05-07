@@ -283,6 +283,74 @@ def assemble_unittest_gen_prompt(
     })
 
 
+def assemble_linux_compare_prompt(
+    *,
+    module: str,
+    stage: str,
+    linux_path: str,
+    linux_source: str,
+    spec_path: str,
+    generated_spec: str,
+    code_path: str,
+    generated_code: str,
+    common_header: str,
+    inherited_invariants: list[dict[str, str]],
+) -> str:
+    """Loop C — Linux-functional comparison prompt (P1.6 Wave 2).
+
+    Renders prompts/linux_compare.md with the generated spec + code + Linux
+    source. The LLM returns a JSON report with spec_gaps, code_gaps, and
+    additive prompt-tuning recommendations. The plugin's
+    `linux_compare_submit` MCP tool parses + persists that JSON.
+
+    This is a SEMANTIC comparison against the Linux reference — orthogonal
+    to Layer 3 SpecEval (which is spec↔code conformance). Empty
+    inherited_invariants / common_header are dropped per the substitute()
+    section-eliding rules.
+    """
+    template = load("linux_compare")
+    return substitute(template, {
+        "MODULE": module,
+        "STAGE": stage,
+        "LINUX_PATH": linux_path,
+        "LINUX_SOURCE": linux_source.rstrip(),
+        "SPEC_PATH": spec_path,
+        "GENERATED_SPEC": generated_spec.strip(),
+        "CODE_PATH": code_path,
+        "GENERATED_CODE": generated_code.rstrip(),
+        "COMMON_HEADER": common_header.strip() or "(empty — first stage)",
+        "INHERITED_INVARIANTS": _render_invariants(inherited_invariants),
+    })
+
+
+def assemble_prompt_optimize_prompt(
+    *,
+    target_prompt_name: str,
+    module: str,
+    rec_type: str,
+    n_stages: int,
+    current_prompt: str,
+    recommendations: str,
+) -> str:
+    """Loop C meta-prompt — roll up accumulated recommendations into a
+    revised prompt template (P1.6 Wave 2).
+
+    target_prompt_name: short name without .md (e.g. "linux_to_spec",
+        "codegen", "two_phase_rules"). The plugin reads the current text
+        from prompts/<name>.md and asks the LLM to produce a revised version.
+    rec_type: "spec" or "codegen" — which subset of recommendations to feed.
+    """
+    template = load("prompt_optimize")
+    return substitute(template, {
+        "TARGET_PROMPT_NAME": target_prompt_name,
+        "MODULE": module,
+        "REC_TYPE": rec_type,
+        "N_STAGES": str(n_stages),
+        "CURRENT_PROMPT": current_prompt.rstrip(),
+        "RECOMMENDATIONS": recommendations.rstrip() or "(none accumulated)",
+    })
+
+
 def assemble_style_audit_prompt(*, generated_code: str, auto_checks: str = "") -> str:
     """LiteOS-A coding-style audit prompt from prompts/style_audit.md.
 

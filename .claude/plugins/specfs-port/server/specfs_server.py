@@ -125,20 +125,41 @@ def session_start(module: str, mode: str = "gen") -> dict[str, Any]:
 
     Args:
         module: FS module name (e.g., "exfat").
-        mode: "gen" for new stages, "evolve" for optimization variants.
+        mode: One of "gen", "evolve", "fast_eval".
+            - "gen": new stage with full layered defense + retry budgets.
+            - "evolve": optimisation variant of an existing stage.
+            - "fast_eval" (P1.6 Wave 2): single-shot prompt-evaluation
+              mode. Spec and code each generated ONCE; no SpecEval / no
+              spec_fine / no refine / no inject_diagnostics / no build /
+              no QEMU / no Layer T. Use when measuring prompt quality
+              for Loop C; the only iteration is across stages, not within
+              a stage.
 
     Returns:
-        {session_id, dag_state, dirty_nodes}
+        {session_id, dag_state, dirty_nodes, fast_eval_mode}
     """
-    if mode not in ("gen", "evolve"):
-        raise ValueError(f"mode must be 'gen' or 'evolve', got {mode!r}")
+    if mode not in ("gen", "evolve", "fast_eval"):
+        raise ValueError(
+            f"mode must be one of 'gen' / 'evolve' / 'fast_eval', got {mode!r}"
+        )
     sess = state.new_session(module=module, mode=mode)
+    if mode == "fast_eval":
+        sess.fast_eval_mode = True
+        # Disable every iterative-repair / validation layer so the
+        # downstream orchestrator cannot accidentally feed defect-driven
+        # repair signal into a session that exists to measure first-shot
+        # prompt quality.
+        sess.speceval_enabled = False
+        sess.style_audit_enabled = False
+        sess.test_gen_enabled = False
+        sess.skip_build_layer = True
     _SESSIONS[sess.session_id] = sess
     dag_state = dag_module.load(module)
     return {
         "session_id": sess.session_id,
         "dag_state": dag_state,
         "dirty_nodes": dag_module.list_dirty(dag_state),
+        "fast_eval_mode": sess.fast_eval_mode,
     }
 
 
@@ -181,6 +202,43 @@ def toggle_skip_build(session_id: str, skip: bool) -> dict[str, bool]:
     sess = _get(session_id)
     sess.skip_build_layer = bool(skip)
     return {"skip_build_layer": sess.skip_build_layer}
+
+
+@mcp.tool()
+def toggle_fast_eval_mode(session_id: str, enabled: bool) -> dict[str, bool]:
+    """Toggle Loop C fast-eval mode mid-session (P1.6 Wave 2).
+
+    Enabling at any point disables every iterative-repair layer
+    (speceval, style_audit, test_gen, build/qemu) and refuses subsequent
+    spec_gen_refine / code_gen_refine / spec_fine / inject_diagnostics
+    calls. Disabling restores those flags' defaults so a session can
+    transition from prompt-evaluation back to normal generation if
+    needed.
+
+    Most callers should pass mode="fast_eval" to session_start instead;
+    this toggle exists for the rare case of converting an in-flight
+    session into an evaluation harness.
+    """
+    sess = _get(session_id)
+    sess.fast_eval_mode = bool(enabled)
+    if sess.fast_eval_mode:
+        sess.speceval_enabled = False
+        sess.style_audit_enabled = False
+        sess.test_gen_enabled = False
+        sess.skip_build_layer = True
+    return {"fast_eval_mode": sess.fast_eval_mode}
+
+
+def _refuse_if_fast_eval(sess: state.Session, tool_name: str) -> None:
+    """Hard gate: tools listed below are disabled in fast_eval mode so
+    Loop C measures first-shot prompt quality, not iterative repair."""
+    if sess.fast_eval_mode:
+        raise ValueError(
+            f"{tool_name} is disabled in fast_eval mode (Loop C "
+            "single-shot prompt evaluation). Re-create the session with "
+            "mode='gen' or call toggle_fast_eval_mode(enabled=False) if "
+            "you need iterative repair."
+        )
 
 
 @mcp.tool()
@@ -281,6 +339,7 @@ def spec_gen_refine(session_id: str, user_suggestion: str) -> dict[str, Any]:
     the previous draft + user's suggestion baked into [USER SUGGESTIONS] /
     [Previously generated spec]."""
     sess = _get(session_id)
+    _refuse_if_fast_eval(sess, "spec_gen_refine")
     sess.spec_iterations += 1
     sess.user_suggestions.append(user_suggestion)
 
@@ -326,6 +385,14 @@ def spec_gen_submit(session_id: str, generated_spec_text: str) -> dict[str, Any]
     draft_p = _repo_root() / sess.spec_draft_path
     draft_p.parent.mkdir(parents=True, exist_ok=True)
     draft_p.write_text(generated_spec_text, encoding="utf-8")
+    # P1.6 Wave 2: stash first submission as <draft>.first.spec for Loop C
+    # linux_compare. ONLY written once — refine / spec_fine submissions don't
+    # touch this snapshot. Compare against this baseline so the comparison
+    # measures the prompt's first-shot quality, not the LLM's iterative
+    # repair ability.
+    first_p = draft_p.with_suffix(draft_p.suffix + ".first")
+    if not first_p.exists():
+        first_p.write_text(generated_spec_text, encoding="utf-8")
     return {
         "next": "review",
         "draft_path": sess.spec_draft_path,
@@ -473,6 +540,14 @@ def code_gen_submit(session_id: str, generated_code: str) -> dict[str, Any]:
     full.parent.mkdir(parents=True, exist_ok=True)
     full.write_text(generated_code, encoding="utf-8")
 
+    # P1.6 Wave 2: stash first submission as <code>.first for Loop C
+    # linux_compare. Only written once; refine rounds don't touch it.
+    # Compares against this baseline so the comparison measures the prompt's
+    # first-shot quality, not the LLM's iterative repair ability.
+    first_p = full.with_suffix(full.suffix + ".first")
+    if not first_p.exists():
+        first_p.write_text(generated_code, encoding="utf-8")
+
     return {
         "next": "compile",
         "draft_path": draft_path,
@@ -484,6 +559,7 @@ def code_gen_submit(session_id: str, generated_code: str) -> dict[str, Any]:
 def code_gen_refine(session_id: str, user_suggestion: str) -> dict[str, Any]:
     """User-driven refine: inject user_suggestion as <source: user> in [Modification suggestions]."""
     sess = _get(session_id)
+    _refuse_if_fast_eval(sess, "code_gen_refine")
     sess.code_iterations += 1
     sess.failures.append(state.FailureRecord(
         layer="user",
@@ -983,6 +1059,7 @@ def inject_diagnostics(
     """Record a layer failure and produce next-round codegen prompt with
     [Modification suggestions] source=<layer> appended."""
     sess = _get(session_id)
+    _refuse_if_fast_eval(sess, "inject_diagnostics")
     if layer not in ("compile", "style", "build", "qemu", "speceval", "user"):
         raise ValueError(f"unknown layer: {layer}")
     sess.layer_retries[layer] = sess.layer_retries.get(layer, 0) + 1
@@ -1265,6 +1342,7 @@ def spec_fine(session_id: str, speceval_comments: str) -> dict[str, Any]:
     code_gen_refine path.
     """
     sess = _get(session_id)
+    _refuse_if_fast_eval(sess, "spec_fine")
     cur = sess.layer_retries.get("spec_fine", 0)
     if cur >= _SPEC_FINE_CAP:
         return {
@@ -1332,6 +1410,660 @@ def spec_fine_submit(session_id: str, polished_spec_text: str) -> dict[str, Any]
         "spec_path": spec_path,
         "bytes_written": len(text),
         "attempt": sess.layer_retries.get("spec_fine", 0),
+    }
+
+
+# ---- Loop C — Linux-functional comparison (P1.6 Wave 2, 2026-05-08) ----------
+# User directive (deferred from v0.5.5): "实现评估prompt 和生成C代码的评估机制
+# (通过对比linux 代码功能) 来通过反馈优化spec 抽取prompt, 以及代码生成prompt"
+#
+# Pipeline position: AFTER code_gen_approve. Compares the generated SYSSPEC spec
+# + LiteOS-A C against the original Linux TU and produces:
+#   (1) per-gap fix suggestions (severity-tagged),
+#   (2) ADDITIVE prompt-tuning recommendations for linux_to_spec.md and
+#       codegen.md — written to docs/<module>_prompt_feedback.md for HITL
+#       review. The plugin DOES NOT auto-rewrite prompt templates.
+# High-severity gaps are also stashed as `linux_compare` FailureRecords on the
+# session so the next code_gen_refine / spec_fine call surfaces them.
+
+_FEEDBACK_DOC_DIR = "docs"  # docs/<module>_prompt_feedback.md
+
+
+def _feedback_doc_path(module: str) -> Path:
+    return _repo_root() / _FEEDBACK_DOC_DIR / f"{module}_prompt_feedback.md"
+
+
+def _stage_from_spec_path_safe(spec_path: str) -> str:
+    """Best-effort stage extractor that doesn't blow up on unusual paths."""
+    try:
+        return _stage_from_spec_path(spec_path)
+    except Exception:
+        return Path(spec_path).stem
+
+
+@mcp.tool()
+def linux_compare_start(
+    session_id: str,
+    linux_source_path: str,
+    code_path: Optional[str] = None,
+) -> dict[str, Any]:
+    """Loop C — assemble the Linux↔generated comparison prompt.
+
+    Args:
+        session_id: existing session (must have an approved spec and at least
+            one generated code path on disk).
+        linux_source_path: path to the original Linux TU. Absolute, or
+            relative to repo root, or relative to /Users/kissa/Codebase/linux.
+        code_path: override the code path to compare. Defaults to the
+            session's first `code_final_paths` entry, falling back to the
+            file derived from `code_spec_path`.
+
+    Returns:
+        {prompt_for_llm, linux_path, spec_path, code_path,
+         linux_source_size, code_size}
+
+    The LLM is expected to consume `prompt_for_llm` and reply with a JSON
+    body matching the schema documented in prompts/linux_compare.md. That
+    JSON is then handed back via `linux_compare_submit`.
+    """
+    sess = _get(session_id)
+
+    spec_path = sess.spec_final_path or sess.code_spec_path
+    if not spec_path:
+        raise ValueError(
+            "Session has no approved spec attached. Run spec_gen_approve "
+            "or code_gen_start first."
+        )
+    spec_full = _repo_root() / spec_path
+    if not spec_full.is_file():
+        raise FileNotFoundError(f"Spec missing on disk: {spec_path}")
+
+    # P1.6 Wave 2 (per user directive 2026-05-08): linux_compare must measure
+    # the prompt's first-shot quality, not the LLM's iterative repair ability.
+    # Prefer the `.first` snapshot captured at the first spec_gen_submit /
+    # code_gen_submit. Falls back to the current file only when no snapshot
+    # exists (legacy stages / DAG-imported nodes).
+    spec_first_candidates = [
+        # Final-path snapshot — when first submission landed via approve.
+        spec_full.with_suffix(spec_full.suffix + ".first"),
+        # Draft-path snapshot — when first submission stayed in draft form
+        # (most common path: spec_gen_submit writes draft.first).
+        (_repo_root() / sess.spec_draft_path).with_suffix(
+            (_repo_root() / sess.spec_draft_path).suffix + ".first"
+        ) if sess.spec_draft_path else None,
+    ]
+    spec_first = next(
+        (p for p in spec_first_candidates if p is not None and p.is_file()),
+        None,
+    )
+    if spec_first is not None:
+        generated_spec = spec_first.read_text(encoding="utf-8")
+        spec_source = f"{spec_first.relative_to(_repo_root())} (.first snapshot)"
+    else:
+        generated_spec = spec_full.read_text(encoding="utf-8")
+        spec_source = f"{spec_path} (current — no .first snapshot found)"
+
+    if code_path is None:
+        if sess.code_final_paths:
+            code_path = sess.code_final_paths[0]
+        else:
+            code_path = _derive_code_path(sess.module, spec_path)
+    code_full = _repo_root() / code_path
+    if not code_full.is_file():
+        raise FileNotFoundError(
+            f"Code file missing: {code_path}. Approve via code_gen_approve "
+            f"before running linux_compare."
+        )
+
+    code_first_p = code_full.with_suffix(code_full.suffix + ".first")
+    if code_first_p.is_file():
+        generated_code = code_first_p.read_text(encoding="utf-8")
+        code_source = f"{code_first_p.relative_to(_repo_root())} (.first snapshot)"
+    else:
+        generated_code = code_full.read_text(encoding="utf-8")
+        code_source = f"{code_path} (current — no .first snapshot found)"
+
+    # Linux source resolution: try as-given, then repo-rel, then default OH
+    # workspace fallback.
+    candidates = [
+        Path(linux_source_path),
+        _repo_root() / linux_source_path,
+        Path("/Users/kissa/Codebase/linux") / linux_source_path,
+    ]
+    linux_full: Optional[Path] = None
+    for c in candidates:
+        if c.is_file():
+            linux_full = c
+            break
+    if linux_full is None:
+        raise FileNotFoundError(
+            f"Linux source not found via candidates: "
+            + ", ".join(str(c) for c in candidates)
+        )
+    linux_source = linux_full.read_text(encoding="utf-8", errors="replace")
+
+    target_stage = _stage_from_spec_path_safe(spec_path)
+    dag_state = dag_module.load(sess.module)
+    node_id = _stage_id(target_stage)
+    inv = dag_module.collect_invariants(dag_state, node_id)
+
+    prompt_text = prompts.assemble_linux_compare_prompt(
+        module=sess.module,
+        stage=target_stage,
+        linux_path=str(linux_full),
+        linux_source=linux_source,
+        spec_path=spec_path,
+        generated_spec=generated_spec,
+        code_path=code_path,
+        generated_code=generated_code,
+        common_header=_common_header(sess.module),
+        inherited_invariants=inv,
+    )
+    sess.last_prompt = prompt_text
+
+    return {
+        "prompt_for_llm": prompt_text,
+        "linux_path": str(linux_full),
+        "spec_path": spec_path,
+        "spec_source": spec_source,
+        "code_path": code_path,
+        "code_source": code_source,
+        "stage": target_stage,
+        "linux_source_size": len(linux_source),
+        "spec_size": len(generated_spec),
+        "code_size": len(generated_code),
+    }
+
+
+def _format_gaps_md(items: list[dict[str, Any]], side: str) -> str:
+    """Render a list of spec_gaps / code_gaps as a markdown bullet list."""
+    if not items:
+        return f"- (no {side} gaps)\n"
+    lines: list[str] = []
+    for g in items:
+        sev = str(g.get("severity", "?")).lower()
+        cat = str(g.get("category", "?"))
+        desc = str(g.get("description", "")).strip()
+        ev = str(g.get("linux_evidence", "")).strip()
+        loc_key = "spec_location" if side == "spec" else "code_location"
+        loc = str(g.get(loc_key, "")).strip()
+        rc = str(g.get("root_cause", "")).strip() if side == "code" else ""
+        fix = str(g.get("fix_suggestion", "")).strip()
+        lines.append(f"- **[{sev}/{cat}]** {desc}")
+        if ev:
+            lines.append(f"  - Linux: `{ev}`")
+        if loc:
+            lines.append(f"  - {loc_key.replace('_', ' ').title()}: `{loc}`")
+        if rc:
+            lines.append(f"  - Root cause: `{rc}`")
+        if fix:
+            lines.append(f"  - Fix: {fix}")
+    return "\n".join(lines) + "\n"
+
+
+def _format_recs_md(items: list[Any]) -> str:
+    if not items:
+        return "- (none)\n"
+    out: list[str] = []
+    for r in items:
+        out.append(f"- {str(r).strip()}")
+    return "\n".join(out) + "\n"
+
+
+@mcp.tool()
+def linux_compare_submit(
+    session_id: str,
+    comparison_json: str,
+) -> dict[str, Any]:
+    """Loop C submit — parse the LLM's comparison JSON and persist findings.
+
+    The optimisation TARGET of Loop C is the prompt templates themselves
+    (`prompts/linux_to_spec.md`, `prompts/codegen.md`, on-demand fragments) —
+    NOT the current stage's spec or generated code. Because of that, this
+    tool DOES NOT inject anything into the current session's refine path
+    (no FailureRecord, no spec_fine_seed). Findings are accumulated in
+    `docs/<module>_prompt_feedback.md` across many stages so a later
+    `prompt_optimize_propose` call can roll them up into a concrete
+    prompt-template edit proposal.
+
+    Side effects:
+      1. Validates the JSON shape (top-level keys + gap arrays).
+      2. Appends a stage section to docs/<module>_prompt_feedback.md with
+         spec_gaps, code_gaps, and the additive prompt-tuning
+         recommendations. The doc is HITL-curated; nothing auto-rewrites
+         prompts here.
+
+    Args:
+        session_id: session created by linux_compare_start.
+        comparison_json: raw JSON body the LLM produced from the
+            linux_compare prompt.
+
+    Returns:
+        {"feedback_doc_path": <repo-rel path>,
+         "n_spec_gaps": N, "n_code_gaps": N,
+         "n_high_severity": N,
+         "n_spec_recommendations": N,
+         "n_codegen_recommendations": N,
+         "is_equivalent": bool,
+         "next_step": <str — guidance for caller>}
+    """
+    sess = _get(session_id)
+
+    # Tolerate ```json fences if the LLM wrapped its reply
+    raw = comparison_json.strip()
+    if raw.startswith("```"):
+        # Strip first fence + optional language tag, last fence
+        lines = raw.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        raw = "\n".join(lines).strip()
+
+    try:
+        report = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"comparison_json is not valid JSON: {e}. Expected the JSON "
+            f"schema documented in prompts/linux_compare.md."
+        )
+
+    if not isinstance(report, dict):
+        raise ValueError("comparison_json must be a JSON object at the top level.")
+
+    spec_gaps = report.get("spec_gaps") or []
+    code_gaps = report.get("code_gaps") or []
+    if not isinstance(spec_gaps, list) or not isinstance(code_gaps, list):
+        raise ValueError("spec_gaps and code_gaps must be JSON arrays.")
+
+    spec_recs = report.get("spec_prompt_recommendations") or []
+    code_recs = report.get("codegen_prompt_recommendations") or []
+    is_equiv = bool(report.get("is_equivalent", False))
+    summary = str(report.get("summary", "")).strip()
+    stage = str(report.get("stage") or _stage_from_spec_path_safe(
+        sess.spec_final_path or sess.code_spec_path or ""
+    ))
+
+    # 1. Append section to docs/<module>_prompt_feedback.md
+    doc_path = _feedback_doc_path(sess.module)
+    doc_path.parent.mkdir(parents=True, exist_ok=True)
+    is_new = not doc_path.exists()
+
+    section: list[str] = []
+    if is_new:
+        section.append(f"# {sess.module} — Prompt Feedback Log\n")
+        section.append(
+            "Linux↔generated functional-comparison findings, captured by "
+            "Loop C (`linux_compare_submit`). This file is HITL-curated — "
+            "the plugin never auto-rewrites prompt templates from these "
+            "recommendations. Promote useful items into "
+            "`prompts/linux_to_spec.md` or `prompts/codegen.md` (or their "
+            "fragments) by hand after review.\n"
+        )
+    section.append(f"\n## {stage} — {_now_iso()}\n")
+    section.append(f"- **is_equivalent**: `{is_equiv}`")
+    section.append(f"- **summary**: {summary or '(none)'}")
+    section.append(f"- **counts**: spec_gaps={len(spec_gaps)}, code_gaps={len(code_gaps)}\n")
+
+    section.append("### spec_gaps")
+    section.append(_format_gaps_md(list(spec_gaps), "spec"))
+    section.append("### code_gaps")
+    section.append(_format_gaps_md(list(code_gaps), "code"))
+    section.append("### spec_prompt_recommendations (additive)")
+    section.append(_format_recs_md(list(spec_recs)))
+    section.append("### codegen_prompt_recommendations (additive)")
+    section.append(_format_recs_md(list(code_recs)))
+
+    block = "\n".join(section)
+    with doc_path.open("a", encoding="utf-8") as f:
+        f.write(block)
+
+    n_high = sum(
+        1 for g in (list(spec_gaps) + list(code_gaps))
+        if str(g.get("severity", "")).lower() == "high"
+    )
+
+    rel_doc = doc_path.relative_to(_repo_root())
+    has_recs = bool(spec_recs) or bool(code_recs)
+    if is_equiv and not spec_gaps and not code_gaps and not has_recs:
+        next_step = "ok — no gaps; no prompt-template edits proposed."
+    elif has_recs:
+        next_step = (
+            f"Recommendations recorded in {rel_doc}. After accumulating "
+            "across multiple stages, call `prompt_optimize_propose` to roll "
+            "them up into a concrete prompt-template edit."
+        )
+    else:
+        next_step = (
+            f"Gaps recorded in {rel_doc} but no prompt-template "
+            "recommendations were produced — gaps may be stage-local."
+        )
+
+    # Touch the session so later metrics tie back; we don't mutate failures.
+    _ = sess
+
+    return {
+        "feedback_doc_path": str(rel_doc),
+        "n_spec_gaps": len(spec_gaps),
+        "n_code_gaps": len(code_gaps),
+        "n_high_severity": n_high,
+        "n_spec_recommendations": len(spec_recs),
+        "n_codegen_recommendations": len(code_recs),
+        "is_equivalent": is_equiv,
+        "next_step": next_step,
+    }
+
+
+# ---- Loop C — prompt-template optimisation (P1.6 Wave 2) -------------------
+# Targets prompt files in prompts/, NOT the current-stage spec/code. Reads
+# accumulated recommendations from docs/<m>_prompt_feedback.md and asks the
+# LLM to produce a revised TARGET prompt template; the apply tool backs up
+# the current template and writes the new text. HITL is the diff review.
+
+# Whitelist: only these prompt templates are user-facing optimization
+# targets. Internal-only templates (linux_compare itself, prompt_optimize
+# itself, validation_checklist) are NOT optimised this way — they are the
+# meta-layer.
+_OPTIMIZABLE_PROMPTS = {
+    "linux_to_spec",   # Loop A spec-extraction prompt
+    "codegen",         # Loop B code-gen prompt
+    "speceval",        # Layer 3 SpecEval
+    "spec_fine",       # F3 SpecFine
+    "style_audit",     # Layer 1b style audit
+    "two_phase_rules", # on-demand fragment
+    "linux_to_liteos_table",  # on-demand fragment
+    "format_traps",    # on-demand fragment
+    "ask_first_rules", # on-demand fragment
+    "style_rules",     # on-demand fragment
+    "liteos_digest",   # always-on digest
+}
+
+# Map a target prompt to which recommendation type from the feedback doc
+# applies to it. spec-side recommendations belong to spec-flavoured prompts;
+# codegen-side belong to code-flavoured prompts; some prompts are dual.
+_TARGET_REC_TYPE: dict[str, str] = {
+    "linux_to_spec":          "spec",
+    "spec_fine":              "spec",
+    "speceval":               "spec",     # validates spec↔code, edits push it spec-side
+    "two_phase_rules":        "spec",
+    "ask_first_rules":        "spec",
+    "codegen":                "codegen",
+    "style_audit":            "codegen",
+    "linux_to_liteos_table":  "codegen",
+    "format_traps":           "codegen",
+    "style_rules":            "codegen",
+    "liteos_digest":          "codegen",
+}
+
+
+def _parse_feedback_recommendations(
+    doc_text: str, rec_type: str
+) -> tuple[list[str], int]:
+    """Extract bullet lines under ### {rec_type}_prompt_recommendations
+    headings from a markdown feedback log. Returns (lines, n_stages).
+
+    n_stages = number of "## <stage> — <ts>" headings present (regardless
+    of whether each had a non-empty recommendation list).
+    """
+    if not doc_text:
+        return [], 0
+    target_heading = (
+        "### spec_prompt_recommendations"
+        if rec_type == "spec"
+        else "### codegen_prompt_recommendations"
+    )
+    n_stages = sum(
+        1 for line in doc_text.splitlines()
+        if line.startswith("## ") and " — " in line
+    )
+
+    out: list[str] = []
+    in_block = False
+    for raw_line in doc_text.splitlines():
+        line = raw_line.rstrip()
+        if line.startswith("### "):
+            in_block = (line.startswith(target_heading))
+            continue
+        if line.startswith("## ") or line.startswith("# "):
+            in_block = False
+            continue
+        if in_block:
+            stripped = line.lstrip()
+            if stripped.startswith("- ") and "(none)" not in stripped:
+                out.append(stripped[2:].strip())
+    return out, n_stages
+
+
+@mcp.tool()
+def prompt_optimize_propose(
+    target_prompt_name: str,
+    module: str,
+) -> dict[str, Any]:
+    """Loop C — assemble the meta-prompt that asks an LLM to produce a
+    revised version of `prompts/<target_prompt_name>.md`, integrating
+    accumulated Loop C recommendations from
+    `docs/<module>_prompt_feedback.md`.
+
+    The apply step is a separate `prompt_optimize_apply` tool — this tool
+    only PRODUCES the meta-prompt for the LLM round.
+
+    Args:
+        target_prompt_name: name without .md, e.g. "linux_to_spec",
+            "codegen", "two_phase_rules". Must be in the
+            _OPTIMIZABLE_PROMPTS whitelist; the linux_compare meta-prompt
+            and prompt_optimize itself are not optimisable this way.
+        module: which module's feedback log to roll up (e.g. "exfat").
+
+    Returns:
+        {prompt_for_llm, target_prompt_path, current_prompt_size,
+         n_recommendations, n_stages, rec_type}
+    """
+    if target_prompt_name not in _OPTIMIZABLE_PROMPTS:
+        raise ValueError(
+            f"target_prompt_name {target_prompt_name!r} is not in the "
+            f"optimisable whitelist. Valid targets: "
+            + ", ".join(sorted(_OPTIMIZABLE_PROMPTS))
+        )
+
+    target_path = prompts.PROMPTS_DIR / f"{target_prompt_name}.md"
+    if not target_path.is_file():
+        raise FileNotFoundError(
+            f"Target prompt template not found: {target_path}"
+        )
+    current_prompt = target_path.read_text(encoding="utf-8")
+
+    doc_path = _feedback_doc_path(module)
+    doc_text = doc_path.read_text(encoding="utf-8") if doc_path.is_file() else ""
+
+    rec_type = _TARGET_REC_TYPE.get(target_prompt_name, "spec")
+    rec_lines, n_stages = _parse_feedback_recommendations(doc_text, rec_type)
+
+    if not rec_lines:
+        return {
+            "prompt_for_llm": "",
+            "target_prompt_path": str(
+                target_path.relative_to(_repo_root())
+                if target_path.is_absolute() and _repo_root() in target_path.parents
+                else target_path
+            ),
+            "current_prompt_size": len(current_prompt),
+            "n_recommendations": 0,
+            "n_stages": n_stages,
+            "rec_type": rec_type,
+            "skipped_reason": (
+                f"No {rec_type}-side recommendations accumulated for module "
+                f"{module!r} yet — run linux_compare on at least one stage "
+                "and have its LLM produce non-empty "
+                f"{rec_type}_prompt_recommendations first."
+            ),
+        }
+
+    # Dedup recommendations while preserving order (LLM does final dedup but
+    # avoid feeding it 10 copies of the same suggestion when many stages
+    # noticed the same gap).
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for line in rec_lines:
+        key = line.strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(line)
+
+    rec_block = "\n".join(f"- {r}" for r in deduped)
+    prompt_text = prompts.assemble_prompt_optimize_prompt(
+        target_prompt_name=target_prompt_name,
+        module=module,
+        rec_type=rec_type,
+        n_stages=n_stages,
+        current_prompt=current_prompt,
+        recommendations=rec_block,
+    )
+
+    return {
+        "prompt_for_llm": prompt_text,
+        "target_prompt_path": str(target_path),
+        "current_prompt_size": len(current_prompt),
+        "n_recommendations": len(deduped),
+        "n_stages": n_stages,
+        "rec_type": rec_type,
+    }
+
+
+@mcp.tool()
+def prompt_optimize_apply(
+    target_prompt_name: str,
+    new_prompt_text: str,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Loop C — apply a revised prompt template after HITL review.
+
+    Side effects when dry_run=False:
+      1. Backs up the current `prompts/<target>.md` to
+         `prompts/<target>.md.bak.<unix_ts>`.
+      2. Overwrites the prompt template with `new_prompt_text`.
+      3. Invalidates the in-process template cache so the next assemble_*
+         call picks up the new content.
+
+    When dry_run=True, no files are modified — only the unified diff is
+    returned for inspection.
+
+    Returns:
+        {applied: bool, target_prompt_path, backup_path, diff,
+         old_size, new_size, sanity_warnings}
+
+    Sanity warnings (non-fatal — surfaced for HITL):
+      - new_size shrank by >20% (likely truncation accident).
+      - new_size grew by >50% (likely verbatim recommendation copy).
+      - The leading `<!-- ... -->` developer-comment block is missing
+        from the new text.
+    """
+    import difflib
+
+    if target_prompt_name not in _OPTIMIZABLE_PROMPTS:
+        raise ValueError(
+            f"target_prompt_name {target_prompt_name!r} is not in the "
+            f"optimisable whitelist. Valid targets: "
+            + ", ".join(sorted(_OPTIMIZABLE_PROMPTS))
+        )
+
+    target_path = prompts.PROMPTS_DIR / f"{target_prompt_name}.md"
+    if not target_path.is_file():
+        raise FileNotFoundError(
+            f"Target prompt template not found: {target_path}"
+        )
+    current = target_path.read_text(encoding="utf-8")
+    new_text = new_prompt_text.rstrip() + "\n"
+
+    diff_lines = list(difflib.unified_diff(
+        current.splitlines(keepends=True),
+        new_text.splitlines(keepends=True),
+        fromfile=f"prompts/{target_prompt_name}.md (current)",
+        tofile=f"prompts/{target_prompt_name}.md (proposed)",
+        n=3,
+    ))
+    diff_text = "".join(diff_lines)
+
+    warnings: list[str] = []
+    old_size = len(current)
+    new_size = len(new_text)
+    if new_size < old_size * 0.8:
+        warnings.append(
+            f"new_size shrank by >20% ({old_size} → {new_size}). "
+            "Loop C optimisation should be additive — verify nothing was "
+            "accidentally deleted."
+        )
+    if new_size > old_size * 1.5:
+        warnings.append(
+            f"new_size grew by >50% ({old_size} → {new_size}). "
+            "Likely verbatim recommendation copy — manual trim may be needed."
+        )
+    if not new_text.lstrip().startswith("<!--"):
+        warnings.append(
+            "New text does not start with the `<!-- developer comment -->` "
+            "block. Convention is to retain & extend that block with a "
+            "dated history entry. Manual fix recommended before applying."
+        )
+
+    if dry_run:
+        return {
+            "applied": False,
+            "target_prompt_path": str(target_path),
+            "backup_path": "",
+            "diff": diff_text,
+            "old_size": old_size,
+            "new_size": new_size,
+            "sanity_warnings": warnings,
+        }
+
+    ts = int(time.time())
+    backup_path = target_path.with_suffix(target_path.suffix + f".bak.{ts}")
+    backup_path.write_text(current, encoding="utf-8")
+    target_path.write_text(new_text, encoding="utf-8")
+
+    # Invalidate the in-process template cache so subsequent assemble_*
+    # calls pick up the new content. (prompts._TEMPLATE_CACHE is a module
+    # singleton; pop the stale entry rather than clearing all.)
+    prompts._TEMPLATE_CACHE.pop(target_prompt_name, None)
+
+    return {
+        "applied": True,
+        "target_prompt_path": str(target_path),
+        "backup_path": str(backup_path),
+        "diff": diff_text,
+        "old_size": old_size,
+        "new_size": new_size,
+        "sanity_warnings": warnings,
+    }
+
+
+@mcp.tool()
+def prompt_feedback_summary(module: str) -> dict[str, Any]:
+    """Read docs/<module>_prompt_feedback.md and return a summary.
+
+    Used by HITL prompt-evolution sessions to see which Loop C recommendations
+    have accumulated across stages without re-reading the whole markdown.
+    Returns counts and the raw markdown content (capped to 30 KB).
+    """
+    p = _feedback_doc_path(module)
+    if not p.is_file():
+        return {
+            "exists": False,
+            "path": str(p.relative_to(_repo_root()) if p.is_absolute() else p),
+            "stages": 0,
+            "content": "",
+        }
+    text = p.read_text(encoding="utf-8")
+    n_stages = text.count("\n## ")
+    truncated = text[:30_000]
+    if len(text) > 30_000:
+        truncated += f"\n\n[... truncated, {len(text) - 30_000} chars more]"
+    return {
+        "exists": True,
+        "path": str(p.relative_to(_repo_root())),
+        "stages": n_stages,
+        "size_chars": len(text),
+        "content": truncated,
     }
 
 

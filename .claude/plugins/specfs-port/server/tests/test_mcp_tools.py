@@ -397,3 +397,610 @@ def test_has_unresolved_ambiguity_default_false(tmp_repo: Path, reset_session_re
     sid = specfs_server.session_start(module="exfat")["session_id"]
     out = specfs_server.has_unresolved_ambiguity(session_id=sid)
     assert out["unresolved"] is False
+
+
+# ---------- Loop C — linux_compare + prompt_optimize (P1.6 Wave 2) ----------
+
+def _setup_compare_session(server, tmp_repo: Path) -> tuple[str, Path, Path]:
+    """Drive a session through approve and write a fake generated code file.
+    Returns (session_id, linux_source_path, code_path)."""
+    sid = server.session_start(module="exfat")["session_id"]
+    spec_path = _approve_mount_spec(server, tmp_repo, sid)
+
+    # Fake Linux source — only needs to exist for linux_compare_start to read it.
+    linux_src = tmp_repo / "linux" / "fs" / "exfat" / "namei.c"
+    linux_src.parent.mkdir(parents=True, exist_ok=True)
+    linux_src.write_text(
+        "int exfat_unlink(struct inode *dir, struct dentry *d) {\n"
+        "    /* Linux unlink: tombstone + free clusters */\n"
+        "    return 0;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    # Fake generated code that linux_compare_start expects on disk
+    code_rel = "fs/exfat/exfat_super.c"
+    code_path = tmp_repo / code_rel
+    code_path.parent.mkdir(parents=True, exist_ok=True)
+    code_path.write_text(
+        "int VfsExfatMount(struct Mount *m, struct Vnode *b, const void *d) {\n"
+        "    return 0;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    # Pin the session to this generated file
+    sess = server._SESSIONS[sid]
+    sess.code_final_paths = [code_rel]
+    sess.spec_final_path = str(spec_path.relative_to(tmp_repo))
+    return sid, linux_src, code_path
+
+
+def test_linux_compare_start_assembles_prompt(tmp_repo: Path, reset_session_registry):
+    import specfs_server
+    sid, linux_src, _ = _setup_compare_session(specfs_server, tmp_repo)
+    out = specfs_server.linux_compare_start(
+        session_id=sid,
+        linux_source_path=str(linux_src),
+    )
+    assert "prompt_for_llm" in out
+    p = out["prompt_for_llm"]
+    assert "exfat" in p
+    assert "exfat_unlink" in p
+    assert "VfsExfatMount" in p
+    assert "spec_prompt_recommendations" in p
+
+
+def test_first_snapshot_written_on_first_spec_submit(
+    tmp_repo: Path, reset_session_registry
+):
+    """spec_gen_submit must write a sibling .first file for Loop C linux_compare."""
+    import specfs_server
+    sid = specfs_server.session_start(module="exfat")["session_id"]
+    linux_dir = tmp_repo / "linux" / "fs" / "exfat"
+    linux_dir.mkdir(parents=True, exist_ok=True)
+    specfs_server.spec_gen_start(
+        session_id=sid, linux_path=str(linux_dir), target_stage="mount",
+    )
+    sess = specfs_server._SESSIONS[sid]
+    draft_p = tmp_repo / sess.spec_draft_path
+    first_p = draft_p.parent / (draft_p.name + ".first")
+
+    specfs_server.spec_gen_submit(session_id=sid, generated_spec_text="V1.\n")
+    assert first_p.is_file(), f"missing .first snapshot at {first_p}"
+    assert first_p.read_text(encoding="utf-8") == "V1.\n"
+
+    # A second submit (refine) must NOT overwrite the .first snapshot.
+    specfs_server.spec_gen_submit(session_id=sid, generated_spec_text="V2.\n")
+    assert first_p.read_text(encoding="utf-8") == "V1.\n", (
+        ".first snapshot was overwritten on second submit — Loop C signal lost"
+    )
+    # But the live draft does reflect V2
+    assert draft_p.read_text(encoding="utf-8") == "V2.\n"
+
+
+def test_linux_compare_uses_first_spec_snapshot_when_available(
+    tmp_repo: Path, reset_session_registry
+):
+    """linux_compare_start must read the .first snapshot, not the iterated spec."""
+    import specfs_server
+    sid = specfs_server.session_start(module="exfat")["session_id"]
+    linux_dir = tmp_repo / "linux" / "fs" / "exfat"
+    linux_dir.mkdir(parents=True, exist_ok=True)
+    specfs_server.spec_gen_start(
+        session_id=sid, linux_path=str(linux_dir), target_stage="mount",
+    )
+    specfs_server.spec_gen_submit(
+        session_id=sid,
+        generated_spec_text=(
+            "[PROMPT]\nFIRST_SHOT_MARKER\n[GUARANTEE]\n```c\n"
+            "int VfsExfatMount(struct Mount *m, struct Vnode *b, const void *d);\n```\n"
+        ),
+    )
+    # Approve overwrites the final path, simulating "polish" rounds before approve.
+    specfs_server.spec_gen_approve(
+        session_id=sid,
+        final_spec_text=(
+            "[PROMPT]\nPOLISHED_AFTER_REFINE\n[GUARANTEE]\n```c\n"
+            "int VfsExfatMount(struct Mount *m, struct Vnode *b, const void *d);\n```\n"
+        ),
+    )
+
+    # Stage a fake generated code with a .first sibling
+    sess = specfs_server._SESSIONS[sid]
+    code_rel = "fs/exfat/exfat_super.c"
+    code_full = tmp_repo / code_rel
+    code_full.parent.mkdir(parents=True, exist_ok=True)
+    code_full.write_text("/* polished code */\n", encoding="utf-8")
+    code_first = code_full.parent / (code_full.name + ".first")
+    code_first.write_text("/* FIRST_CODE_MARKER */\n", encoding="utf-8")
+    sess.code_final_paths = [code_rel]
+
+    linux_src = linux_dir / "namei.c"
+    linux_src.write_text("int exfat_unlink(void){return 0;}\n", encoding="utf-8")
+
+    out = specfs_server.linux_compare_start(
+        session_id=sid, linux_source_path=str(linux_src),
+    )
+    p = out["prompt_for_llm"]
+    # First-shot artifacts MUST appear; polished-only content MUST NOT.
+    assert "FIRST_SHOT_MARKER" in p
+    assert "FIRST_CODE_MARKER" in p
+    assert "POLISHED_AFTER_REFINE" not in p
+    assert "polished code" not in p
+    # Source provenance reported
+    assert ".first snapshot" in out["spec_source"]
+    assert ".first snapshot" in out["code_source"]
+
+
+def test_linux_compare_falls_back_to_current_when_no_snapshot(
+    tmp_repo: Path, reset_session_registry
+):
+    """Legacy stages without a .first sibling fall back to the current file."""
+    import specfs_server
+    sid, linux_src, code_path = _setup_compare_session(specfs_server, tmp_repo)
+    # _setup_compare_session approves a spec via spec_gen_submit, which DOES
+    # write .first. Delete the spec .first to simulate a legacy stage.
+    sess = specfs_server._SESSIONS[sid]
+    spec_full = tmp_repo / sess.spec_final_path
+    for cand in [
+        spec_full.parent / (spec_full.name + ".first"),
+        (tmp_repo / sess.spec_draft_path).parent /
+        ((tmp_repo / sess.spec_draft_path).name + ".first") if sess.spec_draft_path else None,
+    ]:
+        if cand is not None and cand.exists():
+            cand.unlink()
+    out = specfs_server.linux_compare_start(
+        session_id=sid, linux_source_path=str(linux_src),
+    )
+    assert "no .first snapshot" in out["spec_source"]
+    assert "no .first snapshot" in out["code_source"]
+
+
+def test_linux_compare_start_missing_linux_source_raises(
+    tmp_repo: Path, reset_session_registry
+):
+    import specfs_server
+    sid, _, _ = _setup_compare_session(specfs_server, tmp_repo)
+    with pytest.raises(FileNotFoundError, match="Linux source"):
+        specfs_server.linux_compare_start(
+            session_id=sid,
+            linux_source_path="/nope/no/such/file.c",
+        )
+
+
+def test_linux_compare_submit_writes_feedback_doc(
+    tmp_repo: Path, reset_session_registry
+):
+    import json as _json
+    import specfs_server
+    sid, linux_src, _ = _setup_compare_session(specfs_server, tmp_repo)
+    specfs_server.linux_compare_start(
+        session_id=sid, linux_source_path=str(linux_src),
+    )
+
+    body = _json.dumps({
+        "is_equivalent": False,
+        "stage": "mount",
+        "summary": "Code drops one error-unwind branch.",
+        "spec_gaps": [{
+            "category": "missing_branch", "severity": "high",
+            "description": "Spec lacks the EROFS pre-condition.",
+            "linux_evidence": "fs/exfat/super.c:42 - check sb_rdonly()",
+            "spec_location": "[SPECIFICATION] Pre-Condition",
+            "fix_suggestion": "Add Pre-Condition: parent partition not read-only.",
+        }],
+        "code_gaps": [{
+            "category": "missing_step", "severity": "med",
+            "description": "Code skips set_volume_dirty bracket.",
+            "linux_evidence": "fs/exfat/super.c:120 - exfat_set_volume_dirty",
+            "code_location": "VfsExfatMount:line 8",
+            "root_cause": "codegen_drift",
+            "fix_suggestion": "Add LITEOS_DIGEST reminder.",
+        }],
+        "spec_prompt_recommendations": [
+            "Add to [SCOPE GUARDRAILS]: enumerate every error-unwind branch.",
+        ],
+        "codegen_prompt_recommendations": [
+            "LITEOS_DIGEST: bracket all mutating phases with set_volume_dirty/clear_volume_dirty.",
+        ],
+    })
+
+    failures_before = list(specfs_server._SESSIONS[sid].failures)
+    out = specfs_server.linux_compare_submit(
+        session_id=sid, comparison_json=body,
+    )
+    assert out["n_spec_gaps"] == 1
+    assert out["n_code_gaps"] == 1
+    assert out["n_high_severity"] == 1
+    assert out["n_spec_recommendations"] == 1
+    assert out["n_codegen_recommendations"] == 1
+    assert out["is_equivalent"] is False
+
+    # Doc was created with the expected sections
+    doc = tmp_repo / out["feedback_doc_path"]
+    assert doc.is_file()
+    text = doc.read_text(encoding="utf-8")
+    assert "## mount —" in text
+    assert "spec_gaps" in text
+    assert "Add to [SCOPE GUARDRAILS]" in text
+    assert "set_volume_dirty" in text
+
+    # CRITICAL: linux_compare_submit must NOT inject anything into the
+    # session's refine path (Loop C optimises the PROMPT TEMPLATE, not the
+    # current generated artifact).
+    failures_after = list(specfs_server._SESSIONS[sid].failures)
+    assert failures_before == failures_after, (
+        "linux_compare_submit leaked into sess.failures — Loop C feedback "
+        "must NOT trigger code_gen_refine"
+    )
+
+
+def test_linux_compare_submit_strips_json_fences(
+    tmp_repo: Path, reset_session_registry
+):
+    """LLMs sometimes wrap JSON in ```json ... ```. The submit tool tolerates that."""
+    import specfs_server
+    sid, linux_src, _ = _setup_compare_session(specfs_server, tmp_repo)
+    specfs_server.linux_compare_start(session_id=sid, linux_source_path=str(linux_src))
+
+    fenced = (
+        "```json\n"
+        '{"is_equivalent": true, "stage": "mount", "summary": "ok",'
+        ' "spec_gaps": [], "code_gaps": [],'
+        ' "spec_prompt_recommendations": [],'
+        ' "codegen_prompt_recommendations": []}\n'
+        "```"
+    )
+    out = specfs_server.linux_compare_submit(session_id=sid, comparison_json=fenced)
+    assert out["is_equivalent"] is True
+    assert out["n_spec_gaps"] == 0
+
+
+def test_linux_compare_submit_invalid_json_raises(
+    tmp_repo: Path, reset_session_registry
+):
+    import specfs_server
+    sid, linux_src, _ = _setup_compare_session(specfs_server, tmp_repo)
+    specfs_server.linux_compare_start(session_id=sid, linux_source_path=str(linux_src))
+    with pytest.raises(ValueError, match="not valid JSON"):
+        specfs_server.linux_compare_submit(
+            session_id=sid, comparison_json="this is not json {",
+        )
+
+
+def test_prompt_optimize_propose_returns_skipped_when_no_recs(
+    tmp_repo: Path, reset_session_registry
+):
+    """No accumulated recommendations → propose returns skipped_reason, not a prompt."""
+    import specfs_server
+    out = specfs_server.prompt_optimize_propose(
+        target_prompt_name="linux_to_spec", module="exfat",
+    )
+    assert out["n_recommendations"] == 0
+    assert "skipped_reason" in out
+    assert out["prompt_for_llm"] == ""
+
+
+def test_prompt_optimize_propose_rolls_up_recommendations(
+    tmp_repo: Path, reset_session_registry, monkeypatch
+):
+    """Two stages each writing a spec-side recommendation get rolled up
+    into one meta-prompt."""
+    import specfs_server, prompts as P
+
+    # Patch the feedback doc path so we don't pollute the real docs/
+    fake_doc = tmp_repo / "docs" / "exfat_prompt_feedback.md"
+    fake_doc.parent.mkdir(parents=True, exist_ok=True)
+    fake_doc.write_text(
+        "# exfat — Prompt Feedback Log\n\n"
+        "## mount — 2026-05-08T10:00:00Z\n"
+        "### spec_prompt_recommendations (additive)\n"
+        "- Add reminder about ENOSPC fast path.\n"
+        "### codegen_prompt_recommendations (additive)\n"
+        "- (none)\n"
+        "\n## lookup — 2026-05-08T11:00:00Z\n"
+        "### spec_prompt_recommendations (additive)\n"
+        "- Enumerate every Linux error-unwind branch.\n"
+        "### codegen_prompt_recommendations (additive)\n"
+        "- LITEOS_DIGEST should mention volume-dirty bracketing.\n",
+        encoding="utf-8",
+    )
+    # The doc-path resolver builds from _repo_root() / "docs" — tmp_repo
+    # already overrides repo_root via the fixture, so this just works.
+
+    out = specfs_server.prompt_optimize_propose(
+        target_prompt_name="linux_to_spec", module="exfat",
+    )
+    assert out["rec_type"] == "spec"
+    assert out["n_recommendations"] == 2
+    assert out["n_stages"] == 2
+    assert "ENOSPC" in out["prompt_for_llm"]
+    assert "error-unwind" in out["prompt_for_llm"]
+    # codegen-side must NOT leak into a spec-side proposal
+    assert "volume-dirty bracket" not in out["prompt_for_llm"]
+
+
+def test_prompt_optimize_propose_unknown_target_raises(
+    tmp_repo: Path, reset_session_registry
+):
+    import specfs_server
+    with pytest.raises(ValueError, match="not in the optimisable whitelist"):
+        specfs_server.prompt_optimize_propose(
+            target_prompt_name="not_a_real_prompt", module="exfat",
+        )
+
+
+def test_prompt_optimize_apply_dry_run_returns_diff_only(
+    tmp_repo: Path, reset_session_registry, monkeypatch
+):
+    import specfs_server, prompts as P
+    target = P.PROMPTS_DIR / "linux_to_spec.md"
+    pre = target.read_text(encoding="utf-8")
+
+    out = specfs_server.prompt_optimize_apply(
+        target_prompt_name="linux_to_spec",
+        new_prompt_text=pre + "\n\n[NEW SECTION]\nAdded by Loop C.\n",
+        dry_run=True,
+    )
+    assert out["applied"] is False
+    assert "diff" in out
+    assert "[NEW SECTION]" in out["diff"]
+    # Real file untouched
+    assert target.read_text(encoding="utf-8") == pre
+
+
+def test_prompt_optimize_apply_writes_backup(
+    tmp_repo: Path, reset_session_registry
+):
+    import specfs_server, prompts as P
+    # Use a fragment as the target so we don't churn the main prompts.
+    target = P.PROMPTS_DIR / "format_traps.md"
+    pre = target.read_text(encoding="utf-8")
+    new_text = pre + "\n\n## Loop C addendum\nAdded for test.\n"
+
+    out = specfs_server.prompt_optimize_apply(
+        target_prompt_name="format_traps",
+        new_prompt_text=new_text,
+        dry_run=False,
+    )
+    try:
+        assert out["applied"] is True
+        assert "backup_path" in out and out["backup_path"]
+        backup = Path(out["backup_path"])
+        assert backup.is_file()
+        assert backup.read_text(encoding="utf-8") == pre
+        post = target.read_text(encoding="utf-8")
+        assert "Loop C addendum" in post
+    finally:
+        # Restore
+        target.write_text(pre, encoding="utf-8")
+        if "backup_path" in out and out["backup_path"]:
+            try:
+                Path(out["backup_path"]).unlink()
+            except FileNotFoundError:
+                pass
+
+
+def test_prompt_optimize_apply_warns_on_shrink(
+    tmp_repo: Path, reset_session_registry
+):
+    import specfs_server
+    out = specfs_server.prompt_optimize_apply(
+        target_prompt_name="format_traps",
+        new_prompt_text="<!-- truncated --> tiny",
+        dry_run=True,
+    )
+    assert any("shrank" in w for w in out["sanity_warnings"])
+
+
+def test_prompt_optimize_apply_warns_on_missing_comment_block(
+    tmp_repo: Path, reset_session_registry
+):
+    import specfs_server
+    out = specfs_server.prompt_optimize_apply(
+        target_prompt_name="format_traps",
+        new_prompt_text="No leading comment block here.\n" * 200,
+        dry_run=True,
+    )
+    assert any("developer comment" in w for w in out["sanity_warnings"])
+
+
+def test_prompt_feedback_summary_exists_false_when_doc_missing(
+    tmp_repo: Path, reset_session_registry
+):
+    import specfs_server
+    out = specfs_server.prompt_feedback_summary(module="exfat")
+    assert out["exists"] is False
+    assert out["stages"] == 0
+    assert out["content"] == ""
+
+
+# ---------- fast_eval mode (P1.6 Wave 2) ----------
+
+def test_session_start_fast_eval_disables_repair_layers(
+    tmp_repo: Path, reset_session_registry
+):
+    import specfs_server
+    out = specfs_server.session_start(module="exfat", mode="fast_eval")
+    sid = out["session_id"]
+    assert out["fast_eval_mode"] is True
+    s = specfs_server._SESSIONS[sid]
+    assert s.fast_eval_mode is True
+    assert s.speceval_enabled is False
+    assert s.style_audit_enabled is False
+    assert s.test_gen_enabled is False
+    assert s.skip_build_layer is True
+
+
+def test_session_start_unknown_mode_raises(
+    tmp_repo: Path, reset_session_registry
+):
+    import specfs_server
+    with pytest.raises(ValueError, match="mode must be one of"):
+        specfs_server.session_start(module="exfat", mode="lunch")
+
+
+def test_fast_eval_refuses_spec_gen_refine(
+    tmp_repo: Path, reset_session_registry
+):
+    import specfs_server
+    sid = specfs_server.session_start(module="exfat", mode="fast_eval")["session_id"]
+    linux_dir = tmp_repo / "linux" / "fs" / "exfat"
+    linux_dir.mkdir(parents=True, exist_ok=True)
+    specfs_server.spec_gen_start(
+        session_id=sid, linux_path=str(linux_dir), target_stage="mount",
+    )
+    with pytest.raises(ValueError, match="disabled in fast_eval"):
+        specfs_server.spec_gen_refine(session_id=sid, user_suggestion="tighten X")
+
+
+def test_fast_eval_refuses_code_gen_refine(
+    tmp_repo: Path, reset_session_registry
+):
+    import specfs_server
+    sid = specfs_server.session_start(module="exfat", mode="fast_eval")["session_id"]
+    spec_path = _approve_mount_spec(specfs_server, tmp_repo, sid)
+    specfs_server.code_gen_start(
+        session_id=sid, spec_path=str(spec_path.relative_to(tmp_repo)),
+    )
+    with pytest.raises(ValueError, match="disabled in fast_eval"):
+        specfs_server.code_gen_refine(
+            session_id=sid, user_suggestion="use libsec",
+        )
+
+
+def test_fast_eval_refuses_inject_diagnostics(
+    tmp_repo: Path, reset_session_registry
+):
+    import specfs_server
+    sid = specfs_server.session_start(module="exfat", mode="fast_eval")["session_id"]
+    spec_path = _approve_mount_spec(specfs_server, tmp_repo, sid)
+    specfs_server.code_gen_start(
+        session_id=sid, spec_path=str(spec_path.relative_to(tmp_repo)),
+    )
+    with pytest.raises(ValueError, match="disabled in fast_eval"):
+        specfs_server.inject_diagnostics(
+            session_id=sid, layer="compile", payload="error: missing semicolon",
+        )
+
+
+def test_fast_eval_refuses_spec_fine(
+    tmp_repo: Path, reset_session_registry
+):
+    import specfs_server
+    sid = specfs_server.session_start(module="exfat", mode="fast_eval")["session_id"]
+    _approve_mount_spec(specfs_server, tmp_repo, sid)
+    with pytest.raises(ValueError, match="disabled in fast_eval"):
+        specfs_server.spec_fine(
+            session_id=sid, speceval_comments="invariant missing",
+        )
+
+
+def test_toggle_fast_eval_mode_can_disable(
+    tmp_repo: Path, reset_session_registry
+):
+    """Flipping back to non-fast lets refine work again — useful for the
+    rare case where eval surfaces a bug requiring a quick repair."""
+    import specfs_server
+    sid = specfs_server.session_start(module="exfat", mode="fast_eval")["session_id"]
+    out = specfs_server.toggle_fast_eval_mode(session_id=sid, enabled=False)
+    assert out["fast_eval_mode"] is False
+    spec_path = _approve_mount_spec(specfs_server, tmp_repo, sid)
+    specfs_server.code_gen_start(
+        session_id=sid, spec_path=str(spec_path.relative_to(tmp_repo)),
+    )
+    # Should NOT raise now
+    res = specfs_server.code_gen_refine(
+        session_id=sid, user_suggestion="use LOS_MemAlloc",
+    )
+    assert "next_prompt" in res
+
+
+def test_fast_eval_e2e_single_shot_round_trip(
+    tmp_repo: Path, reset_session_registry
+):
+    """Loop C end-to-end: session_start(fast_eval) → spec_gen → code_gen →
+    linux_compare_submit. No refine / inject_diagnostics anywhere."""
+    import json as _json
+    import specfs_server
+    sid = specfs_server.session_start(module="exfat", mode="fast_eval")["session_id"]
+
+    # spec
+    linux_dir = tmp_repo / "linux" / "fs" / "exfat"
+    linux_dir.mkdir(parents=True, exist_ok=True)
+    specfs_server.spec_gen_start(
+        session_id=sid, linux_path=str(linux_dir), target_stage="mount",
+    )
+    spec = (
+        "[PROMPT]\nmount.\n[GUARANTEE]\n```c\n"
+        "int VfsExfatMount(struct Mount *m, struct Vnode *b, const void *d);\n```\n"
+    )
+    specfs_server.spec_gen_submit(session_id=sid, generated_spec_text=spec)
+    specfs_server.spec_gen_approve(session_id=sid, final_spec_text=spec)
+
+    # code
+    spec_p = tmp_repo / specfs_server._SESSIONS[sid].spec_final_path
+    specfs_server.code_gen_start(
+        session_id=sid, spec_path=str(spec_p.relative_to(tmp_repo)),
+    )
+    code = (
+        "int VfsExfatMount(struct Mount *m, struct Vnode *b, const void *d) {\n"
+        "    return 0;\n"
+        "}\n"
+    )
+    specfs_server.code_gen_submit(session_id=sid, generated_code=code)
+    # Stamp code path manually rather than driving full code_gen_approve
+    sess = specfs_server._SESSIONS[sid]
+    code_rel = "fs/exfat/exfat_super.c"
+    (tmp_repo / code_rel).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_repo / code_rel).write_text(code, encoding="utf-8")
+    sess.code_final_paths = [code_rel]
+
+    # linux_compare
+    linux_src = linux_dir / "namei.c"
+    linux_src.write_text("int exfat_unlink(void){return 0;}\n", encoding="utf-8")
+    out = specfs_server.linux_compare_start(
+        session_id=sid, linux_source_path=str(linux_src),
+    )
+    assert "prompt_for_llm" in out
+    body = _json.dumps({
+        "is_equivalent": False, "stage": "mount", "summary": "x",
+        "spec_gaps": [],
+        "code_gaps": [{
+            "category": "missing_step", "severity": "high",
+            "description": "no volume-dirty bracket",
+            "linux_evidence": "fs/exfat/super.c:1",
+            "code_location": "VfsExfatMount",
+            "root_cause": "codegen_drift",
+            "fix_suggestion": "add the bracket",
+        }],
+        "spec_prompt_recommendations": [],
+        "codegen_prompt_recommendations": ["LITEOS_DIGEST: bracket mutating phases."],
+    })
+    sub = specfs_server.linux_compare_submit(
+        session_id=sid, comparison_json=body,
+    )
+    assert sub["n_high_severity"] == 1
+    # No FailureRecord injected → fast_eval session never tries to refine
+    assert sess.failures == [], (
+        "fast_eval session leaked findings into sess.failures — single-shot "
+        "evaluation must not feed back into iterative repair"
+    )
+
+
+def test_prompt_feedback_summary_counts_stages(
+    tmp_repo: Path, reset_session_registry
+):
+    import specfs_server
+    doc = tmp_repo / "docs" / "exfat_prompt_feedback.md"
+    doc.parent.mkdir(parents=True, exist_ok=True)
+    doc.write_text(
+        "# exfat — Prompt Feedback Log\n\n"
+        "## mount — 2026-05-08T10:00:00Z\nbody1\n"
+        "## lookup — 2026-05-08T11:00:00Z\nbody2\n",
+        encoding="utf-8",
+    )
+    out = specfs_server.prompt_feedback_summary(module="exfat")
+    assert out["exists"] is True
+    assert out["stages"] == 2
+    assert "mount" in out["content"]

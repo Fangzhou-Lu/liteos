@@ -55,7 +55,13 @@ class FailureRecord:
 class Session:
     session_id: str
     module: str                          # e.g., "exfat"
-    mode: Literal["gen", "evolve"]
+    # P1.6 Wave 2 (2026-05-08): "fast_eval" added for prompt-optimisation
+    # measurement runs — spec+code each generated ONCE, no feedback loops
+    # (no SpecEval, no spec_fine, no refine, no inject_diagnostics, no
+    # build/qemu validation). The whole point of fast_eval is to measure
+    # the prompt's first-shot quality without contamination from the LLM's
+    # iterative repair ability.
+    mode: Literal["gen", "evolve", "fast_eval"]
     phase: SessionPhase = "idle"
 
     # Loop A state
@@ -125,6 +131,15 @@ class Session:
     # v0.3.4 — Wave A 9 stages accumulated test debt under the v0.3.2 era,
     # see commit 149487a9 for the catch-up batch. Disable with --test-off.
     test_gen_enabled: bool = True
+
+    # P1.6 Wave 2 (2026-05-08): single-shot evaluation mode for Loop C
+    # prompt-optimisation runs. When True the server REFUSES every
+    # iterative-repair tool (spec_gen_refine / code_gen_refine / spec_fine /
+    # inject_diagnostics) so the only artefacts a stage produces are its
+    # FIRST submissions. Set automatically when session_start receives
+    # mode="fast_eval"; can also be flipped mid-session via
+    # toggle_fast_eval_mode (rare).
+    fast_eval_mode: bool = False
 
     # Accumulated context that will be re-injected on refine rounds
     clarifications: list[Clarification] = field(default_factory=list)

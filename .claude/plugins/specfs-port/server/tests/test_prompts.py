@@ -256,6 +256,75 @@ def test_assemble_linux_to_spec_prompt():
     assert "(none)" in out  # empty prior_spec_index
 
 
+# ---------- Loop C linux_compare + prompt_optimize (P1.6 Wave 2) ----------
+
+
+def test_assemble_linux_compare_prompt_carries_inputs():
+    import prompts
+    out = prompts.assemble_linux_compare_prompt(
+        module="exfat",
+        stage="unlink",
+        linux_path="/Users/kissa/Codebase/linux/fs/exfat/namei.c",
+        linux_source="int exfat_unlink(struct inode *dir, struct dentry *d) { return 0; }",
+        spec_path="spec/exfat/inode/exfat_unlink.spec",
+        generated_spec="[PROMPT]\nSentinel-spec.\n",
+        code_path="fs/exfat/exfat_inode.c",
+        generated_code="int VfsExfatUnlink(void) { return 0; }",
+        common_header="extern int helper(void);",
+        inherited_invariants=[{"id": "exfat-unlink-foo", "text": "must hold s_lock"}],
+    )
+    assert "exfat" in out
+    assert "unlink" in out
+    assert "Sentinel-spec" in out
+    assert "VfsExfatUnlink" in out
+    assert "exfat_unlink" in out  # Linux fn name carried through
+    assert "exfat-unlink-foo" in out  # invariant rendered
+    # Must ask for JSON output and additive recommendations
+    assert "JSON" in out
+    assert "spec_prompt_recommendations" in out
+    assert "codegen_prompt_recommendations" in out
+
+
+def test_assemble_linux_compare_drops_empty_invariants():
+    import prompts
+    out = prompts.assemble_linux_compare_prompt(
+        module="exfat", stage="lookup", linux_path="x.c", linux_source="x",
+        spec_path="s", generated_spec="g", code_path="c", generated_code="cc",
+        common_header="", inherited_invariants=[],
+    )
+    # Empty common_header → "first stage" placeholder
+    assert "first stage" in out
+    # Empty inherited_invariants → its enclosing [INHERITED INVARIANTS] block dropped
+    assert "[INHERITED INVARIANTS" not in out
+
+
+def test_assemble_prompt_optimize_carries_recommendations():
+    import prompts
+    out = prompts.assemble_prompt_optimize_prompt(
+        target_prompt_name="linux_to_spec",
+        module="exfat",
+        rec_type="spec",
+        n_stages=3,
+        current_prompt="[ROLE]\nDraft a spec.\n",
+        recommendations="- Recommendation A\n- Recommendation B",
+    )
+    assert "linux_to_spec" in out
+    assert "exfat" in out
+    assert "Recommendation A" in out
+    assert "Recommendation B" in out
+    # Must enforce additive-only output and dedup constraints
+    assert "ADDITIVE" in out or "Additive" in out or "additive" in out
+
+
+def test_assemble_prompt_optimize_empty_recommendations():
+    import prompts
+    out = prompts.assemble_prompt_optimize_prompt(
+        target_prompt_name="codegen", module="exfat", rec_type="codegen",
+        n_stages=0, current_prompt="x", recommendations="",
+    )
+    assert "(none accumulated)" in out
+
+
 # ---------- failure-rendering edge cases ----------
 
 def test_render_failures_empty():
