@@ -1,6 +1,6 @@
 ---
 name: specfs-port
-description: 凡用户提到将 Linux 内核文件系统（exFAT、F2FS、EROFS、BTRFS、ext4、NTFS 等）移植到 OpenHarmony LiteOS-A 内核，或在本仓库下新增/重写文件系统时，必须立即调用本技能；同时也是 specfs-port Claude Code 插件的伴生技能（自动随插件加载）。触发短语包括："port exFAT to LiteOS-A"、"添加 F2FS 支持"、"重写 FAT"、"把 Linux fs/<name> 翻译过来"、"SpecFS"、"sysspec"、"spec-first 文件系统"、"specfs-port"、"/specfs-port-spec"、"/specfs-port-code"，以及任何将 Linux FS 实现转写为 LiteOS-A 版本的请求；用户希望用 SpecFS 规范优先方法重构现有 LiteOS-A 文件系统（fs/fat、fs/jffs2）时同样触发。本技能驱动一条五阶段流水线（摄取 → 规范 → 映射 → 代码 → 接线），并绑定七层防御（compile [LSP+gcc 合一] / Style audit / build+QEMU / SpecEvaluator 自审 / cmocka 测试派生 / 用户审核）+ 两层回归套件（cmocka host + QEMU LTP smoke）。本技能取代过去的 liteos-fs-port 同名技能，与 specfs-port 插件**统一命名、协同工作**。
+description: 凡用户提到将 Linux 内核文件系统（exFAT、F2FS、EROFS、BTRFS、ext4、NTFS 等）移植到 OpenHarmony LiteOS-A 内核，或在本仓库下新增/重写文件系统时，必须立即调用本技能；同时也是 specfs-port Claude Code 插件的伴生技能（自动随插件加载）。触发短语包括："port exFAT to LiteOS-A"、"添加 F2FS 支持"、"重写 FAT"、"把 Linux fs/<name> 翻译过来"、"SpecFS"、"sysspec"、"spec-first 文件系统"、"specfs-port"、"/specfs-port-spec"、"/specfs-port-code"，以及任何将 Linux FS 实现转写为 LiteOS-A 版本的请求；用户希望用 SpecFS 规范优先方法重构现有 LiteOS-A 文件系统（fs/fat、fs/jffs2）时同样触发。本技能驱动一条五阶段流水线（摄取 → 规范 → 映射 → 代码 → 接线），并绑定六层防御（Layer 1a compile [LSP+gcc 合一] || Layer 1b 风格审计 [P1.2 起为 1a sibling，原 Layer S] / Layer 2 build+QEMU / Layer 3 SpecEvaluator 自审 [spec conformance only] / Layer T cmocka 测试派生 [Loop A 触发] / Layer 4 用户审核）+ 两层回归套件（cmocka host + QEMU LTP smoke）。本技能取代过去的 liteos-fs-port 同名技能，与 specfs-port 插件**统一命名、协同工作**。
 ---
 
 # specfs-port — 规范优先的 Linux→LiteOS-A 文件系统移植（plugin 伴生技能）
@@ -127,40 +127,51 @@ symlink 到 `_latest.md`。退出码 0/1/2 = 全过 / 有失败 / panic-or-hang�
 
 ---
 
-## 七层防御（plugin 与 skill 共享的契约）
+## 防御层次（plugin 与 skill 共享的契约）
+
+P1.2 (2026-05-07) 拓扑：Layer 1 内拆 1a/1b 两个并行 sibling，二者都过才进
+Layer 2；SpecEval (Layer 3) 只看 spec conformance，不再内联 style 规则。
 
 ```
-Layer 1: compile gate ← v0.3.3 合并：clangd LSP（首选）+ gcc -fsyntax-only（兜底）
-Layer S: 编码风格审计 ← v0.3 加，6 维度 LLM 自判
-Layer 2: 全量 build + QEMU smoke
-Layer 3: SpecEvaluator 自审 ← v0.2 起默认 ON
-Layer T: cmocka 测试派生 ← v0.3.4 实际接入（v0.3.2 advertised 但 server 端从未实现，
-         补债批次 commit 149487a9）
-Layer 4: 用户审核（HITL final gate；v0.3.4 起一并审 code+test）
+Layer 1a: compile gate ← v0.3.3 合并：clangd LSP（首选）+ gcc -fsyntax-only（兜底）
+Layer 1b: 编码风格审计 ← v0.3 引入（旧 Layer S）, P1.1 短暂折入 Layer 3,
+                          P1.2 重新独立, 与 1a 平行（任一不过都 block）
+Layer 2:  全量 build + QEMU smoke
+Layer 3:  SpecEvaluator 自审 ← v0.2 起默认 ON, P1.2 起 spec conformance only
+Layer T:  cmocka 测试派生 ← v0.3.4 实际接入（v0.3.2 advertised 但 server 端
+          从未实现，补债批次 commit 149487a9）, 由 Loop A spec_gen_approve 触发,
+          与 Loop B 解耦
+Layer 4:  用户审核（HITL final gate；v0.3.4 起一并审 code+test）
 ```
 
-**Layer S** 6 维度：命名 / 函数复杂度 / 代码布局 / 内存与 libsec / 加锁 / 错误路径。
-模板：`.claude/plugins/specfs-port/prompts/style_audit.md`，输出 JSON
-`{is_good, score, summary, violations[]}`。`is_good=true && score≥80` 进 Layer 2，
-否则注入 violations 重生（≤ 5 轮）。clang-format dry-run 作为 advisory hint 喂入
-`[AUTO CHECKS]` 段，不当硬门。
+**Layer 1b**（旧 Layer S）从 `prompts/style_rules.md` 读取 LiteOS-A 风格
+canon（≥17 项硬规则：libsec / 内存 / 锁 / 错误码符号 / FS 注册 / 命名 / ...
+完整列表见 style_rules.md）。模板 `.claude/plugins/specfs-port/prompts/style_audit.md`,
+输出 JSON `{is_good, score, summary, violations[]}`。`is_good=true && score≥80`
+进 Layer 2，否则注入 violations 重生（≤ 5 轮）。clang-format dry-run 作为
+advisory hint 喂入 `[AUTO CHECKS]` 段，不当硬门。
 
-**Layer 3** SpecEvaluator 6 类偏差：函数签名 / 锁注解 / 幻觉 helper / libsec _s /
-Linux 原语翻译 / goto-stack errno 风格。模板 `.claude/plugins/specfs-port/prompts/speceval.md`。
-`is_good=true` 进 Layer T，否则注入 comments 重生（≤ 8 轮，paper 设定）。
+**Layer 3** SpecEvaluator (P1.2 起 spec conformance only)：6 类 spec 偏差——
+函数签名 ≠ [GUARANTEE] / Pre-Post-Invariant 违反 / Locking 标注漂移于
+`## Refine Prompt` / 幻觉 helper（不在 [RELY]/[PRIOR CODE INTERFACE]）/
+Case 分支与 [SPECIFICATION] 不符 / 跳过 System Algorithm 的 phase 顺序。
+模板 `.claude/plugins/specfs-port/prompts/speceval.md`。**风格不归此层**——
+看到风格违例本层会作为 false positive 跳过。`is_good=true` 进 Layer 4，
+否则注入 comments 重生（≤ 8 轮，paper 设定）。
 
 **Layer T**（v0.3.4 加）从已批准的 spec + 刚通过 SpecEval 的代码自动派生
 `testsuites/unittest/<name>/test_<stage>.c.draft`：每个 `[SPECIFICATION]` Case 至少
 一个测点、每个可单测的 `[Invariant]` 一个测点；用 `mock_disk_*` + `<name>_image_builder_*`
 原语，禁止依赖完整 VFS（VnodeAlloc / VfsHashInsert 等归 Layer B QEMU LTP 覆盖）。
 模板 `.claude/plugins/specfs-port/prompts/unittest_gen.md`。
-通过 `is_good=true && score≥80`（Layer S 标准沿用）/ 用户初步认可 → 进 Layer 4 与代码同审；
+通过 `is_good=true && score≥80` / 用户初步认可 → 进 Layer 4 与代码同审；
 否则 `test_gen_refine` 重生（≤ 3 轮，超出意味 spec [SPECIFICATION] 写得不够清楚，
 应回 Loop A 而不是在 Layer T 里磨）。MCP 工具：`test_gen_{start,submit,refine,approve}`。
 `test_gen_approve` 写 `.c` + 自动接 `Makefile::HARNESS_SRCS` 与 `main.c::run_suite()`。
 
-报告范例：`docs/exfat_speceval.md`（Layer 3，7/7 stage 通过）+
-`docs/exfat_style_audit.md`（Layer S，6/7 stage 通过）。
+报告范例：`docs/exfat_speceval.md`（Layer 3 spec conformance，7/7 stage 通过）+
+`docs/exfat_style_audit.md`（Layer 1b 风格，6/7 stage 通过；v0.3 期间产物，
+P1.2 拓扑下结论仍适用）。
 
 ---
 
@@ -172,7 +183,7 @@ Linux 原语翻译 / goto-stack errno 风格。模板 `.claude/plugins/specfs-po
 
 可选 flag：
 - `--speceval-off`（v0.2）：关闭 Layer 3 自审（默认 ON）
-- `--style-off`（v0.3）：关闭 Layer S 风格审计（默认 ON）
+- `--style-off`（v0.3 引入；P1.2 重新启用）：关闭 Layer 1b 风格审计（默认 ON）
 - `--test-off`（v0.3.4）：关闭 Layer T cmocka 测试派生（默认 ON）。仅当新代码无
   host-testable 表面时使用（例如纯 QEMU LTP 覆盖的写路径）；用了就在最终报告里
   显式记 "测试覆盖：跳过（gap）" 让后审可补
@@ -220,7 +231,7 @@ Linux 原语翻译 / goto-stack errno 风格。模板 `.claude/plugins/specfs-po
 - 构建状态：`make build` 结果。
 - 回归状态：`tools/regress/run_all.sh` 退出码 + cmocka pass/fail + LTP pass/fail。
 - SpecEval 自审：`is_good=true` 的 stage 数 / 总数。
-- Layer S 风格审计：通过 stage 数 / 总数 + 主要 hard 违例。
+- Layer 1b 风格审计：通过 stage 数 / 总数 + 主要 hard 违例。
 - **测试覆盖（v0.3.4）：N/M** — N 个 stage 通过 Layer T 落了 cmocka 测试 / 总 M 个；
   跳过的 stage 列出名字 + 跳过原因（`--test-off` 还是 `harness_dir` 未就绪）。
 - 标注 " 删除" 的开放映射项（如日志、fscrypt），便于规划 后续。
@@ -242,12 +253,12 @@ Linux 原语翻译 / goto-stack errno 风格。模板 `.claude/plugins/specfs-po
 外部参考：
 - `.claude/plugins/specfs-port/DESIGN.md`：插件实现规格（DAG / MCP 工具表 / prompts 拼装）。
 - `.claude/plugins/specfs-port/CHANGELOG.md`：插件版本演进（v0.1→v0.2 加 SpecEval 默认 ON→
- v0.3 加 Layer S→v0.3.1 修 umount panic + LTP dynamic linking→v0.3.2 加 cmocka 测试派生
+ v0.3 加 Layer S（P1.2 重定位为 Layer 1b sibling）→v0.3.1 修 umount panic + LTP dynamic linking→v0.3.2 加 cmocka 测试派生
  prompt 模板（**advertised but not implemented** — Wave A 9 个 stage 在该期累积测试欠债）→
  v0.3.3 合并 Layer 0 LSP 与 Layer 1 gcc→v0.3.4 真正接通 Layer T 服务端实现）。
 - `docs/dev/exfat_mount.md`：mount 端到端实战记录（含本技能与插件协作的真实流程）。
 - `docs/exfat_speceval.md`：Layer 3 SpecEvaluator 自审报告范例。
-- `docs/exfat_style_audit.md`：Layer S 风格审计报告范例。
+- `docs/exfat_style_audit.md`：Layer 1b 风格审计报告范例（v0.3 期间产物，文件名沿用 "style_audit"）。
 - `tools/regress/README.md`：两层回归套件运行手册。
 
 ## 与旧 liteos-fs-port 技能的关系
@@ -255,7 +266,7 @@ Linux 原语翻译 / goto-stack errno 风格。模板 `.claude/plugins/specfs-po
 旧技能 `.claude/skills/liteos-fs-port/` 是本技能的前身。本技能在以下方面是
 上位替代：
 1. 命名与插件统一为 `specfs-port`；
-2. 显式纳入 Layer S 编码风格审计 + Layer 3 SpecEvaluator 自审；
+2. 显式纳入 Layer 1b 编码风格审计（旧 Layer S，P1.2 重定位）+ Layer 3 SpecEvaluator 自审；
 3. 显式纳入两层回归套件契约（cmocka + QEMU LTP）；
 4. 编译/调试细节移到 references/，SKILL.md 只留方法论；
 5. 显式说明与插件的伴生关系。

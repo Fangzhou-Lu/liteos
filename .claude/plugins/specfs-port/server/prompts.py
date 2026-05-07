@@ -232,7 +232,13 @@ def assemble_linux_to_spec_prompt(
 
 
 def assemble_speceval_prompt(*, generated_code: str, original_spec: str) -> str:
-    """Layer 3 SpecEvaluator prompt from prompts/speceval.md."""
+    """Layer 3 SpecEvaluator prompt from prompts/speceval.md.
+
+    Spec conformance ONLY. Style/convention checks live in a sibling layer
+    at the same tier as compile (Layer 1) — see assemble_style_audit_prompt
+    + prompts/style_audit.md + prompts/style_rules.md. The two layers run
+    independently and both must pass before Layer 2.
+    """
     template = load("speceval")
     return substitute(template, {
         "GENERATED_CODE": generated_code.strip(),
@@ -278,12 +284,21 @@ def assemble_unittest_gen_prompt(
 
 
 def assemble_style_audit_prompt(*, generated_code: str, auto_checks: str = "") -> str:
-    """Layer S coding-style audit prompt from prompts/style_audit.md.
+    """LiteOS-A coding-style audit prompt from prompts/style_audit.md.
 
-    auto_checks: pre-collected output from runtime tools (clang-format dry-run,
-    libsec scan, length/complexity heuristics) — passed verbatim into the
-    [AUTO CHECKS] segment so the LLM judges with full context. Empty string
-    is acceptable when no static tool ran (LLM does pure self-judge).
+    P1.2 (2026-05-07) repositioning: this layer is no longer a Layer S
+    serial step AFTER compile (Layer 1). It now sits at the SAME tier as
+    Layer 1 — runs in parallel with clangd LSP / gcc -fsyntax-only, and
+    both must pass before Layer 2 (build+QEMU). Spec conformance is
+    handled by Layer 3 SpecEvaluator (see `assemble_speceval_prompt`),
+    which deliberately does NOT inline style rules — that's this layer's
+    job.
+
+    auto_checks: pre-collected output from runtime tools (clang-format
+    dry-run, libsec scan, length/complexity heuristics) — passed verbatim
+    into the [AUTO CHECKS] segment so the LLM judges with full context.
+    Empty string is acceptable when no static tool ran (LLM does pure
+    self-judge).
     """
     template = load("style_audit")
     return substitute(template, {

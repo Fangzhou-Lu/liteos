@@ -87,6 +87,10 @@ class Session:
     # v0.3.3: Layer 0 (LSP) merged into Layer 1 (compile). The "compile" layer
     # now runs clangd diagnostics (preferred) with gcc -fsyntax-only as fallback.
     # v0.3.4: "test_gen" added (Layer T retry budget; default 3 rounds, see DESIGN §10).
+    # P1.2 (2026-05-07): "style" repositioned as a SIBLING of "compile" — both
+    # gate Layer 2 in parallel (was a serial Layer S after compile in v0.3).
+    # Style stays out of Layer 3 SpecEvaluator entirely; SpecEval is spec
+    # conformance ONLY now.
     layer_retries: dict[str, int] = field(default_factory=lambda: {
         "compile": 0, "style": 0, "build": 0, "qemu": 0, "speceval": 0, "test_gen": 0,
         "spec_fine": 0,  # F3 SpecFine: spec polish via SpecEval feedback (cap 3)
@@ -97,9 +101,11 @@ class Session:
     # Step 8 hard contract). Disable per-session with --speceval-off.
     speceval_enabled: bool = True
 
-    # Plugin v0.3: Layer S (Style audit) ON by default. User directive
-    # "加入编码风格评估环节". Evaluates 6 dimensions: naming, complexity, layout,
-    # memory/libsec, locking, error path. Disable with --style-off.
+    # Plugin v0.3 introduced Layer S (style audit) as a serial step AFTER
+    # compile. P1.2 (2026-05-07) repositioned this layer as a SIBLING of
+    # compile — both run in parallel and both must pass before Layer 2.
+    # SpecEval (Layer 3) is now spec-conformance only; it does not inline
+    # style rules. Toggle this layer with `--style-off`.
     style_audit_enabled: bool = True
 
     # Build/QEMU opt-out (--no-build)

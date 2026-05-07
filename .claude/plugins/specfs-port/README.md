@@ -23,10 +23,12 @@ Optional flags for `/specfs-port-code`:
 - `--speceval-off` — disable Layer 3 SpecEvaluator self-audit
  (default **ON** since plugin v0.2; user explicitly required self-audit before
  user review — see `commands/specfs-port-code.md` Step 8 hard contract)
-- `--style-off` — disable Layer S coding-style audit
- (default **ON** since plugin v0.3; user directive "加入编码风格评估环节" —
- audits 6 dimensions: naming / complexity / layout / memory & libsec / locking /
- error path; see `commands/specfs-port-code.md` Step 6.5 + `prompts/style_audit.md`)
+- `--style-off` — disable Layer 1b coding-style audit (sibling of Layer 1a compile)
+ (default **ON** since plugin v0.3; user directive "加入编码风格评估环节".
+ P1.1 briefly folded the audit into Layer 3 SpecEval; P1.2 (2026-05-07) split
+ it back out as a Layer 1 sibling so style nits stop blurring spec-violation
+ feedback. Rule canon: `prompts/style_rules.md`; LLM template: `prompts/style_audit.md`.
+ Layer 3 SpecEval no longer references style at all.)
 - `--no-build` — skip Layer 2 (build + QEMU smoke)
 - `--no-regress` — skip Step 11 regression-suite reminder
 - `--prompt-override <file>` — bypass spec-derived prompt assembly

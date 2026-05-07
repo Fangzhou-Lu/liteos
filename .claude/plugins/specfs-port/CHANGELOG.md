@@ -3,6 +3,99 @@
 All notable changes to this plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/) loosely; semver applies.
 
+## [P1.2] — 2026-05-07
+
+### Changed — Layer S split back out of Layer 3 SpecEval, repositioned as Layer 1 sibling
+
+P1.1 (v0.4) folded the v0.3 Layer S coding-style audit into Layer 3
+SpecEvaluator as a single LLM round (one `is_good/comments` JSON covering
+both spec conformance and LiteOS-A style). Real-world use exposed two
+problems with the merged form:
+
+1. **Mixed feedback was hard to action.** A single `comments` blob
+   interleaved style nits ("VFS callback returned positive errno") with
+   spec violations ("Phase 2 ran under s_lock — violates `## Refine
+   Prompt`"). Operators had to triage two unrelated severities at once
+   and the codegen LLM frequently fixed style first, leaving the harder
+   spec violation in the next round's `comments`.
+2. **Style failures should fail-fast at compile tier.** Style is a
+   mechanical/syntactic check (libsec usage, naming, error-code sign).
+   Spec conformance is semantic and depends on the full spec context.
+   Forcing them to share a retry budget (8 in P1.1) made cheap fixes
+   wait behind expensive ones.
+
+P1.2 splits them apart:
+- **Layer 1a (compile)** stays as before — clangd LSP preferred, gcc
+  -fsyntax-only fallback. Max 4 retries.
+- **Layer 1b (style)** is reinstated as a STANDALONE layer at the SAME
+  tier as Layer 1a (sibling, runs in parallel). Max 5 retries. Rule canon
+  in `prompts/style_rules.md`; LLM template in `prompts/style_audit.md`.
+  Both 1a and 1b must pass before Layer 2.
+- **Layer 3 (SpecEval)** is now spec-conformance ONLY. Style rules are
+  NOT inlined and NOT injected via `{STYLE_RULES}`. Max 8 retries
+  (paper). Reduces false-positive style flags from spec-focused review.
+
+### Modified
+
+- `prompts/speceval.md` — removed the inline `## LiteOS-A style` bucket
+  (11 items). Now only enumerates 6 spec-conformance check items. Adds
+  explicit "what NOT to flag" guard: "if you flag a style issue here it
+  will be a false positive".
+- `prompts/style_audit.md` — unchanged; reused as-is by the reinstated
+  Layer 1b assembler.
+- `server/prompts.py::assemble_speceval_prompt` — reverted to 2-arg
+  signature `(generated_code, original_spec)`; no `{STYLE_RULES}`
+  placeholder.
+- `server/prompts.py::assemble_style_audit_prompt` — restored. Docstring
+  updated to reflect P1.2 positioning ("sibling of compile, NOT a serial
+  step after compile").
+- `server/state.py::style_audit_enabled` — restored. Comment updated to
+  "sibling of compile" framing.
+- `server/state.py::layer_retries` — restored "style": 0 default; now
+  documented as Layer 1b not Layer S.
+- `server/specfs_server.py::_passed_layers` — restored "style" key,
+  reflects Layer 1a/1b sibling topology in the docblock.
+- `server/specfs_server.py::inject_diagnostics` — restored "style" as a
+  valid `layer` value alongside "compile".
+- `commands/specfs-port-code.md` — Active layers table now shows Layer
+  1a + 1b as siblings; explicitly notes "P1.2 reinstated style as
+  standalone, was briefly folded into Layer 3 in P1.1; reverted because
+  combined comments mixed nits with spec violations".
+- `prompts/unittest_gen.md` — comment updated to say "test_gen 与 Layer
+  1/2/3 解耦, 由 Loop A spec_gen_approve 触发".
+- `DESIGN.md` — §1, §6 (layer pipeline diagram), §7 defense table, §8
+  flag list, §10 retry budgets all renumbered: Layer S → Layer 1b sibling.
+- `.claude/skills/specfs-port/SKILL.md` — frontmatter description and
+  body "防御层次" section updated to 6-layer naming with Layer 1a/1b
+  siblings.
+- `README.md` — `--style-off` description rewritten to reference the
+  P1.2 split (Layer 1b standalone, no longer Layer S serial-step).
+
+### Migration notes
+
+- No state migration needed. Existing sessions: state.style_audit_enabled
+  and layer_retries["style"] keep their meaning; only the surrounding
+  docs/comments changed framing.
+- DAG nodes carry no Layer S/Layer 1b discriminator — both wrote
+  `code.validations_passed.style: true|false`. Existing nodes load fine.
+- Operators with `--style-off` in muscle memory: flag still works, still
+  default ON. Behavior unchanged (skips Layer 1b audit). What changed is
+  what `--style-off` actually skips: a standalone audit pass, not part of
+  Layer 3.
+
+### Why now (vs leave as P1.1 fold)
+
+User directive 2026-05-07: "从 specEval 去除风格审计，风格设计移到 LSP
+同一层级"  — explicit request to physically separate the two passes and
+position style at compile-tier. The P1.1 merge was originally motivated
+by token-cost economy (one LLM call instead of two); P1.2 accepts the
+extra call cost as the price of clean separation between mechanical
+(style) and semantic (spec) gates. With Wave B mkdir + create both
+landing in the same week, the "what's blocking the merge?" question
+became hard to answer when style nits and spec drift came back in one
+JSON blob — splitting reduces that ambiguity at the cost of one extra
+LLM round per codegen retry.
+
 ## [0.3.4.2] — 2026-05-05
 
 ### Fixed — two recurrent bugs in `_apply_makefile_delta` and `_sync_common_header`

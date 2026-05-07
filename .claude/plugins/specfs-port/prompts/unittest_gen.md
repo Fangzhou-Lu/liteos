@@ -1,6 +1,9 @@
 <!--
 v0.3.2 起：从已批准的 spec 派生 cmocka 单元测试草稿。
-插件在代码 Loop B 通过 Layer S + Layer 3 之后、用户审核之前调用本 prompt。
+v0.3.4 起：调用时机迁移到 Loop A 的 `spec_gen_approve` 之后，与 Loop B
+代码生成并行；不再耦合 Layer S / Layer 3 的通过条件。
+P1.2 (2026-05-07) 拓扑：style 审计回归为 Layer 1 sibling，但与本 prompt
+无依赖（test_gen 只看已批准 spec + 生成的代码 + harness 骨架）。
 
 输入：原 spec（含 [SPECIFICATION] 各 Case）+ 刚生成的代码 + 已存在的
 testsuites/unittest/<name>_host/ 目录骨架。

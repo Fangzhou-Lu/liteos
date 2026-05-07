@@ -1470,11 +1470,18 @@ def _module_from_spec_path(spec_path: str) -> str:
 
 
 def _passed_layers(sess: state.Session) -> dict[str, bool]:
+    # P1.2 (2026-05-07) layer topology:
+    #   compile  ─┐  (sibling)        Layer 1 tier — both must pass before
+    #   style    ─┘                   Layer 2; SpecEval owns spec conformance,
+    #                                 style here owns LiteOS-A coding rules.
+    #   build / qemu                  Layer 2.
+    #   speceval                      Layer 3 — spec conformance only; NO
+    #                                 style rules inlined.
     return {
         "compile": True,  # Layer 1 — clangd LSP (preferred) + gcc fsyntax-only fallback
-        "style": sess.style_audit_enabled,
-        "build": not sess.skip_build_layer,
-        "qemu": not sess.skip_build_layer,
+        "style":   sess.style_audit_enabled,  # Layer 1 sibling — style canon (was Layer S)
+        "build":   not sess.skip_build_layer,
+        "qemu":    not sess.skip_build_layer,
         "speceval": sess.speceval_enabled,
     }
 

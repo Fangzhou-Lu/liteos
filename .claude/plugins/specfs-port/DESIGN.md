@@ -51,8 +51,12 @@ this table is the canonical Rosetta stone.
 - **System Algorithm** (paper §4.1): optional sub-block within spec
   [SPECIFICATION], same as paper's atomfs_rename example.
 - **SpecEvaluator** (paper §4.5 sub-component of SpecCompiler): Layer 3 in our
-  Loop B, single LLM round per code-gen retry, `prompts/speceval.md`. In v0.4
-  this round also covers LiteOS-A style dimensions (formerly separate Layer S).
+  Loop B, single LLM round per code-gen retry, `prompts/speceval.md`. **Spec
+  conformance only** — P1.2 (2026-05-07) split style back out as a sibling of
+  Layer 1 compile (was briefly folded in during v0.4 P1.1; reverted because
+  combined comments mixed style nits with spec violations and made fix
+  prioritisation harder). Style canon lives in `prompts/style_rules.md`,
+  consumed by the standalone style-audit layer (`prompts/style_audit.md`).
 
 **Things we have, paper does not:**
 
@@ -111,13 +115,18 @@ Plugin: assemble codegen prompt
     ▼
 LLM: scan for ambiguities (Layer -1) → AskUserQuestion if needed → generate code
     ▼
-Plugin: Layer 1 (compile gate: clangd LSP preferred + gcc fsyntax-only fallback)
-    → Layer S (style audit, default ON) → Layer 2 (build+QEMU)
-    Layer 1 max-4 retries; Layer S max-5; Layer 2 max-3.
-    Diagnostics injected as [Modification suggestions] with source=lsp|gcc|style|build|qemu.
-    (v0.3.3 merged former Layer 0 LSP into Layer 1 — same property, no stub-drift.)
+Plugin: Layer 1 tier (parallel siblings, both must pass before Layer 2)
+    ├── Layer 1a compile  (clangd LSP preferred + gcc fsyntax-only fallback) — max 4 retries
+    └── Layer 1b style    (LLM self-judge against prompts/style_rules.md)   — max 5 retries
     ▼
-Layer 3: SpecEvaluator self-audit (default ON since v0.2, --speceval-off to skip)
+    Layer 2 (build+QEMU) — max 3 retries
+    Diagnostics injected as [Modification suggestions] with source=lsp|gcc|style|build|qemu.
+    (v0.3.3 merged former Layer 0 LSP into Layer 1a — same property, no stub-drift.
+     P1.2 split Layer S out of Layer 3 into Layer 1b — see commands/specfs-port-code.md
+     for the full topology rationale.)
+    ▼
+Layer 3: SpecEvaluator — spec conformance ONLY (default ON since v0.2,
+    --speceval-off to skip). Style is NOT inlined here; that's Layer 1b's job.
     ▼
 Layer T: cmocka test gen (default ON since v0.3.4, --test-off to skip)
     Plugin assembles unittest_gen.md prompt from {generated_code, spec, harness_layout}
@@ -502,11 +511,11 @@ Example phrasings:
 | Layer | Trigger | Tool | On failure | Max retries |
 |---|---|---|---|---|
 | -1 Ask-first | Before any LLM gen | LLM self-scan + AskUserQuestion | Pause until user clarifies | (not iterative) |
-| **1 Compile** (v0.3.3 merged: LSP + gcc) | After every codegen | clangd via OMC LSP (preferred, real headers) → gcc -fsyntax-only with stub (fallback when LSP unavailable) | Inject diagnostics with source=lsp\|gcc → re-codegen | 4 |
-| **S Style** (v0.3, ON by default) | After Layer 1 pass | auto-check (clang-format dry-run + libsec scan + length heuristic) → LLM self-judge → JSON {is_good, score, violations} | Inject violations → re-codegen | 5 |
-| 2 Build+QEMU | After Layer S pass; per-stage | build.sh + qemu-system-arm with smoke | Inject build/qemu log → re-codegen | 3 |
-| 3 SpecEvaluator (v0.2, ON by default) | After Layer 2 pass | LLM self-judge → JSON {is_good, comments} | Inject comments → re-codegen | 8 (paper) |
-| **T cmocka test gen (v0.3.4, ON by default)** | After Layer 3 pass | LLM assembles `test_<stage>.c.draft` from spec [SPECIFICATION] Cases + Invariants via `prompts/unittest_gen.md` | `test_gen_refine` with prior draft + user feedback → regen | 3 (then escalate to Loop A — spec under-specified) |
+| **1a Compile** (v0.3.3 merged: LSP + gcc) | After every codegen | clangd via OMC LSP (preferred, real headers) → gcc -fsyntax-only with stub (fallback when LSP unavailable) | Inject diagnostics with source=lsp\|gcc → re-codegen | 4 |
+| **1b Style** (P1.2: sibling of 1a, was Layer S in v0.3) | After every codegen, parallel to 1a | auto-check (clang-format dry-run + libsec scan + length heuristic) → LLM self-judge against `prompts/style_rules.md` → JSON {is_good, score, violations} | Inject violations with source=style → re-codegen | 5 |
+| 2 Build+QEMU | After 1a + 1b both pass; per-stage | build.sh + qemu-system-arm with smoke | Inject build/qemu log → re-codegen | 3 |
+| 3 SpecEvaluator (v0.2, ON by default) | After Layer 2 pass | LLM self-judge → JSON {is_good, comments} — **spec conformance only**, style stays in Layer 1b | Inject comments → re-codegen | 8 (paper) |
+| **T cmocka test gen (v0.3.4, ON by default)** | After Loop A spec_gen_approve (decoupled from Layer 1/2/3) | LLM assembles `test_<stage>.c.draft` from spec [SPECIFICATION] Cases + Invariants via `prompts/unittest_gen.md` | `test_gen_refine` with prior draft + user feedback → regen | 3 (then escalate to Loop A — spec under-specified) |
 | 4 User review | After all auto layers pass | diff + style score + speceval verdict + cmocka test draft | Inject user suggestion → re-codegen (or test_gen_refine for test-only edits) | unlimited |
 
 Each layer has its own [Modification suggestions] segment header so the LLM can
@@ -532,12 +541,12 @@ Triggers Loop A. Plugin:
 Triggers Loop B. Plugin:
 1. Validates spec is approved
 2. Calls `code_gen_start` → assembled codegen prompt with all injection segments
-3. Skill body runs the layered defense loop in sequence (compile → style → build → qemu → speceval → test_gen → user)
+3. Skill body runs the layered defense loop ((compile || style) → build → qemu → speceval → user); test_gen runs decoupled from Loop B, fired by Loop A spec_gen_approve
 4. On final approval: call `code_gen_approve` then `test_gen_approve` → commit DAG node code+tests layers + sync common.header + apply Makefile/main.c deltas
 
 ### Optional flags
 - `--speceval-off` (v0.2 ON by default) — disable Layer 3 SpecEvaluator self-audit
-- `--style-off` (v0.3 ON by default) — disable Layer S coding-style audit
+- `--style-off` (v0.3 ON by default; reinstated P1.2 after a brief P1.1 fold-in) — disable Layer 1b coding-style audit
 - `--test-off` (v0.3.4 ON by default) — disable Layer T cmocka test gen
 - `--no-build` — skip Layer 2 (for fast iteration on logic-only specs)
 - `--no-regress` — skip Step 12 regression-suite reminder
@@ -590,7 +599,7 @@ The plugin design assumes single FS at a time per project. Multiple FSes
 
 ## 10. Iteration limits & cost guards
 
-- Layer 1 (compile, merged) retries: 4. Layer S (style) retries: 5.
+- Layer 1a (compile, merged) retries: 4. Layer 1b (style, sibling of 1a) retries: 5.
 - Layer 2 (build / qemu): 3 each. After exhaustion on any layer, escalate to user.
 - Layer 3 retries: 8 (paper). User can override.
 - **Layer T retries: 3.** v0.3.4. Hard cap is intentionally tight: if Layer T can't

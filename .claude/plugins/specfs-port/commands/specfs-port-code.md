@@ -1,6 +1,6 @@
 ---
 description: Loop B — generate LiteOS-A C code from an approved SYSSPEC spec. Auto-feedback (no HITL) on style/spec deviations; single user-review at end.
-argument-hint: <spec-path> [--speceval-off] [--no-build] [--prompt-override <file>] [--no-regress]
+argument-hint: <spec-path> [--style-off] [--speceval-off] [--no-build] [--prompt-override <file>] [--no-regress]
 allowed-tools: ["Bash", "Read", "Write", "Edit", "AskUserQuestion", "Grep", "Glob", "Agent"]
 ---
 
@@ -9,24 +9,34 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "AskUserQuestion", "Grep", "Glo
 User invoked: `/specfs-port-code $ARGUMENTS`
 
 You are running **Loop B** of the specfs-port plugin. Goal: produce approved
-LiteOS-A C code from an approved spec, defended by **3 auto layers + 1 user
-review**. Layer S (style) is folded into SpecEvaluator — single LLM check, no
-HITL gate. Layer T (cmocka test gen) is owned by Loop A (`/specfs-port-spec`)
-and is fired in parallel after spec approval; this command does NOT generate
-tests.
+LiteOS-A C code from an approved spec, defended by **4 auto layers + 1 user
+review**. Style audit and LSP compile sit at the same tier (sibling layers,
+both gate Layer 2). SpecEvaluator owns spec conformance ONLY — style was
+removed from it in P1.2 (was briefly folded in during P1.1; reverted because
+mixing the two passes blurred actionable feedback). Layer T (cmocka test gen)
+is owned by Loop A (`/specfs-port-spec`) and is fired in parallel after spec
+approval; this command does NOT generate tests.
 
 ## Active layers
 
 | # | Layer | When | Auto / HITL |
 |---|---|---|---|
-| 1 | LSP compile (clangd via OMC LSP) | After draft written | auto-feedback retry, max 4 |
-| 2 | Build + QEMU smoke | After SpecEval pass | auto-feedback retry, max 3 (skip with `--no-build`) |
-| 3 | SpecEvaluator (now includes style dimensions) | After build pass | auto-feedback retry, max 8 (skip with `--speceval-off`) |
+| 1a | LSP compile (clangd via OMC LSP) | After draft written | auto-feedback retry, max 4 |
+| 1b | LiteOS-A style audit (sibling of 1a) | After draft written, parallel to 1a | auto-feedback retry, max 5 (skip with `--style-off`) |
+| 2 | Build + QEMU smoke | After 1a + 1b both pass | auto-feedback retry, max 3 (skip with `--no-build`) |
+| 3 | SpecEvaluator (spec conformance only) | After Layer 2 pass | auto-feedback retry, max 8 (skip with `--speceval-off`) |
 | 4 | User review | After Layer 3 pass | HITL — only gate |
 
+P1.2 (2026-05-07) topology change:
+- Style audit reinstated as a STANDALONE layer at the SAME tier as compile.
+  P1.1 had folded it into Layer 3 SpecEval (one LLM round); experience showed
+  the merged comments mixed style nits with spec violations, making fix
+  prioritisation harder. The two passes now run in parallel.
+- SpecEval (`prompts/speceval.md`) is spec conformance ONLY — no `{STYLE_RULES}`
+  injection. Style canon lives in `prompts/style_rules.md`, consumed by the
+  Layer 1b audit (`prompts/style_audit.md`).
+
 Removed in v0.4 (per arxiv 2512.13047 §4.5 fidelity):
-- Layer S as standalone — folded into Layer 3 (single LLM round covers
-  spec-conformance + LiteOS style)
 - Ask-first at code-gen — disambiguation belongs in spec gen, not code gen
 - gcc `-fsyntax-only` fallback — clangd via OMC LSP is the single path
 - Layer T (cmocka) — moved to Loop A, fires after `spec_gen_approve`
