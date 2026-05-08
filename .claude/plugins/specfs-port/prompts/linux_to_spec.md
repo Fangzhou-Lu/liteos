@@ -9,6 +9,17 @@ P1.6 (2026-05-08) slim:
   a terse 3-block reference.
 - Goal: per-call input drops by ~3K (Loop A averaged 25K → 22K).
 
+P1.7 (2026-05-08) integrate additive recommendations from Loop C:
+  - Survey-step rule: enumerate every Linux in-memory mutation on
+    parent / target / sibling / super-block / dentry-cache; each must
+    map to an Invariant or an explicit `# OUT-OF-SCOPE: <reason>` line.
+  - Group Pre/Post-Condition bullets under explicit `on parent` /
+    `on target` / `on sibling state` sub-headings; no conflation.
+  - Tombstone sub-section: stages that set a deletion sentinel
+    (DIR_DELETED, FREE_CLUSTER, NULL, …) must enumerate caches to
+    evict before the sentinel is visible AND inode-state fields to
+    clear so a later evolve-stage cannot re-process the dead entity.
+
 Reference upstream specs:
 - /Users/kissa/Workspace/projects/specfs/sysspec/specfs/interface/atomfs_open.spec
 - /Users/kissa/Workspace/projects/specfs/sysspec/specfs/interface/atomfs_rename.spec  (locking)
@@ -34,9 +45,6 @@ On demand: `specfs.dag_extract_invariants(module="{MODULE}", node_id="<ancestor-
 
 [PRIOR APPROVED SPECS — reference, do not re-emit]
 {PRIOR_SPEC_INDEX}
-
-[USER CLARIFICATIONS]
-{USER_CLARIFICATIONS}
 
 [USER SUGGESTIONS]
 {USER_SUGGESTIONS}
@@ -64,10 +72,22 @@ A spec is plain text with these segments in order:
               here — that's Phase 2.
 
 [SPECIFICATION]
-  **Pre-Condition**: inputs / state. NO held locks.
+  **Pre-Condition**: inputs / state. NO held locks. Bullets MUST be
+                     grouped under `on parent`, `on target`, and
+                     `on sibling state` sub-headings (omit a heading
+                     only if the stage provably has no actor of that
+                     role; never conflate the three).
   **Post-Condition**:
-    **Case 1 (label)**: facts + return value
+    **Case 1 (label)**: facts + return value (same parent/target/sibling
+                        sub-headings as Pre-Condition).
     **Case 2 (label)**: ...
+  **Tombstone Semantics** (CONDITIONAL — required when this stage sets a
+                          deletion sentinel: DIR_DELETED, FREE_CLUSTER,
+                          NULL ptr, etc.):
+    - Caches to evict BEFORE the sentinel becomes visible (name-resolution
+      cache, dentry hash, parent's child-index, …).
+    - Inode-state fields that MUST be cleared so a later evolve-stage
+      cannot re-process the dead entity (i_size, link count, dirty bits, …).
   **Invariant** (id=<module>-<stage>-<noun>): self-contained property
   **System Algorithm** (optional): phase-granularity steps. If it looks
                                    like C with braces removed, drop it.
@@ -115,12 +135,32 @@ unsure about a borderline case (e.g., is `LOS_MuxInit` Phase 1 or 2?).
 - Linux fast/slow paths: default to slow path; ASK before fast.
 - Implementation rules (libsec, FSMAP, partition addressing, primitive choice)
   belong in code-gen, NOT in spec.
+- Mutation-survey rule (VFS callbacks): BEFORE drafting Post-Conditions,
+  walk the Linux source and enumerate EVERY in-memory mutation performed
+  on (a) the parent inode, (b) the target inode, (c) the parent's
+  containing super block, (d) the dentry hash / name cache. Each
+  enumerated mutation MUST map to either an Invariant in [SPECIFICATION]
+  or an explicit `# OUT-OF-SCOPE: <reason>` comment line. Generic
+  hand-waves like "VFS handles it" or "Reclaim handles it" are forbidden.
+- Actor-grouping rule: while surveying, classify each dereferenced
+  inode/dentry into exactly one of {parent, target, sibling}. Carry that
+  classification into the Pre/Post-Condition sub-headings (see
+  [OUTPUT FORMAT]). Do not conflate parent and target state.
 
 [REJECTION CRITERIA]
 - [PROMPT] omits file name / header / output rule.
 - [RELY] uses abstract names instead of real C decls.
 - [GUARANTEE] omits the calling-convention comment.
 - [SPECIFICATION] has no Invariant or has duplicate IDs.
+- [SPECIFICATION] Pre/Post-Condition bullets are not grouped under
+  `on parent` / `on target` / `on sibling state` sub-headings (and the
+  stage has more than one actor role).
+- Mutation-survey gap: a Linux in-memory mutation on parent / target /
+  super-block / dentry-cache is neither covered by an Invariant nor
+  marked `# OUT-OF-SCOPE: <reason>`.
+- Tombstone gap: stage sets a deletion sentinel but the spec lacks a
+  **Tombstone Semantics** sub-section (or that sub-section omits either
+  the cache-eviction list or the inode-field-clear list).
 - Spec exceeds the stage scope.
 - Two-phase violations: trigger fired but no `## Refine Prompt`; lock
   state leaked into Phase 1; Phase 2 restates Phase 1; signature changed

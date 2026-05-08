@@ -7,6 +7,19 @@ present)" / "Optional" enumeration — the LLM reads spec heading literals
 directly and doesn't need an explanation paragraph for each of [PROMPT] /
 [RELY] / [GUARANTEE] / [SPECIFICATION] / `## Refine Prompt`.
 
+P1.7 (2026-05-08) integrate additive recommendations from Loop C (exfat):
+  - Tombstone Invariants must evict path_cache / VfsHashRemove BEFORE
+    releasing the lock that protects the tombstone (Reclaim at refcount=0
+    is async and unsafe for blocking concurrent lookup).
+  - Parent-inode metadata refresh (vnode dirty mark + parent
+    exfat_inode_info timestamp update) is the caller's job on
+    unlink-style mutations — emit between s_lock unlock and any deferred
+    Phase-2 work.
+  - Phase 2 lock-free w.r.t. a primary lock: SAMPLE inode-info fields
+    (start_clu, flags) into stack locals BEFORE releasing the primary
+    lock, and after free / unlink completes RESET those fields to their
+    sentinel so a future Phase-2 evolve cannot re-run the operation.
+
 Placeholder syntax: {NAME} substituted by server/prompts.py at assemble time.
 Empty placeholders are dropped along with their preceding header line.
 -->
@@ -26,6 +39,25 @@ Output:
 - ONE ```c ... ``` fenced block. No prose outside.
 - Conservative: do not invent unspecified behavior or extra helpers.
 - If you took an assumption per LITEOS DIGEST, end with `/* Assumptions made: <list> */`.
+
+Concurrency / mutation rules (apply when the spec triggers them):
+- Tombstone Invariant set under a lock → evict the target Vnode from
+  path_cache (`VnodePathCacheFree`) and `VfsHashRemove` BEFORE that lock
+  is released. Do NOT defer to Reclaim — Reclaim runs at refcount=0 and
+  is not synchronous with unlink, so concurrent lookups can still hit
+  the doomed vnode.
+- Unlink-style parent-inode refresh: between unlocking the primary
+  s_lock and any deferred / Phase-2 work, mark the parent vnode dirty
+  and update parent `exfat_inode_info` timestamps (mtime / ctime /
+  iversion-equivalent). The Linux caller does this implicitly; LiteOS-A
+  port must do it explicitly.
+- Phase 2 declared lock-free w.r.t. a primary lock but reading inode-info
+  fields (e.g. `start_clu`, `flags`):
+  1. SAMPLE those fields into stack locals BEFORE releasing the primary lock.
+  2. Use only the stack locals in Phase 2.
+  3. After free / unlink completes, RESET the original inode-info fields
+     to their sentinel value (e.g. `EXFAT_EOF_CLUSTER`, zero flags) so a
+     subsequent Phase-2 evolve cannot re-run the operation.
 
 [LITEOS-A DIGEST — non-negotiable rules the spec does not restate]
 {LITEOS_DIGEST}
@@ -55,9 +87,6 @@ On demand: `specfs.dag_extract_invariants(module="{MODULE}", node_id="<ancestor-
 {PRIOR_CODE_INTERFACE}
 
 {ORIG_SPEC_CONTENT}
-
-[Previously generated code]
-{PREVIOUS_CODE}
 
 [Modification suggestions]
 {REFINE_SPEC}
