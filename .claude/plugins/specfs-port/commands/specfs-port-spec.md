@@ -1,12 +1,20 @@
 ---
 description: Loop A — generate a SYSSPEC spec from a Linux FS source module via HITL workflow
 argument-hint: <linux-path> <target-stage> [--module=<name>]
-allowed-tools: ["Bash", "Read", "Write", "Edit", "AskUserQuestion", "Grep", "Glob"]
+allowed-tools: ["Bash", "Read", "Write", "Edit", "AskUserQuestion", "Grep", "Glob", "Agent"]
 ---
 
 # specfs-port-spec — Loop A (Linux source → SYSSPEC spec)
 
 User invoked: `/specfs-port-spec $ARGUMENTS`
+
+## MCP tool naming compatibility
+
+This command is shared by Claude Code and OpenCode through symlinks. Tool names differ only by separator:
+- Claude Code form: `specfs.session_start`, `specfs.spec_gen_start`, ...
+- OpenCode form: `specfs_session_start`, `specfs_spec_gen_start`, ...
+
+Use the form exposed in the current runtime. If running in OpenCode, convert every `specfs.foo_bar` mention below to `specfs_foo_bar` before calling; do not attempt dot-form tool names. All examples below use the Claude Code form unless an OpenCode-specific name is required.
 
 You are running **Loop A** of the specfs-port plugin. Your goal: produce an
 approved SYSSPEC specification from a Linux kernel FS module, with the user
@@ -62,10 +70,45 @@ After the spec text, save it to a temp location via Write tool:
 `inode/` for inode-level ops like inode_alloc, `file/` for file-level ops like
 file_read, etc. Refer to `prompts/style_rules.md §file generation order`.)
 
+## Step 3b — heterogeneous spec audit (generator → auditor → refine)
+
+Before showing the draft to the user, run an advisory audit loop. The main
+assistant is the **generator** (prefer the strongest available model, e.g. Claude
+Opus, for high-recall Linux→SYSSPEC extraction). Spawn a heterogeneous
+read-only auditor (prefer a GPT-family model/agent when available) using the
+contract in `prompts/heterogeneous_audit.md` with `mode="spec_audit"`.
+
+Auditor requirements:
+- Read-only/advisory only: no file writes, no approval, no prompt-template edits.
+- Compare Linux source against the generated SYSSPEC draft.
+- Return JSON with `finding_id`, `severity`, `source_anchor`,
+  `generated_anchor`, `claim`, `evidence`, `recommendation`, `confidence`, and
+  `requires_user_arbitration` for every finding.
+- Discard or downgrade findings that lack concrete Linux/spec anchors.
+
+Loop policy:
+- If auditor returns `overall="pass"`, continue to Step 4.
+- If `overall="needs_refine"`, convert evidence-backed findings into one
+  `specfs.spec_gen_refine(session_id, user_suggestion=<auditor findings>)`
+  call, then regenerate the draft from the returned prompt.
+- Run at most **2 generator↔auditor rounds**. Do not allow infinite
+  generator/auditor ping-pong.
+- If auditor returns `overall="needs_user_arbitration"`, or if 2 rounds still
+  leave high/medium findings, use `AskUserQuestion` with a concise conflict
+  summary. User chooses: accept scope carve-out, request another refine, split
+  the stage, or cancel.
+- Never edit an already-approved `spec/<module>/**/*.spec` here. This loop only
+  operates on the current draft/refine session.
+
+Persist the final audit JSON or summary as append-only review evidence if a
+session-local log path is available; do not write into generated spec/code/test
+artifact paths directly.
+
 ## Step 4 — present to user for review
 
 Print:
 - Diff vs prior version if this is a refine round, OR full spec if first time
+- Heterogeneous audit result: pass / refined N rounds / user-arbitrated issues
 - Auto-collected sanity check:
  - All [RELY] entries are real C decls (not abstract names)?
  - [GUARANTEE] has calling-convention comment block above each fn?
@@ -183,6 +226,12 @@ critical.
 - DO NOT write the spec yourself — you are the LLM that drafts; the user is the
  judge. Always present and ask before committing.
 - DO NOT skip the ask-first scan. Wasted generation is the highest-cost failure.
+- DO NOT skip the heterogeneous audit unless the user explicitly asks for a
+  single-model fast draft; if skipped, state that quality gate gap in the final
+  summary.
+- DO NOT let the auditor write files, approve, or rewrite global prompts. The
+  auditor is advisory-only; generator refinements flow through
+  `spec_gen_refine`, and unresolved disagreements go to the user.
 - DO NOT use `Edit` to modify already-approved specs (under `spec/<module>/`
  without `.draft` suffix). Those are the frozen contract for descendants.
 - DO use `Write` to save drafts and final approved versions.

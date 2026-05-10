@@ -102,7 +102,7 @@ For each gap, pick exactly one root cause:
       "description": "<what behaviour is missing / wrong>",
       "linux_evidence": "<file:line + 1-2 line quote from Linux TU that proves the behaviour>",
       "spec_location": "<which segment of the generated spec is silent or wrong, e.g. 'Pre-Condition for Case 2' or '[SPECIFICATION] has no Invariant for X'>",
-      "fix_suggestion": "<concrete spec edit, e.g. 'add Invariant (id=<m>-<stage>-<noun>): ...'>"
+      "fix_suggestion": "<concrete spec edit, e.g. 'add Invariant: ...' (free-form prose per paper §4.1)>"
     }
   ],
   "code_gaps": [

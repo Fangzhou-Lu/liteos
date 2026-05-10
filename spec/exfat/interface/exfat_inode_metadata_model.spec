@@ -180,9 +180,9 @@ int exfat_inode_load_metadata(const exfat_sb_info *sbi,
 /* In-memory → on-disk metadata store. Writes ei->atime_sec / mtime_sec
  * / ctime_sec into the FILE primary dentry's eleven timestamp bytes.
  *
- * ctime → create_time slot mapping is documented as a Compatibility
- * Trade-off (see invariant exfat-meta-ctime-on-create-slot and the
- * Compatibility Trade-off note below). Pure. Returns 0; never fails.
+ * ctime → create_time slot mapping (see invariant
+ * exfat-meta-ctime-on-create-slot and the Note in [SPECIFICATION]).
+ * Pure. Returns 0; never fails.
  *
  * The dentry's `checksum` field is NOT updated here — set-checksum is
  * the dentry-set-write stage's responsibility. */
@@ -206,177 +206,113 @@ uint32_t exfat_inode_get_nlink(const exfat_inode_info *ei);
 [SPECIFICATION]
 
 **Pre-Condition**:
+  - `ei != NULL`; `ei->inode_lock` is initialized.
+  - For touch_*/bump_version: caller holds `ei->inode_lock` OR
+    proves `ei` is private to the caller (unpublished allocation).
+  - For load_metadata / store_metadata: `file_dentry != NULL` and
+    `file_dentry->type == EXFAT_FILE` is the caller's contract; this
+    layer does not re-validate (dentry_iter
+    `exfat_validate_dentry_set` already does).
+  - For all helpers taking `sbi`: `sbi != NULL`; `sbi->options.time_offset`
+    is well-formed (set by mount / options stages).
 
-  *on target*:
-    - `ei != NULL`; `ei->inode_lock` is initialized (per inode_alloc
-      stage invariant `exfat-inode-alloc-prio-inherit`).
-    - For touch_*/bump_version: caller holds `ei->inode_lock` OR
-      proves `ei` is private to the caller (unpublished allocation).
-    - For load_metadata / store_metadata: `file_dentry != NULL` and
-      `file_dentry->type == EXFAT_FILE` is the caller's contract; this
-      layer does not re-validate (dentry_iter
-      `exfat_validate_dentry_set` already does).
-    - For all helpers taking `sbi`: `sbi != NULL`; `sbi->options.time_offset`
-      is well-formed (set by mount / options stages).
-
-  *on parent*:
-    - Not touched. The parent inode's atime/mtime/ctime updates are
-      the responsibility of higher-level operations
-      (unlink/rmdir/create/mkdir/rename), which call the appropriate
-      touch_* helper on the parent ei explicitly.
-
-  *on sibling state*:
-    - Not touched.
-
-**Compatibility Trade-off (locked in by user clarifications 4-5)**:
-
-  v1 deliberately overwrites the on-disk `create_time` / `create_date`
-  / `create_time_cs` / `create_tz` slot with our `ctime_sec` (metadata-
-  changed-at). A volume mounted by Linux will see this as the wrong
-  birth time. The trade-off is acceptable because LiteOS-A
-  `struct stat` exposes neither `st_birthtime` nor `st_btime`. Note
-  that the currently-approved `VfsExfatGetattr` (vfs_ops_filled stage,
-  fs/exfat/exfat_inode.c:586-629) leaves `st_atime`/`st_mtime`/
-  `st_ctime` zeroed by `memset_s` (see invariant
-  `exfat-vfsops-getattr-no-timestamps`); this stage's
-  `atime_sec`/`mtime_sec`/`ctime_sec` fields therefore have NO
-  observer until a follow-up stage updates `VfsExfatGetattr` to copy
-  `ei->atime_sec` etc. into `st_atime` etc. (and similarly wires
-  load_metadata into the lookup/readdir inode-load path).
-  A separate later stage that adds `VfsExfatSetattr` and an explicit
-  on-inode `crtime_sec` field MUST revisit this — at that point
-  `exfat_inode_store_metadata` will start encoding `ei->crtime_sec`
-  into create_time and `ei->ctime_sec` into a vendor reserved slot
-  or a side metadata block. Until that stage lands, the divergence
-  is documented and intentional.
+**Note on ctime → create-slot mapping (v1 design)**:
+  exFAT has no dedicated ctime field. v1 stores `ei->ctime_sec` into the
+  FILE primary dentry's `create_time` slot. Linux mounters will read this
+  as the wrong birth time. Acceptable because LiteOS-A `struct stat`
+  surfaces no `st_birthtime`. A future setattr stage that adds an explicit
+  on-inode `crtime_sec` field MUST revisit this. See invariant
+  `exfat-meta-ctime-on-create-slot` for the binding rule.
 
 **Post-Condition**:
 
   **Case 1 (encode/decode round-trip)**:
-    *on target*:
-      - For any in-range even epoch `s`,
-        `exfat_decode_entry_time(sbi, encode_*(...).time, .date,
-        .cs, .tz)` returns `s` (atime path) OR `s` for already-even
-        `s` (mtime/ctime path).
-      - For odd `s` on mtime/ctime path, the round-trip preserves `s`
-        because the cs field encodes the parity bit
-        (`(s & 1) * 100`) and decode adds `cs / 100` back into seconds.
-      - For atime path on odd `s`, round-trip returns
-        `round_down(s, 2)` (atime has no cs slot — bit is intentionally
-        lost; this is Linux-faithful).
-      - For out-of-range `s`, round-trip returns
-        `clamp(s, MIN, MAX)` rounded according to slot semantics.
-      - Encode always emits `tz_out == EXFAT_TZ_VALID` (bit 7 set) with
-        the 7-bit signed offset payload set to 0, meaning "stored
-        time IS UTC".
+    - For any in-range even epoch `s`, `decode(encode_*(...).time, .date,
+      .cs, .tz)` returns `s` (atime path on even s, mtime/ctime path).
+    - For odd `s` on mtime/ctime path, round-trip preserves `s` via the
+      cs parity bit (`(s & 1) * 100`); decode adds `cs / 100` back.
+    - For atime path on odd `s`, round-trip returns `round_down(s, 2)`
+      (atime has no cs slot; Linux-faithful).
+    - For out-of-range `s`, round-trip returns `clamp(s, MIN, MAX)`
+      rounded by slot semantics.
+    - Encode always emits `tz_out == EXFAT_TZ_VALID` with 7-bit offset 0
+      ("stored time IS UTC").
 
   **Case 2 (touch_atime)**:
-    *on target*:
-      - `ei->atime_sec = exfat_truncate_atime_seconds(now_s)`
-        where `now_s = exfat_now_seconds()`.
-      - `ei->ctime_sec = now_s` (POSIX side-effect: any metadata
-        change updates ctime).
-      - `ei->version` increments by 1 (mod 2^32).
-      - `ei->mtime_sec` is unchanged.
+    - `ei->atime_sec = exfat_truncate_atime_seconds(now_s)` where
+      `now_s = exfat_now_seconds()`.
+    - `ei->ctime_sec = now_s` (POSIX: any metadata change bumps ctime).
+    - `ei->version` increments by 1 (mod 2^32).
+    - `ei->mtime_sec` is unchanged.
     Returns: void.
 
   **Case 3 (touch_mtime)**:
-    *on target*:
-      - `ei->mtime_sec = now_s`; `ei->ctime_sec = now_s`.
-      - `ei->version` increments by 1.
-      - `ei->atime_sec` is unchanged.
+    - `ei->mtime_sec = now_s`; `ei->ctime_sec = now_s`.
+    - `ei->version` increments by 1.
+    - `ei->atime_sec` is unchanged.
     Returns: void.
 
   **Case 4 (touch_ctime)**:
-    *on target*:
-      - `ei->ctime_sec = now_s`; no atime/mtime change.
-      - `ei->version` increments by 1.
+    - `ei->ctime_sec = now_s`; no atime/mtime change.
+    - `ei->version` increments by 1.
     Returns: void.
 
   **Case 5 (touch_atime_mtime)**:
-    *on target*:
-      - `ei->atime_sec = exfat_truncate_atime_seconds(now_s)`.
-      - `ei->mtime_sec = now_s`.
-      - `ei->ctime_sec` is **unchanged** (mirrors Linux unlink/rmdir
-        on parent dir and on the victim — Linux does not bump ctime
-        when only the directory entry table mutates).
-      - `ei->version` increments by 1.
+    - `ei->atime_sec = exfat_truncate_atime_seconds(now_s)`.
+    - `ei->mtime_sec = now_s`.
+    - `ei->ctime_sec` is **unchanged** (mirrors Linux unlink/rmdir on
+      parent dir and on the victim — Linux does not bump ctime when only
+      the directory entry table mutates).
+    - `ei->version` increments by 1.
     Returns: void.
 
   **Case 6 (touch_mtime_ctime)**:
-    *on target*:
-      - `ei->mtime_sec = now_s`; `ei->ctime_sec = now_s`.
-      - `ei->atime_sec` is **unchanged** (mirrors Linux rename on
-        old_dir).
-      - `ei->version` increments by 1.
+    - `ei->mtime_sec = now_s`; `ei->ctime_sec = now_s`.
+    - `ei->atime_sec` is **unchanged** (mirrors Linux rename on old_dir).
+    - `ei->version` increments by 1.
     Returns: void.
 
   **Case 7 (touch_now)**:
-    *on target*:
-      - `ei->atime_sec = exfat_truncate_atime_seconds(now_s)`.
-      - `ei->mtime_sec = now_s`; `ei->ctime_sec = now_s`.
-      - `ei->version` increments by 1.
+    - `ei->atime_sec = exfat_truncate_atime_seconds(now_s)`.
+    - `ei->mtime_sec = now_s`; `ei->ctime_sec = now_s`.
+    - `ei->version` increments by 1.
     Returns: void.
 
   **Case 8 (bump_version)**:
-    *on target*:
-      - `ei->version` increments by 1 (mod 2^32). No timestamp field
-        is written.
+    - `ei->version` increments by 1 (mod 2^32). No timestamp field is
+      written.
     Returns: void.
 
   **Case 9 (load_metadata)**:
-    *on target*:
-      - `ei->atime_sec = exfat_decode_entry_time(sbi,
-        file_dentry.access_time, .access_date, /*cs=*/0, .access_tz)`.
-      - `ei->mtime_sec = exfat_decode_entry_time(sbi,
-        file_dentry.modify_time, .modify_date, .modify_time_cs,
-        .modify_tz)`.
-      - `ei->ctime_sec = exfat_decode_entry_time(sbi,
-        file_dentry.create_time, .create_date, .create_time_cs,
-        .create_tz)` (Compatibility Trade-off above).
-      - `ei->version` is NOT changed (read-back, not mutation).
+    - `ei->atime_sec = decode(.access_time, .access_date, /*cs=*/0,
+      .access_tz)`.
+    - `ei->mtime_sec = decode(.modify_time, .modify_date,
+      .modify_time_cs, .modify_tz)`.
+    - `ei->ctime_sec = decode(.create_time, .create_date,
+      .create_time_cs, .create_tz)` (ctime → create-slot, see Note above).
+    - `ei->version` is NOT changed (read-back, not mutation).
     Returns: 0 (never fails; clamping handles malformed inputs).
 
   **Case 10 (store_metadata)**:
-    *on target*:
-      - `file_dentry->dentry.file.access_time / .access_date /
-        .access_tz` ← `exfat_encode_atime(sbi, ei->atime_sec, ...)`.
-      - `file_dentry->dentry.file.modify_time / .modify_date /
-        .modify_time_cs / .modify_tz` ← `exfat_encode_mtime(sbi,
-        ei->mtime_sec, ...)`.
-      - `file_dentry->dentry.file.create_time / .create_date /
-        .create_time_cs / .create_tz` ← `exfat_encode_ctime(sbi,
-        ei->ctime_sec, ...)` (Compatibility Trade-off).
-      - `file_dentry->dentry.file.checksum` is **not** updated here.
-      - All three `*_tz` bytes get `EXFAT_TZ_VALID`; create/modify
-        `*_cs` get `(sec & 1) ? 100 : 0`; access has no cs.
+    - `.access_time/.access_date/.access_tz` ←
+      `exfat_encode_atime(sbi, ei->atime_sec, ...)`.
+    - `.modify_time/.modify_date/.modify_time_cs/.modify_tz` ←
+      `exfat_encode_mtime(sbi, ei->mtime_sec, ...)`.
+    - `.create_time/.create_date/.create_time_cs/.create_tz` ←
+      `exfat_encode_ctime(sbi, ei->ctime_sec, ...)` (ctime → create-slot).
+    - `file_dentry->dentry.file.checksum` is **not** updated here.
+    - All three `*_tz` bytes get `EXFAT_TZ_VALID`; create/modify `*_cs`
+      get `(sec & 1) ? 100 : 0`; access has no cs.
     Returns: 0.
 
   **Case 11 (get_nlink)**:
-    *on target*:
-      - `ei->type == TYPE_FILE` → return 1.
-      - `ei->type == TYPE_DIR` → return `MAX(ei->num_subdirs, 2u)`.
-        Rationale: `num_subdirs` is already initialized to
-        EXFAT_MIN_SUBDIR (=2) by inode_alloc/mkdir and incremented
-        per-child by future evolve stages, so it IS the link count;
-        the MAX clamp is defensive only.
-      - Any other type → return 1 (defensive default; should not
-        occur post inode_alloc).
-
-**Behavior Obligations**:
-
-  | Obligation | Status |
-  |---|---|
-  | lookup-resolution | not-applicable (helper stage; no VFS lookup) |
-  | on-disk-entry-mutation | required (Case 10 store_metadata writes 11 bytes into FILE primary dentry) |
-  | parent-metadata | not-applicable (no parent inode is touched here; callers invoke touch_* on the parent ei) |
-  | target-metadata | required (Cases 2-7, 9, 10 all act on ei) |
-  | name-cache-eviction | # OUT-OF-SCOPE: dentry-version is a Linux VFS dcache concept; LiteOS-A struct Vnode has no equivalent field. Cache invalidation is the responsibility of the higher-level VFS callbacks (fs/vfs/path_cache.c::VnodePathCacheFree, fs/vfs/include/vnode.h::VfsHashRemove), which the namespace-mutation stages (unlink/rename) call directly. Adding a vnode-level hash version is a separate cross-subsystem decision tracked outside this stage. |
-  | lifecycle/tombstone | not-applicable (this stage does not delete inodes; bump_version is for cache-invalidation only, not a tombstone) |
-  | cluster-or-space-release | not-applicable (helper stage; no cluster IO) |
-  | empty-object/no-op | required (touch_*/bump_version on a freshly zalloc'd ei is a well-defined increment from version=0 to version=1; load_metadata on a zeroed dentry yields atime=mtime=ctime=EXFAT_MIN_TIMESTAMP_SECS) |
-  | error-unwind | required (encode/decode/load/store all clamp out-of-range values rather than fail; touch_* and bump_version are infallible by signature; no allocation to roll back) |
-  | observer-visible-result | required (subsequent VfsExfatGetattr can return non-zero atime/mtime/ctime once consumers wire up after this stage lands; until consumers refresh, the in-memory fields stay zero — observable as "1980-01-01" via clamping in get_entry_time round-trip) |
+    - `ei->type == TYPE_FILE` → return 1.
+    - `ei->type == TYPE_DIR` → return `MAX(ei->num_subdirs, 2u)`.
+      Rationale: `num_subdirs` is initialized to `EXFAT_MIN_SUBDIR` (=2)
+      by inode_alloc/mkdir and incremented per-child by future evolve
+      stages, so it IS the link count; the MAX clamp is defensive only.
+    - Any other type → return 1 (defensive default; should not occur
+      post inode_alloc).
 
 **Invariant** (id=`exfat-meta-encode-decode-roundtrip`):
   For any `s ∈ [EXFAT_MIN_TIMESTAMP_SECS, EXFAT_MAX_TIMESTAMP_SECS]`:
@@ -460,12 +396,12 @@ uint32_t exfat_inode_get_nlink(const exfat_inode_info *ei);
   Because exFAT has no dedicated ctime field, this stage encodes
   `ei->ctime_sec` into the FILE primary dentry's create_time /
   create_date / create_time_cs / create_tz slot. Re-loading via
-  load_metadata then maps create_time → ctime_sec. This is a
-  documented Compatibility Trade-off (see the "Compatibility Trade-off"
-  section above) — Linux exFAT keeps a separate `i_crtime` field. The
-  divergence is acceptable in v1 because LiteOS-A `struct stat`
-  surfaces no birth time. A later setattr stage MUST revisit and add
-  an explicit on-inode `crtime_sec` field.
+  load_metadata then maps create_time → ctime_sec. Linux exFAT keeps
+  a separate `i_crtime` field; the divergence is acceptable in v1
+  because LiteOS-A `struct stat` surfaces no birth time. A later
+  setattr stage MUST revisit and add an explicit on-inode `crtime_sec`
+  field. See the "Note on ctime → create-slot mapping" in
+  [SPECIFICATION] for the v1 trade-off rationale.
 
 **Invariant** (id=`exfat-meta-struct-extension-end-append`):
   `exfat_inode_info` (frozen in common.header) has the layout:

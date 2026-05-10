@@ -8,6 +8,14 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "AskUserQuestion", "Grep", "Glo
 
 User invoked: `/specfs-port-code $ARGUMENTS`
 
+## MCP tool naming compatibility
+
+This command is shared by Claude Code and OpenCode through symlinks. Tool names differ only by separator:
+- Claude Code form: `specfs.session_start`, `specfs.code_gen_start`, ...
+- OpenCode form: `specfs_session_start`, `specfs_code_gen_start`, ...
+
+Use the form exposed in the current runtime. If running in OpenCode, convert every `specfs.foo_bar` mention below to `specfs_foo_bar` before calling; do not attempt dot-form tool names. All examples below use the Claude Code form unless an OpenCode-specific name is required.
+
 You are running **Loop B** of the specfs-port plugin. Goal: produce approved
 LiteOS-A C code AND its cmocka test from an approved spec, defended by
 **3 auto layers + 1 user review**. P1.4 (2026-05-07) reorganized the
@@ -29,10 +37,11 @@ pipeline:
 
 | # | Layer | When | Auto / HITL |
 |---|---|---|---|
-| 1a | Compile + Style (sequential: LSP → style) | After draft written | auto-feedback retry: LSP 4 / style 5 (skip style with `--style-off`) |
+| A | Heterogeneous audit (generator → auditor → refine) | After code + test drafts | advisory GPT/heterogeneous audit, max 2 rounds, user arbitration on disagreement |
+| 1a | Compile + Style (sequential: LSP → style) | After heterogeneous audit passes | auto-feedback retry: LSP 4 / style 5 (skip style with `--style-off`) |
 | 3 | SpecEvaluator (spec conformance only) | After Layer 1a passes | auto-feedback retry, max 8 (skip with `--speceval-off`) |
 | 2 | Build + cmocka unit-test exec + QEMU smoke (= SpecValidator) | After Layer 3 pass | auto-feedback retry, max 3 (skip with `--no-build`) |
-| 4 | User review | After Layer 2 pass | HITL — only gate |
+| 4 | User review | After Layer 2 pass | HITL — only terminal gate |
 
 P1.4 (2026-05-07) topology change rationale:
 - **Style folds back into Layer 1a (sequential, not parallel).** P1.2 had
@@ -139,6 +148,43 @@ test/code drift from speccing helpers the code chose not to expose.
 Test draft is held — final approval happens together with the code in
 Step 7 (Layer 4). Do NOT call `test_gen_approve` here.
 
+## Step 3b — heterogeneous code/test audit (generator → auditor → refine)
+
+Before Layer 1a, run an advisory audit loop. The main assistant is the
+**generator** for code/test drafts. Spawn a heterogeneous read-only auditor
+(prefer a GPT-family model/agent when available) using
+`prompts/heterogeneous_audit.md` with `mode="code_audit"`.
+
+Auditor requirements:
+- Read-only/advisory only: no file writes, no approval, no prompt-template edits.
+- Compare generated code + generated test against the approved SYSSPEC, Linux
+  source anchors when available, inherited invariants, and LiteOS-A mapping
+  rules.
+- For destructive directory operations (unlink/rmdir/rename source-delete /
+  create-overwrite), verify each spec Pre/Post-Condition Case and named
+  Invariant has an end-to-end anchor: code statement/helper call/error branch
+  + a test, `LAYER_B`, or justified `OUT_OF_SCOPE` coverage marker.
+- Return JSON with evidence-backed findings. Each finding must distinguish
+  `spec_under_specified`, `codegen_drift`, `test_gap`, `prompt_gap`, or
+  `uncertain`.
+- Discard or downgrade findings that lack concrete Linux/spec/code/test anchors.
+
+Loop policy:
+- If auditor returns `overall="pass"`, continue to Step 4.
+- If `overall="needs_refine"` with code-side findings, call
+  `specfs.code_gen_refine(session_id, user_suggestion=<auditor findings>)` and
+  loop back to Step 3. Regenerate Layer T after code changes.
+- If findings are test-only, call `specfs.test_gen_refine(session_id,
+  user_suggestion=<auditor findings>)` and loop back to Step 3a only.
+- If findings show `spec_under_specified`, do NOT silently edit approved specs.
+  Escalate to user with options: run `/specfs-port-spec` to refine the spec,
+  accept an explicit scope carve-out, or cancel.
+- Run at most **2 generator↔auditor rounds**. If high/medium findings remain,
+  use `AskUserQuestion` for arbitration.
+- This audit is not Loop C prompt optimization and must not rewrite global
+  prompt templates. Accumulated prompt-gap recommendations may be recorded as
+  append-only evidence for later HITL prompt optimization.
+
 ## Step 4 — Layer 1a: Compile + Style (sequential)
 
 P1.4 folds the former Layer 1b (style audit) back into Layer 1a as a
@@ -227,9 +273,8 @@ Call `specfs.run_build_kernel()`.
 
 ### Step 6.2 — cmocka unit-test exec (skip if `--test-off`)
 
-Call `specfs.validator_run_holistic(module=<module>, qemu=False)` to run
-ONLY the cmocka host-side wave (no QEMU yet). Or use the underlying
-`tools/regress/run_all.sh --cmocka-only` if a discrete tool is preferred.
+Call `specfs.validator_run_holistic(module=<module>)` to run the holistic validator, or use the underlying
+`tools/regress/run_all.sh --cmocka-only` if a discrete cmocka-only tool/script is available in this runtime.
 
 The cmocka run targets the test draft generated in Step 3a plus all prior
 approved tests for this module.
@@ -260,7 +305,8 @@ escalate to Layer 4 with status "Layer 2 build-tier exhausted retries".
 ## Step 7 — Layer 4: User review
 
 Display `<code draft path>` AND `<test draft path>` to user. Optional:
-render `prompts/validation_checklist.md` checklist.
+render `prompts/validation_checklist.md` checklist. Include the heterogeneous
+audit result: pass / refined N rounds / user-arbitrated issues.
 
 `AskUserQuestion`:
 - (a) Approve both — write code + test to final paths, commit DAG node code+tests layers
@@ -295,6 +341,7 @@ user: "Run `/specfs-port-spec <linux-path> <stage>` to revise the spec."
 
 ## Iteration accounting
 
+- Layer A (heterogeneous code/test audit): 2 generator↔auditor rounds, then user arbitration
 - Layer 1a.1 (LSP compile): 4 retries
 - Layer 1a.2 (style audit): 5 retries
 - Layer 3 (SpecEval): 8 retries (paper)

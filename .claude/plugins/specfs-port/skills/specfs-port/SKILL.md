@@ -61,6 +61,7 @@ plugin reference §"Skills" 的标准目录约定（`skills/<name>/SKILL.md` 自
 ```
 
 按顺序执行。**绝不允许** 规范未经评审就进入阶段 4。规范是事实来源。
+P1.8 起，评审分两层：先由异构 LLM 审计器做只读证据审计，再由用户做最终 HITL 批准。
 
 ### 阶段 1 — 摄取 Linux 源码
 
@@ -80,6 +81,7 @@ inode/ file/ path/ bitmap/ util/）。**用户拍板分层后才进阶段 2**。
 - `[RELY]` 必须列具体 LiteOS-A 函数签名（不能"使用互斥锁"这种泛指）；
 - `[GUARANTEE]` 必须紧跟一段调用约定注释（返回值含义、副作用；**持锁
   状态留到 Phase 2**）；
+- **异构审计门（P1.8）**：主生成模型（优先 Claude Opus / 最强可用模型）抽取规范后，必须交给异构审计器（优先 GPT-family）对照 Linux 源码审计。审计器只输出 JSON finding，不写文件、不批准、不改 prompt；每条 finding 必须含 Linux/spec anchor、claim、evidence、recommendation、confidence。生成器最多按审计结果 refine 2 轮；仍无法一致时交给用户确认 scope / split / cancel。
 - **两阶段 spec 写法（P1.5 起硬约束，paper §4.1 + delalloc.spec + exfat_mount.spec）**——
   spec 必须把"功能"和"加锁"切成两段同输出：
   - Phase 1（`## First Prompt` 之后到 `## Refine Prompt` 之前）：[RELY] +
@@ -127,6 +129,12 @@ inode/ file/ path/ bitmap/ util/）。**用户拍板分层后才进阶段 2**。
 
 具体可工作样例见 `references/exfat-walkthrough.md`。
 
+P1.8 代码生成也使用同构流程：主生成模型根据已批准 spec 生成 code + Layer T test，异构审计器只读对照 `spec + Linux + code + test + inherited invariants`，将问题分为 `spec_under_specified` / `codegen_drift` / `test_gap` / `prompt_gap` / `uncertain`。codegen/test gap 分别进入 `code_gen_refine` / `test_gen_refine`；spec_under_specified 不允许静默改已批准 spec，必须回 Loop A 或交用户确认范围裁剪。最多 2 轮，最终批准仍只属于用户。
+
+**破坏性目录操作流程**（unlink / rmdir / rename source-delete / create-overwrite）：直接遵循 SysSpec 论文 §4.1 复杂度分级 — 用 Pre/Post-Condition Cases + 必要 Invariant + 可选 System Algorithm 明确每个 Linux 副作用（path-cache eviction、parent metadata refresh、cluster release 等）应当落在哪个 Case 或 Invariant，或显式 prose 说明为何 OUT-OF-SCOPE。Loop B 把每条 Post-Condition 落到代码语句 / helper / error branch；Layer T 给每个 testable Case + Invariant 出测点；异构审计器跨对照 spec → code → test → Linux 闭环。
+
+P1.9 (2026-05-10) 论文对齐：早期此处定义的 `Behavior Obligations` 强制矩阵已删除（spec / codegen / unittest_gen / heterogeneous_audit prompt 同步删）。原因：论文 atomfs_del.spec / 附录 dentry_lookup spec 等 destructive op 范本均无该表，按 §4.1 复杂度分级直接 free-form 即可。
+
 ### 阶段 5 — 构建 + 两层回归
 
 **构建接线**：`fs/<name>/{BUILD.gn, Makefile, Kconfig}` + 顶层 `fs/{BUILD.gn, Kconfig}`
@@ -156,10 +164,11 @@ SpecEval 提前到 Layer 2 之前；Layer 2 吞并 SpecValidator（build + cmock
 Layer T cmocka 测试派生由 Loop A 移到 Loop B（生成 C 代码之后立即生成对应测试）。
 
 ```
-Loop A: 仅生成 / 审 / 批 spec, 不再触发测试派生
+Loop A: 生成 spec 草稿 → 异构 spec_audit（≤2 轮 refine）→ 用户审 / 批 spec，不触发测试派生
 Loop B (per stage):
   Step 3   生成 C 代码
   Step 3a  Layer T cmocka 测试派生（≤ 3 轮 self-eval）
+  Step 3b  异构 code_audit（≤2 轮；code/test/spec 问题分流，分歧用户仲裁）
   Step 4   Layer 1a (sequential)：4.1 LSP compile (≤ 4 轮) → 4.2 style audit (≤ 5 轮)
   Step 5   Layer 3 SpecEvaluator (≤ 8 轮，spec conformance only)
   Step 6   Layer 2 (single budget ≤ 3 轮): 6.1 build → 6.2 cmocka exec → 6.3 QEMU smoke
@@ -226,7 +235,7 @@ P1.2/P1.4 拓扑下结论仍适用）。
 - `--prompt-override <file>`：跳过 spec 派生的提示拼装
 
 每一轮完成后，DAG 节点（`spec/<name>/.specfs.dag.json`）记录 spec/code 的双层
-批准时间戳；下一阶段拉取 inherited invariants 做跨阶段一致性检查。
+批准时间戳；下一阶段拉取 inherited invariants 做跨阶段一致性检查。异构审计记录是 append-only review evidence，不是批准状态；不能把 auditor pass 当成用户批准，也不能把 auditor recommendation 自动写进全局 prompt。
 
 ---
 

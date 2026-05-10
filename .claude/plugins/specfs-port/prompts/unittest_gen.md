@@ -13,17 +13,38 @@ testsuites/unittest/<name>_host/ 目录骨架。
 
 输出：单文件 `test_<stage>.c`，cmocka 风格，含 setup/teardown + 每个 Case
 对应至少一个测点（happy + 各 -EXXX 负向）。
+
+P1.9 (2026-05-10) 论文对齐：spec 不再要求 Behavior Obligations 表，本
+prompt 也同步删除"逐 row 强制覆盖"段。每 Case 与每 testable Invariant
+仍各自产一个测点。
 -->
 
 This is a cmocka unit-test synthesis task for a freshly generated LiteOS-A FS
 helper. Produce ONE C source file: `test_<stage>.c` covering every Case in the
 spec's `[SPECIFICATION]` section.
 
-[Generated code under test]
-{GENERATED_CODE}
+[Generated code under test — modified files and unified diff]
+The code lives in:
+{CODE_FILES}
 
-[Spec]
-{ORIGINAL_SPEC}
+Unified diff vs HEAD (use this to see exactly what was added/changed):
+```diff
+{CODE_DIFF}
+```
+
+If the diff above is missing a symbol you need to test, read the file directly
+from disk at the path listed under [Generated code under test — modified files].
+
+[Spec — at path, full file is on disk]
+{SPEC_PATH}
+
+[Spec — abridged: PROMPT + GUARANTEE + SPECIFICATION segments only]
+The spec's [RELY] / [SCOPE GUARDRAILS] / [REJECTION CRITERIA] / TWO-PHASE
+TRIGGER / ASK-FIRST RULES segments are NOT inlined — they're identical
+across stages and only matter to spec authoring, not test synthesis. If a
+testpoint genuinely needs to inspect them, read the file at the path above.
+
+{ORIGINAL_SPEC_ABRIDGED}
 
 [Existing harness layout]
 {HARNESS_LAYOUT}
@@ -46,6 +67,10 @@ spec's `[SPECIFICATION]` section.
 3. **Use existing harness primitives**:
  - `mock_disk_load(buf, len)` to set the in-RAM image (typically built via
  `<name>_image_builder_build(&img)` or a negative-variant generator).
+ - When generated code calls helpers that require loaded in-memory FS state
+ (for example `sbi->vol_amap` for bitmap/free-cluster helpers), initialize that
+ state in setup using existing production loaders such as `exfat_load_bitmap()`
+ and release it in teardown or at test end with the matching free helper.
  - `mock_disk_set_read_fail_at(N)` for -EIO injection (count reads in the
  order the function makes them; first read is N=1).
  - `mock_disk_reset_counters()` between tests if you reuse the image.
@@ -89,6 +114,7 @@ no undefined symbols, no Linux-only APIs.
 ## Quality gate (LLM self-check before returning)
 
 - [ ] Every spec Case has at least one testpoint (or is explicitly marked LAYER_B).
+- [ ] Destructive helpers: tests observe real backing-state mutations (bitmap / FAT / on-disk dentry), not only post-hoc in-memory field resets.
 - [ ] Negative-path tests assert specific errno (`-EINVAL` not `-1`).
 - [ ] No bare `strcpy`/`memcpy` (use `memcpy_s` from securec.h stub).
 - [ ] No global state shared between testpoints (use setup/teardown).

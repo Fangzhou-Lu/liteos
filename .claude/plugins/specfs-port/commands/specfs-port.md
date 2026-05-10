@@ -15,7 +15,9 @@ You are helping the user navigate the specfs-port plugin. The user invoked
 - Compute DAG path: `spec/<module>/.specfs.dag.json`
 
 ## Step 2 — query plugin state via MCP
-Call the MCP tool `specfs.dag_get(module=<module>)`.
+Call the DAG status MCP tool:
+- OpenCode: `specfs_dag_get(module=<module>)`
+- Claude Code: `specfs.dag_get(module=<module>)`
 
 If the DAG file does not exist:
 - Show: "No DAG found for module `<module>`. To begin, run:

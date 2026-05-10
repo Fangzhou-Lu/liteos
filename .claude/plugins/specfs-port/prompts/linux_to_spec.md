@@ -1,29 +1,57 @@
 <!--
 Loop A spec-gen prompt — abstracts Linux FS code into a SYSSPEC spec.
 
-P1.6 (2026-05-08) slim:
-- 256 → ~110 lines. Removed verbose two-phase methodology block (now via
-  reference to prompts/two_phase_rules.md, fetched on demand).
-- Removed [TWO-PHASE METHODOLOGY] forbidden-list expansion (kept as 5-line
-  rule). Removed verbose [OUTPUT FORMAT] segment skeleton — replaced with
-  a terse 3-block reference.
-- Goal: per-call input drops by ~3K (Loop A averaged 25K → 22K).
+P1.9 (2026-05-10) PAPER REALIGNMENT (the major prior bloat reset):
 
-P1.7 (2026-05-08) integrate additive recommendations from Loop C:
-  - Survey-step rule: enumerate every Linux in-memory mutation on
-    parent / target / sibling / super-block / dentry-cache; each must
-    map to an Invariant or an explicit `# OUT-OF-SCOPE: <reason>` line.
-  - Group Pre/Post-Condition bullets under explicit `on parent` /
-    `on target` / `on sibling state` sub-headings; no conflation.
-  - Tombstone sub-section: stages that set a deletion sentinel
-    (DIR_DELETED, FREE_CLUSTER, NULL, …) must enumerate caches to
-    evict before the sentinel is visible AND inode-state fields to
-    clear so a later evolve-stage cannot re-process the dead entity.
+Removed all "auditor vocabulary" stacked across P1.7 / P1.8:
+  - Behavior Obligations table — paper has none, no atomfs_*.spec uses one.
+  - Tombstone Semantics block — paper has none, even atomfs_del.spec
+    (paper's destructive op) has no such section.
+  - Mutation-survey rule — paper does not require enumerating every
+    in-memory mutation on parent / target / sibling / super / dcache.
+  - on-parent / on-target / on-sibling sub-heading enforcement — paper
+    spec uses flat Pre/Post-Condition bullets, no actor classification.
+  - Destructive op obligation matrix — paper has none.
+  - Strict invariant id naming `<m>-<stage>-<noun>` — paper writes
+    invariants as plain prose, e.g. "Invariant: root_inum always exists".
+  - Compatibility Trade-off section — not in paper.
+  - Most [REJECTION CRITERIA] entries that gated those vocabulary items.
+
+Why: paper §4.1 explicitly states detail-level scales with complexity:
+  - Level 1 (straightforward): pre/post-conditions and (sometimes)
+    invariants are often sufficient.
+  - Level 2 (intricate logic): adding an intent description recommended.
+  - Level 3 (highly optimized): explicit algorithmic description essential.
+
+Empirical sizes — paper reference impl (https://github.com/specfs):
+  - util helpers (Level 1):                    14-53 LoC, avg ~28
+  - evolvefs util (Level 1-2):                 27-44 LoC
+  - atomfs_del (destructive op + lock):        90 LoC
+  - atomfs_open (lookup + lock):               85 LoC
+  - atomfs_truncate (lock):                    106 LoC
+  - atomfs_rename (most complex, lock):        196 LoC
+  - dentry_lookup Appendix A.1 (Linux-style RCU): ~80-100 LoC
+
+Our pre-realignment exfat specs were 250-612 LoC. The Behavior Obligations
+matrix, Tombstone Semantics block, mutation-survey enumeration, and actor
+sub-headings together accounted for most of the bloat without affecting
+generated code. Paper Appendix A.1 dentry_lookup (a complex RCU-protected
+Linux dcache lookup) lands at ~80 LoC and produces correct concurrent code.
+
+Retained from prior versions:
+  - Two-phase trigger ([PROMPT] / RELY / GUARANTEE / SPEC, then
+    `## Refine Prompt` for lock state) — paper §4.3.
+  - System Algorithm as a Level 3 OPTIONAL block — paper §4.1.
+  - Invariants as free-form prose, optional id annotation — paper §4.1.
+  - DAG inheritance segments — our extension over paper §4.4 for
+    multi-stage Linux ports; not paper itself but compatible.
 
 Reference upstream specs:
+- /Users/kissa/Workspace/projects/specfs/sysspec/specfs/interface/atomfs_del.spec
 - /Users/kissa/Workspace/projects/specfs/sysspec/specfs/interface/atomfs_open.spec
 - /Users/kissa/Workspace/projects/specfs/sysspec/specfs/interface/atomfs_rename.spec  (locking)
 - /Users/kissa/Workspace/projects/specfs/sysspec/specfs/util/malloc_inode.spec       (helper)
+- arxiv 2512.13047 Appendix A.1 dentry_lookup case study
 
 Placeholder syntax: {NAME} substituted by server/prompts.py.
 -->
@@ -52,47 +80,54 @@ On demand: `specfs.dag_extract_invariants(module="{MODULE}", node_id="<ancestor-
 [Previously generated spec — only on refine round]
 {PREVIOUS_SPEC}
 
-[OUTPUT FORMAT — paper §4.1, terse]
+[OUTPUT FORMAT — paper §4.1, complexity-scaled]
 
-A spec is plain text with these segments in order:
+A spec is plain text with these segments in order. Per paper §4.1, write
+ONLY what the stage's complexity warrants — do NOT pad. Aim:
+
+  Level 1 (straightforward helper, ~30 LoC spec):
+    Pre/Post-Condition + (sometimes) Invariant. No System Algorithm.
+
+  Level 2 (intricate logic, ~50-90 LoC spec):
+    Add a brief intent / [PROMPT] sentence describing approach.
+
+  Level 3 (performance-critical or non-trivial concurrency, ~80-200 LoC spec):
+    Add explicit System Algorithm (phase-granularity steps, NOT C-with-braces-removed).
+
+Reference sizes from paper impl: util helper ~28 LoC, atomfs_del 90 LoC,
+atomfs_rename (most complex, lock) 196 LoC. If you exceed 250 LoC for a
+single stage, you are over-specifying — re-evaluate.
 
 ```
 [PROMPT]      one paragraph: destination file (spec [PROMPT] mirrors
               server-side _derive_code_path; see SHARED_FILE_MAP), header
               to include, "single C code block" output rule, optional
-              high-level intent. If two-phase fires, end with one sentence
-              stating WHY a Refine Prompt section is needed, then `## First Prompt`.
+              high-level intent (Level 2+).
 
 [RELY]        ```c block: real C decls only — types + helper signatures
               with one-line `// what it does` comment per helper. NO
               "use a mutex" abstractions. NO Phase-1 lock-state language.
 
-[GUARANTEE]   ```c block: function signature(s) + calling-convention
-              comment block (return value, side effects). NO lock state
-              here — that's Phase 2.
+[GUARANTEE]   ```c block: function signature(s). May add a short
+              calling-convention comment when return semantics need
+              clarifying (e.g. "returns -POSIX errno"); not mandatory
+              for trivial signatures. NO lock state — that's Phase 2.
 
 [SPECIFICATION]
-  **Pre-Condition**: inputs / state. NO held locks. Bullets MUST be
-                     grouped under `on parent`, `on target`, and
-                     `on sibling state` sub-headings (omit a heading
-                     only if the stage provably has no actor of that
-                     role; never conflate the three).
-  **Post-Condition**:
-    **Case 1 (label)**: facts + return value (same parent/target/sibling
-                        sub-headings as Pre-Condition).
+  **Pre-Condition**: free-form bullets describing inputs / required
+                     state. No held locks (those go to Phase 2).
+  **Post-Condition**: split by Case when behavior branches.
+    **Case 1 (label)**: facts + return value.
     **Case 2 (label)**: ...
-  **Tombstone Semantics** (CONDITIONAL — required when this stage sets a
-                          deletion sentinel: DIR_DELETED, FREE_CLUSTER,
-                          NULL ptr, etc.):
-    - Caches to evict BEFORE the sentinel becomes visible (name-resolution
-      cache, dentry hash, parent's child-index, …).
-    - Inode-state fields that MUST be cleared so a later evolve-stage
-      cannot re-process the dead entity (i_size, link count, dirty bits, …).
-  **Invariant** (id=<module>-<stage>-<noun>): self-contained property
-  **System Algorithm** (optional): phase-granularity steps. If it looks
-                                   like C with braces removed, drop it.
+  **Invariant** (optional, paper says "sometimes"): free-form prose.
+                Identifiers welcome but not mandated; re-cite via prose
+                when convenient. Skip when the only invariants come
+                from inherited DAG ancestors.
+  **System Algorithm** (optional, Level 3 only): phase-granularity
+                       steps. Skip when pre/post + a one-sentence intent
+                       in [PROMPT] suffices.
 
-## Refine Prompt (CONDITIONAL — only when two-phase trigger fires)
+## Refine Prompt (only when two-phase trigger fires)
   [RELY]        ```c block: ONLY lock primitives (LOS_MuxLock etc.)
   [SPECIFICATION of <fn>]
     Pre-Condition (lock state) / Post-Condition (lock state) per case
@@ -101,7 +136,7 @@ A spec is plain text with these segments in order:
     System Algorithm (locking phases) (optional)
 ```
 
-[TWO-PHASE TRIGGER — paper §4.1, P1.5 hard gate]
+[TWO-PHASE TRIGGER — paper §4.3]
 
 Two-phase is REQUIRED when the function path acquires locks. Detect via:
 1. Linux source uses `mutex_lock` / `spin_lock*` / `down_*` / `*_lock_irqsave`, OR
@@ -125,42 +160,17 @@ unsure about a borderline case (e.g., is `LOS_MuxInit` Phase 1 or 2?).
 [ASK-FIRST RULES — disambiguation only]
 {ASK_FIRST_RULES}
 
-[INVARIANT IDS]
-- Lowercase-hyphenated, prefixed with module name: `<m>-<stage>-<noun>`.
-- Each invariant text self-contained; no IDs reused across stages.
-
 [SCOPE GUARDRAILS]
 - DO NOT include Linux-only features (RCU, jbd2, fscrypt) unless user requested.
 - DO NOT exceed the requested target stage. Mount spec MUST NOT specify R/W ops.
 - Linux fast/slow paths: default to slow path; ASK before fast.
 - Implementation rules (libsec, FSMAP, partition addressing, primitive choice)
   belong in code-gen, NOT in spec.
-- Mutation-survey rule (VFS callbacks): BEFORE drafting Post-Conditions,
-  walk the Linux source and enumerate EVERY in-memory mutation performed
-  on (a) the parent inode, (b) the target inode, (c) the parent's
-  containing super block, (d) the dentry hash / name cache. Each
-  enumerated mutation MUST map to either an Invariant in [SPECIFICATION]
-  or an explicit `# OUT-OF-SCOPE: <reason>` comment line. Generic
-  hand-waves like "VFS handles it" or "Reclaim handles it" are forbidden.
-- Actor-grouping rule: while surveying, classify each dereferenced
-  inode/dentry into exactly one of {parent, target, sibling}. Carry that
-  classification into the Pre/Post-Condition sub-headings (see
-  [OUTPUT FORMAT]). Do not conflate parent and target state.
 
 [REJECTION CRITERIA]
 - [PROMPT] omits file name / header / output rule.
 - [RELY] uses abstract names instead of real C decls.
-- [GUARANTEE] omits the calling-convention comment.
-- [SPECIFICATION] has no Invariant or has duplicate IDs.
-- [SPECIFICATION] Pre/Post-Condition bullets are not grouped under
-  `on parent` / `on target` / `on sibling state` sub-headings (and the
-  stage has more than one actor role).
-- Mutation-survey gap: a Linux in-memory mutation on parent / target /
-  super-block / dentry-cache is neither covered by an Invariant nor
-  marked `# OUT-OF-SCOPE: <reason>`.
-- Tombstone gap: stage sets a deletion sentinel but the spec lacks a
-  **Tombstone Semantics** sub-section (or that sub-section omits either
-  the cache-eviction list or the inode-field-clear list).
+- [SPECIFICATION] has no Pre-Condition or no Post-Condition.
 - Spec exceeds the stage scope.
 - Two-phase violations: trigger fired but no `## Refine Prompt`; lock
   state leaked into Phase 1; Phase 2 restates Phase 1; signature changed

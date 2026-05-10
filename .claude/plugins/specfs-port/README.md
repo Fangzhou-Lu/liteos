@@ -18,6 +18,7 @@ See `DESIGN.md` for full implementation spec, `CHANGELOG.md` for version history
 | `/specfs-port [module]` | Show DAG status, suggest next action. |
 | `/specfs-port-spec <linux-path> <stage>` | Loop A — generate a SYSSPEC spec. |
 | `/specfs-port-code <spec-path>` | Loop B — generate LiteOS-A C code from approved spec. |
+| `/specfs-port-metrics [session-id]` | Telemetry rollup (tool calls, LLM rounds, prompt sizes). |
 
 Optional flags for `/specfs-port-code`:
 - `--speceval-off` — disable Layer 3 SpecEvaluator self-audit
@@ -83,7 +84,8 @@ User: /specfs-port-code spec/exfat/interface/exfat_lookup.spec
 ├── commands/                                 # 3 slash commands
 │   ├── specfs-port.md
 │   ├── specfs-port-spec.md
-│   └── specfs-port-code.md
+│   ├── specfs-port-code.md
+│   └── specfs-port-metrics.md
 ├── server/                                   # Python MCP server
 │   ├── pyproject.toml
 │   ├── specfs_server.py                      # main MCP entry
