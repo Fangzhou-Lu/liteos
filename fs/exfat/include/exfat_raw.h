@@ -189,4 +189,7 @@ struct exfat_dentry {
 
 #define EXFAT_TZ_VALID          (1 << 7)
 
+#define EXFAT_MIN_TIMESTAMP_SECS    315532800LL
+#define EXFAT_MAX_TIMESTAMP_SECS    4354819199LL
+
 #endif /* !_EXFAT_RAW_H */

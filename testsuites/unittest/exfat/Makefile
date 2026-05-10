@@ -77,7 +77,8 @@ HARNESS_SRCS := \
     test_truncate_extend.c   \
     test_truncate_shrink.c   \
     test_truncate_vop.c      \
-    test_mkdir.c
+    test_mkdir.c          \
+    test_inode_metadata_model.c
 
 OBJS := $(PROD_SRCS:.c=.o) $(HARNESS_SRCS:.c=.o)
 TARGET := exfat_tests

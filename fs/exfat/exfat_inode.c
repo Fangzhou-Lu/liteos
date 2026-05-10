@@ -1623,3 +1623,286 @@ phase1_unlock:
 
     return 0;
 }
+
+/* Spec stage: inode_metadata_model — see
+ * spec/exfat/interface/exfat_inode_metadata_model.spec. All exports below are
+ * pure / lock-free / IO-free; callers hold ei->inode_lock for touch_xxx and
+ * bump_version. */
+
+#define EXFAT_TOUCH_ATIME 0x1u
+#define EXFAT_TOUCH_MTIME 0x2u
+#define EXFAT_TOUCH_CTIME 0x4u
+
+#define EXFAT_SECS_PER_DAY  86400ULL
+
+/* civil_from_days / days_from_civil — Howard Hinnant public-domain algorithm.
+ * Required because LiteOS-A has no portable timegm/mktime64 (invariant
+ * exfat-meta-civil-time-epoch-self-contained). */
+static void exfat_civil_from_seconds(uint64_t epoch_sec, int *year_out,
+                                     unsigned *mon_out, unsigned *mday_out,
+                                     unsigned *hour_out, unsigned *min_out,
+                                     unsigned *sec_out)
+{
+    uint64_t days = epoch_sec / EXFAT_SECS_PER_DAY;
+    uint64_t secs_of_day = epoch_sec - days * EXFAT_SECS_PER_DAY;
+
+    int64_t z = (int64_t)days + 719468LL;
+    int64_t era = (z >= 0 ? z : z - 146096LL) / 146097LL;
+    uint64_t doe = (uint64_t)(z - era * 146097LL);
+    uint64_t yoe = (doe - doe / 1460ULL + doe / 36524ULL - doe / 146096ULL) / 365ULL;
+    int64_t y = (int64_t)yoe + era * 400LL;
+    uint64_t doy = doe - (365ULL * yoe + yoe / 4ULL - yoe / 100ULL);
+    uint64_t mp = (5ULL * doy + 2ULL) / 153ULL;
+    unsigned d = (unsigned)(doy - (153ULL * mp + 2ULL) / 5ULL + 1ULL);
+    unsigned m = (unsigned)(mp < 10ULL ? mp + 3ULL : mp - 9ULL);
+    if (m <= 2u) {
+        y += 1;
+    }
+
+    *year_out = (int)y;
+    *mon_out  = m;
+    *mday_out = d;
+    *hour_out = (unsigned)(secs_of_day / 3600ULL);
+    *min_out  = (unsigned)((secs_of_day / 60ULL) % 60ULL);
+    *sec_out  = (unsigned)(secs_of_day % 60ULL);
+}
+
+static uint64_t exfat_seconds_from_civil(int year, unsigned mon, unsigned mday,
+                                         unsigned hour, unsigned min, unsigned sec)
+{
+    int64_t y = year - (mon <= 2u ? 1 : 0);
+    int64_t era = (y >= 0 ? y : y - 399LL) / 400LL;
+    uint64_t yoe = (uint64_t)(y - era * 400LL);
+    uint64_t m_adj = (mon > 2u) ? (mon - 3u) : (mon + 9u);
+    uint64_t doy = (153ULL * m_adj + 2ULL) / 5ULL + (uint64_t)mday - 1ULL;
+    uint64_t doe = yoe * 365ULL + yoe / 4ULL - yoe / 100ULL + doy;
+    int64_t days = era * 146097LL + (int64_t)doe - 719468LL;
+    if (days < 0) {
+        days = 0;
+    }
+    return (uint64_t)days * EXFAT_SECS_PER_DAY +
+           (uint64_t)hour * 3600ULL +
+           (uint64_t)min  * 60ULL +
+           (uint64_t)sec;
+}
+
+static uint64_t exfat_clamp_secs(uint64_t s)
+{
+    if (s < (uint64_t)EXFAT_MIN_TIMESTAMP_SECS) {
+        return (uint64_t)EXFAT_MIN_TIMESTAMP_SECS;
+    }
+    if (s > (uint64_t)EXFAT_MAX_TIMESTAMP_SECS) {
+        return (uint64_t)EXFAT_MAX_TIMESTAMP_SECS;
+    }
+    return s;
+}
+
+static void exfat_pack_date_time(uint64_t s, uint16_t *date_out, uint16_t *time_out)
+{
+    int year;
+    unsigned mon, mday, hour, min, sec;
+    exfat_civil_from_seconds(s, &year, &mon, &mday, &hour, &min, &sec);
+    int year_off = year - 1980;
+    if (year_off < 0) {
+        year_off = 0;
+    } else if (year_off > 127) {
+        year_off = 127;
+    }
+    *date_out = (uint16_t)((((uint16_t)year_off) << 9) |
+                           (((uint16_t)mon) << 5) |
+                           (uint16_t)mday);
+    *time_out = (uint16_t)((((uint16_t)hour) << 11) |
+                           (((uint16_t)min) << 5) |
+                           ((uint16_t)(sec >> 1u)));
+}
+
+uint64_t exfat_truncate_atime_seconds(uint64_t epoch_sec)
+{
+    return epoch_sec & ~((uint64_t)1u);
+}
+
+uint64_t exfat_now_seconds(void)
+{
+    time_t now = time(NULL);
+    if (now <= 0) {
+        return (uint64_t)EXFAT_MIN_TIMESTAMP_SECS;
+    }
+    return exfat_clamp_secs((uint64_t)now);
+}
+
+void exfat_encode_atime(const exfat_sb_info *sbi, uint64_t epoch_sec,
+                        uint16_t *time_out, uint16_t *date_out,
+                        uint8_t *tz_out)
+{
+    (void)sbi;
+    uint64_t s = exfat_truncate_atime_seconds(exfat_clamp_secs(epoch_sec));
+    exfat_pack_date_time(s, date_out, time_out);
+    *tz_out = EXFAT_TZ_VALID;
+}
+
+void exfat_encode_mtime(const exfat_sb_info *sbi, uint64_t epoch_sec,
+                        uint16_t *time_out, uint16_t *date_out,
+                        uint8_t *cs_out, uint8_t *tz_out)
+{
+    (void)sbi;
+    uint64_t s = exfat_clamp_secs(epoch_sec);
+    exfat_pack_date_time(s, date_out, time_out);
+    *cs_out = (uint8_t)(((s & 1ULL) != 0ULL) ? 100u : 0u);
+    *tz_out = EXFAT_TZ_VALID;
+}
+
+void exfat_encode_ctime(const exfat_sb_info *sbi, uint64_t epoch_sec,
+                        uint16_t *time_out, uint16_t *date_out,
+                        uint8_t *cs_out, uint8_t *tz_out)
+{
+    (void)sbi;
+    uint64_t s = exfat_clamp_secs(epoch_sec);
+    exfat_pack_date_time(s, date_out, time_out);
+    *cs_out = (uint8_t)(((s & 1ULL) != 0ULL) ? 100u : 0u);
+    *tz_out = EXFAT_TZ_VALID;
+}
+
+uint64_t exfat_decode_entry_time(const exfat_sb_info *sbi,
+                                 uint16_t time_le, uint16_t date_le,
+                                 uint8_t cs, uint8_t tz)
+{
+    unsigned year = (unsigned)((date_le >> 9) & 0x7Fu) + 1980u;
+    unsigned mon  = (unsigned)((date_le >> 5) & 0x0Fu);
+    unsigned mday = (unsigned)(date_le & 0x1Fu);
+    unsigned hour = (unsigned)((time_le >> 11) & 0x1Fu);
+    unsigned min  = (unsigned)((time_le >> 5) & 0x3Fu);
+    unsigned sec  = (unsigned)((time_le & 0x1Fu) << 1);
+
+    if (mon < 1u || mon > 12u || mday < 1u || mday > 31u) {
+        return (uint64_t)EXFAT_MIN_TIMESTAMP_SECS;
+    }
+
+    int64_t s = (int64_t)exfat_seconds_from_civil((int)year, mon, mday, hour, min, sec);
+
+    if (cs > 0u && cs < 200u) {
+        s += (int64_t)(cs / 100u);
+    }
+
+    if ((tz & EXFAT_TZ_VALID) != 0u) {
+        int8_t off7 = (int8_t)(tz & 0x7Fu);
+        if (off7 >= 0x40) {
+            off7 = (int8_t)(off7 - 0x80);
+        }
+        s -= (int64_t)off7 * (15 * 60);
+    } else if (sbi != NULL) {
+        s -= (int64_t)sbi->options.time_offset * 60;
+    }
+
+    if (s < EXFAT_MIN_TIMESTAMP_SECS) {
+        return (uint64_t)EXFAT_MIN_TIMESTAMP_SECS;
+    }
+    if (s > EXFAT_MAX_TIMESTAMP_SECS) {
+        return (uint64_t)EXFAT_MAX_TIMESTAMP_SECS;
+    }
+    return (uint64_t)s;
+}
+
+static void exfat_inode_touch_mask(exfat_inode_info *ei, unsigned mask)
+{
+    uint64_t s = exfat_now_seconds();
+    if ((mask & EXFAT_TOUCH_ATIME) != 0u) {
+        ei->atime_sec = exfat_truncate_atime_seconds(s);
+    }
+    if ((mask & EXFAT_TOUCH_MTIME) != 0u) {
+        ei->mtime_sec = s;
+    }
+    if ((mask & EXFAT_TOUCH_CTIME) != 0u) {
+        ei->ctime_sec = s;
+    }
+    ei->version += 1u;
+}
+
+void exfat_inode_touch_atime(exfat_inode_info *ei)
+{
+    exfat_inode_touch_mask(ei, EXFAT_TOUCH_ATIME | EXFAT_TOUCH_CTIME);
+}
+
+void exfat_inode_touch_mtime(exfat_inode_info *ei)
+{
+    exfat_inode_touch_mask(ei, EXFAT_TOUCH_MTIME | EXFAT_TOUCH_CTIME);
+}
+
+void exfat_inode_touch_ctime(exfat_inode_info *ei)
+{
+    exfat_inode_touch_mask(ei, EXFAT_TOUCH_CTIME);
+}
+
+void exfat_inode_touch_atime_mtime(exfat_inode_info *ei)
+{
+    exfat_inode_touch_mask(ei, EXFAT_TOUCH_ATIME | EXFAT_TOUCH_MTIME);
+}
+
+void exfat_inode_touch_mtime_ctime(exfat_inode_info *ei)
+{
+    exfat_inode_touch_mask(ei, EXFAT_TOUCH_MTIME | EXFAT_TOUCH_CTIME);
+}
+
+void exfat_inode_touch_now(exfat_inode_info *ei)
+{
+    exfat_inode_touch_mask(ei, EXFAT_TOUCH_ATIME | EXFAT_TOUCH_MTIME | EXFAT_TOUCH_CTIME);
+}
+
+void exfat_inode_bump_version(exfat_inode_info *ei)
+{
+    ei->version += 1u;
+}
+
+int exfat_inode_load_metadata(const exfat_sb_info *sbi,
+                              exfat_inode_info *ei,
+                              const struct exfat_dentry *file_dentry)
+{
+    ei->atime_sec = exfat_decode_entry_time(sbi,
+        file_dentry->dentry.file.access_time,
+        file_dentry->dentry.file.access_date,
+        0u,
+        file_dentry->dentry.file.access_tz);
+    ei->mtime_sec = exfat_decode_entry_time(sbi,
+        file_dentry->dentry.file.modify_time,
+        file_dentry->dentry.file.modify_date,
+        file_dentry->dentry.file.modify_time_cs,
+        file_dentry->dentry.file.modify_tz);
+    ei->ctime_sec = exfat_decode_entry_time(sbi,
+        file_dentry->dentry.file.create_time,
+        file_dentry->dentry.file.create_date,
+        file_dentry->dentry.file.create_time_cs,
+        file_dentry->dentry.file.create_tz);
+    return 0;
+}
+
+int exfat_inode_store_metadata(const exfat_sb_info *sbi,
+                               const exfat_inode_info *ei,
+                               struct exfat_dentry *file_dentry)
+{
+    uint16_t a_time, a_date, m_time, m_date, c_time, c_date;
+    uint8_t  a_tz, m_tz, m_cs, c_tz, c_cs;
+
+    exfat_encode_atime(sbi, ei->atime_sec, &a_time, &a_date, &a_tz);
+    exfat_encode_mtime(sbi, ei->mtime_sec, &m_time, &m_date, &m_cs, &m_tz);
+    exfat_encode_ctime(sbi, ei->ctime_sec, &c_time, &c_date, &c_cs, &c_tz);
+
+    file_dentry->dentry.file.access_time    = a_time;
+    file_dentry->dentry.file.access_date    = a_date;
+    file_dentry->dentry.file.access_tz      = a_tz;
+    file_dentry->dentry.file.modify_time    = m_time;
+    file_dentry->dentry.file.modify_date    = m_date;
+    file_dentry->dentry.file.modify_time_cs = m_cs;
+    file_dentry->dentry.file.modify_tz      = m_tz;
+    file_dentry->dentry.file.create_time    = c_time;
+    file_dentry->dentry.file.create_date    = c_date;
+    file_dentry->dentry.file.create_time_cs = c_cs;
+    file_dentry->dentry.file.create_tz      = c_tz;
+    return 0;
+}
+
+uint32_t exfat_inode_get_nlink(const exfat_inode_info *ei)
+{
+    if (ei->type == TYPE_DIR) {
+        return (ei->num_subdirs > 2u) ? ei->num_subdirs : 2u;
+    }
+    return 1u;
+}

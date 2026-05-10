@@ -145,6 +145,9 @@ typedef struct exfat_inode_info {
     uint32_t version;
     uint32_t num_subdirs;
     LosMux   inode_lock;
+    uint64_t atime_sec;
+    uint64_t mtime_sec;
+    uint64_t ctime_sec;
 } exfat_inode_info;
 
 /* ---- mkdir-stage value types (Wave B Stage 4e) ------------------------ */

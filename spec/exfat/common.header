@@ -267,6 +267,22 @@ extern int  VfsExfatMkdir(struct Vnode *parent_vp, const char *name,
 
 
 /* auto-synced exports — appended by specfs-port code_gen_approve */
+extern uint64_t exfat_truncate_atime_seconds(uint64_t epoch_sec);
+extern uint64_t exfat_now_seconds(void);
+extern void exfat_encode_atime(const exfat_sb_info *sbi, uint64_t epoch_sec, uint16_t *time_out, uint16_t *date_out, uint8_t *tz_out);
+extern void exfat_encode_mtime(const exfat_sb_info *sbi, uint64_t epoch_sec, uint16_t *time_out, uint16_t *date_out, uint8_t *cs_out, uint8_t *tz_out);
+extern void exfat_encode_ctime(const exfat_sb_info *sbi, uint64_t epoch_sec, uint16_t *time_out, uint16_t *date_out, uint8_t *cs_out, uint8_t *tz_out);
+extern uint64_t exfat_decode_entry_time(const exfat_sb_info *sbi, uint16_t time_le, uint16_t date_le, uint8_t cs, uint8_t tz);
+extern void exfat_inode_touch_atime(exfat_inode_info *ei);
+extern void exfat_inode_touch_mtime(exfat_inode_info *ei);
+extern void exfat_inode_touch_ctime(exfat_inode_info *ei);
+extern void exfat_inode_touch_atime_mtime(exfat_inode_info *ei);
+extern void exfat_inode_touch_mtime_ctime(exfat_inode_info *ei);
+extern void exfat_inode_touch_now(exfat_inode_info *ei);
+extern void exfat_inode_bump_version(exfat_inode_info *ei);
+extern int exfat_inode_load_metadata(const exfat_sb_info *sbi, exfat_inode_info *ei, const struct exfat_dentry *file_dentry);
+extern int exfat_inode_store_metadata(const exfat_sb_info *sbi, const exfat_inode_info *ei, struct exfat_dentry *file_dentry);
+extern uint32_t exfat_inode_get_nlink(const exfat_inode_info *ei);
 extern int exfat_get_next_cluster(const exfat_sb_info *sbi, uint32_t cur_clu, uint32_t *next_clu);
 extern int exfat_chain_walk(const exfat_sb_info *sbi, uint32_t start_clu, exfat_chain_visitor_t visitor, void *ctx);
 extern int exfat_ent_set(const exfat_sb_info *sbi, uint32_t loc, uint32_t value);
