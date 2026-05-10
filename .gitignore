@@ -48,6 +48,9 @@ AGENTS.md
 .claude/plugins/specfs-port/server/.loop_b_prompt.txt
 .claude/plugins/specfs-port/server/_stubs/
 
+# specfs-port session persistence — runtime checkpoint mirror, never tracked
+.specfs/sessions/
+
 # Pre-iteration spec / header backups — kept locally as reference, not committed
 *.prior
 
@@ -56,4 +59,30 @@ fs/exfat/exfat_dir.c
 
 # Cmocka test binary built locally (target name from harness Makefile)
 testsuites/unittest/exfat/exfat_tests
+
+# Per-user OpenCode IDE state
+.opencode/
+opencode.json
+
+# Playwright MCP scratch (browser automation logs / page snapshots)
+.playwright-mcp/
+
+# Prompt-template backups — written by prompt_optimize_apply alongside the new
+# template; never committed (the new template itself is what matters).
+.claude/plugins/specfs-port/prompts/*.bak.*
+
+# Loop A scratch artifacts: spec drafts and per-round revisions are temporary
+# LLM products that the toolchain replaces with the approved final spec.
+spec/**/*.spec.draft
+spec/**/*.spec.draft.*
+spec/**/*.spec.first
+
+# Per-stage retired draft archive — kept locally for forensic review only.
+_retired_drafts/
+
+# Stray Loop B output that is never wired into the build (a duplicate of
+# fs/exfat/exfat_inode.c written under a stage-named filename during
+# multi-file experimentation).
+fs/exfat/exfat_inode_metadata_model.c
+fs/exfat/exfat_inode_metadata_model.c.first
 
