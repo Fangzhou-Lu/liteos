@@ -1,10 +1,15 @@
 ---
-description: Render specfs-port telemetry report (per-session or all-sessions rollup)
+description: 渲染 specfs-port 遥测报告（按 session 或全局聚合） / Render specfs-port telemetry report (per-session or all-sessions rollup)
 argument-hint: [session_id]
 allowed-tools: ["Bash"]
 ---
 
-# specfs-port — metrics report
+# specfs-port — 遥测报告 / metrics report
+
+向用户展示 specfs-port 遥测日志的 token / 延迟 / round-trip 聚合视图。
+本命令为只读诊断，不建议任何代码改动。
+
+> 防御层与 retry 预算见 [skills/specfs-port/SKILL.md §防御层次](../skills/specfs-port/SKILL.md#防御层次plugin-与-skill-共享的契约--defense-layer-topology)。
 
 You are showing the user a token / latency / round-trip rollup of the specfs-port telemetry log. The user invoked `/specfs-port-metrics` (with optional session id `$ARGUMENTS`).
 

@@ -1,25 +1,12 @@
 <!--
-Loop B codegen prompt. Direct port of specfs/tools/gencode.py:158-176 +
-LiteOS-A delta encoded as a compact LITEOS_DIGEST.
+Loop B codegen 提示词 — 从 SYSSPEC spec 生成 LiteOS-A C 代码。
+Loop B codegen prompt — generate LiteOS-A C from a SYSSPEC spec.
 
-P1.6 (2026-05-08) slim: 84 → ~50 lines. Cut the verbose "Required (always
-present)" / "Optional" enumeration — the LLM reads spec heading literals
-directly and doesn't need an explanation paragraph for each of [PROMPT] /
-[RELY] / [GUARANTEE] / [SPECIFICATION] / `## Refine Prompt`.
+Authoritative semantics live in the spec; this prompt does not restate
+them. Direct port of specfs/tools/gencode.py:158-176 + LiteOS-A delta
+encoded as a compact LITEOS_DIGEST.
 
-P1.7 (2026-05-08) added prompt-side hints around tombstone eviction,
-parent-inode refresh, Phase-2 sentinel reset, and Behavior Obligations
-consumption. P1.8 added destructive-op coverage rows.
-
-P1.9 (2026-05-10) PAPER REALIGNMENT: dropped all those prompt-side
-hints. Paper gencode.py:158-176 is just the four spec segments + retry
-inputs — no embedded mutation rules, no tombstone hint, no Behavior
-Obligations enforcement. Authoritative semantics come from the spec
-itself; restating them prompt-side both bloats the prompt and creates a
-second source-of-truth that drifts from the spec. The corresponding
-[Behavior Obligations] / Tombstone Semantics blocks were removed from
-linux_to_spec.md in the same revision, so consuming them codegen-side
-no longer makes sense either.
+History/version: see ../CHANGELOG.md.
 
 Placeholder syntax: {NAME} substituted by server/prompts.py at assemble time.
 Empty placeholders are dropped along with their preceding header line.

@@ -1,10 +1,9 @@
 <!--
-Four classes of format-compatibility traps that LLM MUST scan for at code-gen
-time. If any apply to the current spec, LLM uses AskUserQuestion. Loaded as
-{FORMAT_TRAPS} placeholder.
+四类 on-disk 格式兼容性陷阱 — LLM 在代码生成时必须扫描；命中即必须 AskUserQuestion。
+Four classes of format-compatibility traps the LLM MUST scan at code-gen
+time; any positive hit → MUST AskUserQuestion. Loaded as {FORMAT_TRAPS}.
 
-Source: specfs-port skill 后续-9 (added after EROFS evaluation showed CRC32c
-incompatibility was missed by the with-skill baseline).
+History/version: see ../CHANGELOG.md.
 -->
 
 When generating FS code that touches on-disk data, scan these four trap classes.

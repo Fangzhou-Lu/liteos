@@ -1,56 +1,14 @@
 <!--
-Loop A spec-gen prompt — abstracts Linux FS code into a SYSSPEC spec.
+Loop A spec-gen 提示词 — 把 Linux FS 源码抽象成 SYSSPEC spec。
+Loop A spec-gen prompt — abstract Linux FS code into a SYSSPEC spec.
 
-P1.9 (2026-05-10) PAPER REALIGNMENT (the major prior bloat reset):
+History/version: see ../CHANGELOG.md.
 
-Removed all "auditor vocabulary" stacked across P1.7 / P1.8:
-  - Behavior Obligations table — paper has none, no atomfs_*.spec uses one.
-  - Tombstone Semantics block — paper has none, even atomfs_del.spec
-    (paper's destructive op) has no such section.
-  - Mutation-survey rule — paper does not require enumerating every
-    in-memory mutation on parent / target / sibling / super / dcache.
-  - on-parent / on-target / on-sibling sub-heading enforcement — paper
-    spec uses flat Pre/Post-Condition bullets, no actor classification.
-  - Destructive op obligation matrix — paper has none.
-  - Strict invariant id naming `<m>-<stage>-<noun>` — paper writes
-    invariants as plain prose, e.g. "Invariant: root_inum always exists".
-  - Compatibility Trade-off section — not in paper.
-  - Most [REJECTION CRITERIA] entries that gated those vocabulary items.
-
-Why: paper §4.1 explicitly states detail-level scales with complexity:
-  - Level 1 (straightforward): pre/post-conditions and (sometimes)
-    invariants are often sufficient.
-  - Level 2 (intricate logic): adding an intent description recommended.
-  - Level 3 (highly optimized): explicit algorithmic description essential.
-
-Empirical sizes — paper reference impl (https://github.com/specfs):
-  - util helpers (Level 1):                    14-53 LoC, avg ~28
-  - evolvefs util (Level 1-2):                 27-44 LoC
-  - atomfs_del (destructive op + lock):        90 LoC
-  - atomfs_open (lookup + lock):               85 LoC
-  - atomfs_truncate (lock):                    106 LoC
-  - atomfs_rename (most complex, lock):        196 LoC
-  - dentry_lookup Appendix A.1 (Linux-style RCU): ~80-100 LoC
-
-Our pre-realignment exfat specs were 250-612 LoC. The Behavior Obligations
-matrix, Tombstone Semantics block, mutation-survey enumeration, and actor
-sub-headings together accounted for most of the bloat without affecting
-generated code. Paper Appendix A.1 dentry_lookup (a complex RCU-protected
-Linux dcache lookup) lands at ~80 LoC and produces correct concurrent code.
-
-Retained from prior versions:
-  - Two-phase trigger ([PROMPT] / RELY / GUARANTEE / SPEC, then
-    `## Refine Prompt` for lock state) — paper §4.3.
-  - System Algorithm as a Level 3 OPTIONAL block — paper §4.1.
-  - Invariants as free-form prose, optional id annotation — paper §4.1.
-  - DAG inheritance segments — our extension over paper §4.4 for
-    multi-stage Linux ports; not paper itself but compatible.
-
-Reference upstream specs:
-- /Users/kissa/Workspace/projects/specfs/sysspec/specfs/interface/atomfs_del.spec
-- /Users/kissa/Workspace/projects/specfs/sysspec/specfs/interface/atomfs_open.spec
-- /Users/kissa/Workspace/projects/specfs/sysspec/specfs/interface/atomfs_rename.spec  (locking)
-- /Users/kissa/Workspace/projects/specfs/sysspec/specfs/util/malloc_inode.spec       (helper)
+Reference upstream specs (paper arxiv 2512.13047 + reference impl):
+- $SPECFS_REPO/sysspec/specfs/interface/atomfs_del.spec
+- $SPECFS_REPO/sysspec/specfs/interface/atomfs_open.spec
+- $SPECFS_REPO/sysspec/specfs/interface/atomfs_rename.spec  (locking)
+- $SPECFS_REPO/sysspec/specfs/util/malloc_inode.spec        (helper)
 - arxiv 2512.13047 Appendix A.1 dentry_lookup case study
 
 Placeholder syntax: {NAME} substituted by server/prompts.py.

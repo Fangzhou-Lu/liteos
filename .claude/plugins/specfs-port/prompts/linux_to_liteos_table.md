@@ -1,11 +1,11 @@
 <!--
-Linux kernel primitive → LiteOS-A equivalent map. Loaded as
-{LINUX_TO_LITEOS_TABLE} placeholder. Source: specfs-port skill stage-3
-mapping table + fs/exfat port experience.
-
-When LLM is generating code from a spec that references Linux primitives,
-it must use the LiteOS-A equivalent from this table. Never hallucinate
+Linux 内核原语 → LiteOS-A 等价物映射表，由 codegen 按需 fetch。
+Linux kernel primitive → LiteOS-A equivalent map; fetched on-demand by
+codegen as {LINUX_TO_LITEOS_TABLE}. When the spec references Linux
+primitives, the LLM MUST translate via this table — never hallucinate
 that Linux primitives exist in LiteOS-A.
+
+History/version: see ../CHANGELOG.md.
 -->
 
 ## Type / structure mapping

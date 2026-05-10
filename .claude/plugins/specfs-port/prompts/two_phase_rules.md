@@ -1,8 +1,11 @@
 <!--
-P1.6 (2026-05-08) — Two-phase methodology fragment, on-demand fetched by
-linux_to_spec.md. Holds the verbose forbidden-list / examples / rationale
-that previously inflated the Loop A prompt. Loaded only when LLM is
-unsure on a borderline case.
+两阶段 spec 写法 fragment — 由 linux_to_spec.md 按需 fetch。
+Two-phase methodology fragment — fetched on-demand by linux_to_spec.md.
+
+Holds the verbose forbidden-list / examples / rationale; loaded only when
+the LLM is unsure on a borderline case.
+
+History/version: see ../CHANGELOG.md.
 -->
 
 # Two-Phase Spec Methodology — Full Rules

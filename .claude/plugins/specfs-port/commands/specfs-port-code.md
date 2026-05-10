@@ -1,16 +1,23 @@
 ---
-description: Loop B — generate LiteOS-A C code + cmocka tests from an approved SYSSPEC spec. Auto-feedback (no HITL) across compile/style/spec/build gates; single user-review at end.
+description: Loop B — 从已批准 spec 生成 LiteOS-A C 代码 + cmocka 测试，自动跑过 compile/style/spec/build 各层；终态用户审核 / Generate LiteOS-A C code + cmocka tests from approved SYSSPEC; auto-feedback across layers; single user-review at end
 argument-hint: <spec-path> [--style-off] [--speceval-off] [--no-build] [--test-off] [--prompt-override <file>] [--no-regress]
 allowed-tools: ["Bash", "Read", "Write", "Edit", "AskUserQuestion", "Grep", "Glob", "Agent"]
 ---
 
-# specfs-port-code — Loop B (SYSSPEC spec → LiteOS-A C code + cmocka tests)
+# specfs-port-code — Loop B（SYSSPEC spec → LiteOS-A C 代码 + cmocka 测试）
 
-User invoked: `/specfs-port-code $ARGUMENTS`
+User invoked: `/specfs-port-code $ARGUMENTS`.
+
+> 防御层拓扑、retry 预算、各层语义见
+> [skills/specfs-port/SKILL.md §防御层次](../skills/specfs-port/SKILL.md#防御层次plugin-与-skill-共享的契约--defense-layer-topology)。
+> 风格规则：[prompts/style_rules.md](../prompts/style_rules.md)；测试 harness：
+> [skills/specfs-port/references/cmocka-host-harness.md](../skills/specfs-port/references/cmocka-host-harness.md)。
+> 本命令只描述每个 Step 的**编排细节**——概念性描述去 SKILL。
 
 ## MCP tool naming compatibility
 
 This command is shared by Claude Code and OpenCode through symlinks. Tool names differ only by separator:
+
 - Claude Code form: `specfs.session_start`, `specfs.code_gen_start`, ...
 - OpenCode form: `specfs_session_start`, `specfs_code_gen_start`, ...
 
@@ -18,59 +25,24 @@ Use the form exposed in the current runtime. If running in OpenCode, convert eve
 
 You are running **Loop B** of the specfs-port plugin. Goal: produce approved
 LiteOS-A C code AND its cmocka test from an approved spec, defended by
-**3 auto layers + 1 user review**. P1.4 (2026-05-07) reorganized the
-pipeline:
+auto-retry layers + a single user review at the end.
 
-- **Layer 1a now bundles compile + style** (sequential within the layer:
-  LSP first, then style). Was Layer 1a/1b sibling pair in P1.2.
-- **Layer 3 SpecEvaluator runs BEFORE Layer 2**, not after. Catch
-  spec-conformance defects before paying the build/QEMU cost.
-- **Layer 2 is now a unified build-tier gate** that wraps build + cmocka
-  unit-test execution + QEMU smoke + holistic SpecValidator into a single
-  retry budget. cmocka runs between build and QEMU so cheap regressions
-  fail fast before the expensive QEMU pass.
-- **Layer T (cmocka test gen) moves from Loop A to Loop B** — generated
-  immediately after the C code, so the test sees the actual generated
-  symbols rather than a spec abstraction.
+## Active layers — 当前生效层级
 
-## Active layers
-
-| # | Layer | When | Auto / HITL |
+| # | Layer | 触发位置 | 自动 / HITL |
 |---|---|---|---|
-| A | Heterogeneous audit (generator → auditor → refine) | After code + test drafts | advisory GPT/heterogeneous audit, max 2 rounds, user arbitration on disagreement |
-| 1a | Compile + Style (sequential: LSP → style) | After heterogeneous audit passes | auto-feedback retry: LSP 4 / style 5 (skip style with `--style-off`) |
-| 3 | SpecEvaluator (spec conformance only) | After Layer 1a passes | auto-feedback retry, max 8 (skip with `--speceval-off`) |
-| 2 | Build + cmocka unit-test exec + QEMU smoke (= SpecValidator) | After Layer 3 pass | auto-feedback retry, max 3 (skip with `--no-build`) |
-| 4 | User review | After Layer 2 pass | HITL — only terminal gate |
+| A | 异构 code/test audit (generator → auditor → refine) | code + test draft 之后 | advisory；最多 2 轮；分歧用户仲裁 |
+| 1a | Compile + Style (sequential: LSP → style) | 异构审计通过后 | auto retry：LSP 4 / style 5（`--style-off` 跳 style） |
+| 3 | SpecEvaluator（spec conformance only） | Layer 1a 通过后 | auto retry：8（`--speceval-off` 跳过） |
+| 2 | Build + cmocka exec + QEMU smoke | Layer 3 通过后 | auto retry：3（`--no-build` 跳过整层） |
+| 4 | User review | Layer 2 通过后 | HITL — 唯一终态闸 |
 
-P1.4 (2026-05-07) topology change rationale:
-- **Style folds back into Layer 1a (sequential, not parallel).** P1.2 had
-  promoted style to a sibling of compile (Layer 1b). Running them serially
-  inside one Layer 1a keeps each sub-step's diagnostic source crisp (LSP
-  error vs. style violation never mixes in the same retry round) while
-  collapsing the layer count back to pre-P1.2 simplicity. Retry budgets
-  remain separated (LSP 4 / style 5).
-- **SpecEval moved before build.** Spec-conformance defects are cheap to
-  catch (one LLM round) and expensive to bury under build/QEMU iteration.
-  Reordering so SpecEval gates first cuts retry cycles when the codegen
-  drifts from the spec.
-- **Layer 2 absorbs SpecValidator.** The former `validator_run_holistic`
-  pass (build + cmocka + QEMU) at module-completion time is now folded
-  into the per-stage Layer 2 contract: build → cmocka unit tests → QEMU
-  smoke. The `tools/regress/run_all.sh` aggregator still exists for
-  manual / CI runs but per-stage Layer 2 is the in-loop gate.
-- **Layer T moves to Loop B.** Tests now generate against real C code
-  (function signatures, file paths) instead of being derived from spec
-  abstractions. Removes a class of test/code drift bugs where the spec
-  promised a helper that the code chose not to expose.
-
-Removed in v0.4 (per arxiv 2512.13047 §4.5 fidelity):
-- Ask-first at code-gen — disambiguation belongs in spec gen, not code gen
-- gcc `-fsyntax-only` fallback (P1.3 fully removed — clangd via OMC LSP is the single path; this was already implicit in v0.4 but P1.3 deletes the dead `run_compile_check` MCP tool + `_ensure_compile_stub` helper)
+每层 retry 预算与作用见 SKILL §防御层次。
 
 ## Step 0 — parse arguments
 
 Parse `$ARGUMENTS`:
+
 - `<spec-path>` — path to approved spec, e.g. `spec/exfat/interface/exfat_lookup.spec`
 - `--style-off` — skip the style sub-step inside Layer 1a. Default ON.
 - `--speceval-off` — skip Layer 3 SpecEvaluator. Default ON.
@@ -85,6 +57,7 @@ Call `specfs.session_start(module=<derived from path>, mode="gen")`. Receive
 `{session_id, dag_state}`.
 
 Verify spec is approved (no `.draft` suffix). If not approved:
+
 - Tell user: "Spec at `<path>` is not approved. Run `/specfs-port-spec` first."
 - STOP.
 
@@ -92,23 +65,23 @@ Verify spec is approved (no `.draft` suffix). If not approved:
 
 Call `specfs.code_gen_start(session_id, spec_path=<path>)`. Receive
 `{prompt_for_llm}` — the assembled codegen prompt with:
-- `{LITEOS_DIGEST}` — compact ~1.7K LiteOS-A rules digest (replaces former 22K
-  of style_rules + linux_to_liteos_table + format_traps + ask_first_rules)
-- `{COMMON_HEADER}` (current `spec/<module>/common.header`)
-- `{INHERITED_INVARIANTS}` (from DAG ancestors)
-- `{PRIOR_CODE_INTERFACE}` (declarations from frozen ancestor code)
-- `{ORIG_SPEC_CONTENT}` (the spec content)
+
+- `{LITEOS_DIGEST}` — compact LiteOS-A rules digest.
+- `{COMMON_HEADER}` (current `spec/<module>/common.header`).
+- `{INHERITED_INVARIANTS}` (from DAG ancestors).
+- `{PRIOR_CODE_INTERFACE}` (declarations from frozen ancestor code).
+- `{ORIG_SPEC_CONTENT}` (the spec content).
 
 If `--prompt-override <file>` was given, the server uses the override file
 verbatim (skipping injection assembly).
 
 ## Step 3 — generate code
 
-**On-demand reference expansion** (v0.4): the assembled prompt contains a
-compact LITEOS_DIGEST (~1.7K) plus a FRAGMENT INDEX listing four detailed
-reference fragments (style_rules, linux_to_liteos_table, format_traps,
-ask_first_rules). Before emitting code, scan the spec — if any concrete
-uncertainty matches an INDEX entry's "when to fetch" hint, call
+**On-demand reference expansion**: the assembled prompt contains a compact
+LITEOS_DIGEST plus a FRAGMENT INDEX listing detailed reference fragments
+(`style_rules`, `linux_to_liteos_table`, `format_traps`, `ask_first_rules`).
+Before emitting code, scan the spec — if any concrete uncertainty matches an
+INDEX entry's "when to fetch" hint, call
 `specfs.fetch_prompt_fragment(name="<id>")` to retrieve the full content.
 Do NOT pull all four reflexively; pull only those you need.
 
@@ -125,9 +98,8 @@ under `fs/<module>/` and with `.c` extension.
 
 ## Step 3a — Layer T: generate cmocka test (skip if `--test-off`)
 
-P1.4 moved Layer T from Loop A → Loop B. The test now sees the actual
-generated C symbols (function names, signatures, file path) — no more
-test/code drift from speccing helpers the code chose not to expose.
+Layer T 紧接 Step 3 触发；test 看到的是真实生成符号（函数名、签名、文件路径），
+而不是 spec 抽象。详细契约见 SKILL §防御层次 / Layer T 段。
 
 1. Call `specfs.test_gen_start(session_id)` → `{prompt_for_llm, draft_path,
    harness_dir_exists}`.
@@ -156,13 +128,14 @@ Before Layer 1a, run an advisory audit loop. The main assistant is the
 `prompts/heterogeneous_audit.md` with `mode="code_audit"`.
 
 Auditor requirements:
+
 - Read-only/advisory only: no file writes, no approval, no prompt-template edits.
 - Compare generated code + generated test against the approved SYSSPEC, Linux
   source anchors when available, inherited invariants, and LiteOS-A mapping
   rules.
-- For destructive directory operations (unlink/rmdir/rename source-delete /
+- For destructive directory operations (`unlink` / `rmdir` / `rename` source-delete /
   create-overwrite), verify each spec Pre/Post-Condition Case and named
-  Invariant has an end-to-end anchor: code statement/helper call/error branch
+  Invariant has an end-to-end anchor: code statement / helper call / error branch
   + a test, `LAYER_B`, or justified `OUT_OF_SCOPE` coverage marker.
 - Return JSON with evidence-backed findings. Each finding must distinguish
   `spec_under_specified`, `codegen_drift`, `test_gap`, `prompt_gap`, or
@@ -170,6 +143,7 @@ Auditor requirements:
 - Discard or downgrade findings that lack concrete Linux/spec/code/test anchors.
 
 Loop policy:
+
 - If auditor returns `overall="pass"`, continue to Step 4.
 - If `overall="needs_refine"` with code-side findings, call
   `specfs.code_gen_refine(session_id, user_suggestion=<auditor findings>)` and
@@ -187,10 +161,9 @@ Loop policy:
 
 ## Step 4 — Layer 1a: Compile + Style (sequential)
 
-P1.4 folds the former Layer 1b (style audit) back into Layer 1a as a
-sequential second sub-step. LSP runs first; if clean, style runs second.
-Each sub-step has its own retry budget. A failure of either sub-step loops
-back to Step 3 (regenerate code) with the appropriate diagnostic source.
+LSP runs first; if clean, style runs second. Each sub-step has its own retry
+budget. A failure of either sub-step loops back to Step 3 (regenerate code)
+with the appropriate diagnostic source.
 
 ### Step 4.1 — LSP compile (retry budget: 4)
 
@@ -212,10 +185,10 @@ Call `specfs.code_gen_submit(session_id, generated_code=<code>)`. The server
 returns `next: "style_audit"` with the assembled style-audit prompt
 (`prompts/style_audit.md` against `prompts/style_rules.md`).
 
-- Read the style-audit prompt
-- Generate JSON `{is_good: bool, score: int, summary: str, violations: [...]}` in your response
-- Call `specfs.code_gen_submit` again with the JSON
-- If `is_good=true && score >= 80` → advance to Step 5 (Layer 3 SpecEval)
+- Read the style-audit prompt.
+- Generate JSON `{is_good: bool, score: int, summary: str, violations: [...]}` in your response.
+- Call `specfs.code_gen_submit` again with the JSON.
+- If `is_good=true && score >= 80` → advance to Step 5 (Layer 3 SpecEval).
 - If `is_good=false || score < 80` → inject as
   `[Modification suggestions]` source=style and loop back to Step 3.
 
@@ -225,18 +198,16 @@ escalate to Layer 4 with status "Layer 1a.<sub> exhausted retries".
 
 ## Step 5 — Layer 3: SpecEvaluator (skip if `--speceval-off`)
 
-**P1.4 moved this layer BEFORE Layer 2.** Spec-conformance defects are
-cheap to catch (one LLM round) and expensive to bury under build/QEMU
-iteration. SpecEval (`prompts/speceval.md`) covers spec conformance ONLY —
-style was removed in P1.2, gcc fallback in P1.3.
+SpecEval (`prompts/speceval.md`) covers spec conformance ONLY — see SKILL §防御层次
+for the 6 defect classes scope.
 
 Call `specfs.code_gen_submit(session_id, generated_code=<code>)`. The server
 returns `next: "speceval"` with the assembled eval prompt.
 
-- Read the eval prompt
-- Generate JSON `{is_good: bool, comments: str}` in your response
-- Call `specfs.code_gen_submit` again with the JSON
-- If `is_good=true` → advance to Step 6 (Layer 2 build/test/qemu)
+- Read the eval prompt.
+- Generate JSON `{is_good: bool, comments: str}` in your response.
+- Call `specfs.code_gen_submit` again with the JSON.
+- If `is_good=true` → advance to Step 6 (Layer 2 build/test/qemu).
 - If `is_good=false` → **decide root cause from `comments`:**
 
   **Code-side defect** (signature wrong, missing libsec, wrong locking,
@@ -259,15 +230,14 @@ returns `next: "speceval"` with the assembled eval prompt.
 
 ## Step 6 — Layer 2: Build + cmocka exec + QEMU smoke (skip if `--no-build`)
 
-**P1.4 absorbed SpecValidator into this layer.** Per-stage Layer 2 now runs
-the full build-tier verification chain that v0.4's separate `Step 9 holistic
-SpecValidator` used to run only at module-completion: build → cmocka → QEMU.
-Cheap regressions fail fast before the expensive QEMU pass. Single retry
-budget: **3 rounds** for ANY of the three sub-steps.
+Per-stage Layer 2 runs the full build-tier verification chain: build → cmocka
+→ QEMU. Cheap regressions fail fast before the expensive QEMU pass. Single
+retry budget: **3 rounds** for ANY of the three sub-steps.
 
 ### Step 6.1 — Kernel build
 
 Call `specfs.run_build_kernel()`.
+
 - `ok=true` → advance to Step 6.2.
 - Failure → inject `layer="build"` with stderr tail, loop back to Step 3.
 
@@ -309,19 +279,20 @@ render `prompts/validation_checklist.md` checklist. Include the heterogeneous
 audit result: pass / refined N rounds / user-arbitrated issues.
 
 `AskUserQuestion`:
-- (a) Approve both — write code + test to final paths, commit DAG node code+tests layers
-- (b) Suggest code edits — provide feedback; loops back to Step 3 (re-runs Layer T after)
-- (c) Suggest test edits only — provide feedback; loops back to Step 3a only
-- (d) Inline-edit — user manually edits draft(s), then "done"
-- (e) Reject and regen — discard, restart Loop B from Step 3
-- (f) Reject and revise spec — go back to Loop A; mark spec dirty
+
+- (a) Approve both — write code + test to final paths, commit DAG node code+tests layers.
+- (b) Suggest code edits — provide feedback; loops back to Step 3 (re-runs Layer T after).
+- (c) Suggest test edits only — provide feedback; loops back to Step 3a only.
+- (d) Inline-edit — user manually edits draft(s), then "done".
+- (e) Reject and regen — discard, restart Loop B from Step 3.
+- (f) Reject and revise spec — go back to Loop A; mark spec dirty.
 
 ## Step 8 — handle user response
 
 **(a) Approve both**: call `specfs.code_gen_approve(session_id, final_code=<text>,
 files_to_save=[<paths>])`, then `specfs.test_gen_approve(session_id,
 final_test_text=<text>)`. Server commits DAG node code+tests layers, syncs
-common.header, applies Makefile + main.c deltas.
+`common.header`, applies Makefile + main.c deltas.
 
 **(b) Suggest code edits**: call `specfs.code_gen_refine(session_id, user_suggestion=<text>)`.
 Loop back to Step 3. Test will be regenerated in Step 3a after the new code lands.
@@ -341,39 +312,39 @@ user: "Run `/specfs-port-spec <linux-path> <stage>` to revise the spec."
 
 ## Iteration accounting
 
-- Layer A (heterogeneous code/test audit): 2 generator↔auditor rounds, then user arbitration
-- Layer 1a.1 (LSP compile): 4 retries
-- Layer 1a.2 (style audit): 5 retries
-- Layer 3 (SpecEval): 8 retries (paper)
-- Layer 2 (build/cmocka/qemu, shared): 3 retries
-- Layer T (cmocka test gen, in Step 3a): 3 retries
-- SpecFine (Step 5 inner branch): 3 retries
-- Layer 4 (user): unlimited
+- Layer A (heterogeneous code/test audit): 2 generator↔auditor rounds, then user arbitration.
+- Layer 1a.1 (LSP compile): 4 retries.
+- Layer 1a.2 (style audit): 5 retries.
+- Layer 3 (SpecEval): 8 retries (paper).
+- Layer 2 (build/cmocka/qemu, shared): 3 retries.
+- Layer T (cmocka test gen, in Step 3a): 3 retries.
+- SpecFine (Step 5 inner branch): 3 retries.
+- Layer 4 (user): unlimited.
 
 ## Step 9 — Module-completion regression reminder (skip if `--no-regress`)
 
-P1.4 made per-stage Layer 2 absorb the build/cmocka/QEMU chain that used
-to live only in the holistic validator. The standalone `tools/regress/run_all.sh`
-script still exists for manual / CI runs and remains the recommended pre-push
-gate, but Layer 2 already covers it per stage.
+The standalone `tools/regress/run_all.sh` script remains the recommended
+pre-push gate; per-stage Layer 2 already covers the same chain in-loop.
 
 When this is the LAST stage of its module (e.g., the rename stage of the
-dirops module ≤800 LOC budget — see `tools/specfs_eval/BUDGETS.md`), remind
+dirops module ≤ 800 LoC budget — see `tools/specfs_eval/BUDGETS.md`), remind
 the user to run:
 
 ```
 bash tools/regress/run_all.sh
 ```
 
-This re-runs cmocka + QEMU LTP smoke as a single batch and writes a
-timestamped report to `docs/test/exfat_regression_<ts>.md` plus updates the
-`_latest.md` symlink. Exit codes: 0=pass, 1=test failure, 2=panic-or-hang.
+This re-runs Wave A (cmocka host) + Wave B (QEMU LTP smoke) as a single
+batch and writes a timestamped report to `docs/test/exfat_regression_<ts>.md`
+plus updates the `_latest.md` symlink. Exit codes: `0=pass, 1=test failure,
+2=panic-or-hang`.
 
 If `--no-regress` was passed, skip this reminder.
 
 ## Final output
 
 When code + test approved, print summary:
+
 ```
 Approved: fs/exfat/exfat_lookup.c (<code-git-sha>)
          testsuites/unittest/exfat/test_lookup.c (<test-git-sha>, N testpoints)

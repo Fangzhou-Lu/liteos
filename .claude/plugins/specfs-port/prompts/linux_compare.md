@@ -1,29 +1,27 @@
 <!--
-Loop C — Linux-functional comparison prompt (P1.6 Wave 2, 2026-05-08).
+Loop C — Linux 功能等价比对提示词，跑在 code_gen_approve 之后。
+Loop C — Linux-functional comparison prompt; runs after code_gen_approve.
 
-Position in pipeline: runs AFTER code_gen_approve (i.e. once a stage's spec
-and code are both approved). The LLM compares the generated SYSSPEC spec +
-LiteOS-A C against the original Linux TU and reports two things:
-
-  (1) Functional gaps — which behaviours from Linux are missing / wrong /
-      under-specified in spec or code, with severity + root cause.
-  (2) Prompt-tuning recommendations — concrete, additive edits to the
+LLM compares the generated SYSSPEC + LiteOS-A C against the original Linux
+TU and reports:
+  (1) Functional gaps — Linux behaviours missing / wrong / under-specified
+      in spec or code, with severity + root cause.
+  (2) Prompt-tuning recommendations — concrete additive edits to the
       Loop A spec-extraction prompt and Loop B code-gen prompt that would
-      have prevented each spec-side / code-side gap.
+      have prevented each gap class.
 
-The plugin's `linux_compare_submit` tool parses the JSON output and:
-  - appends a stage section to `docs/<module>_prompt_feedback.md` with the
-    gaps + recommendations (HITL reviews & decides which to merge into
-    the actual prompt templates — no auto-rewrite).
+`linux_compare_submit` parses the JSON output and:
+  - appends a stage section to `docs/<module>_prompt_feedback.md` (HITL
+    reviews & decides which to merge — no auto-rewrite).
   - stores HIGH-severity gaps as a `linux_compare` FailureRecord on the
     session, so the next `code_gen_refine` / `spec_fine` round picks them
     up automatically as a [Modification suggestions] <source: linux_compare>
     block.
 
-This is the "evaluation mechanism that compares against Linux source" the
-user asked for in the v0.5.5 deferred-work list. It does NOT replace
-SpecEval (Layer 3) — SpecEval checks code↔spec conformance; this checks
-spec ↔ Linux and code ↔ Linux semantic equivalence (a different question).
+Loop C does NOT replace Layer 3 SpecEval — SpecEval checks code↔spec
+conformance; Loop C checks spec↔Linux and code↔Linux semantic equivalence.
+
+History/version: see ../CHANGELOG.md.
 
 Placeholder syntax: {NAME} substituted by server/prompts.py.
 -->

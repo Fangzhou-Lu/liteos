@@ -1,6 +1,6 @@
 # cmocka host 单元测试参考——加新 stage 测试的具体步骤
 
-本参考补充 SKILL.md §阶段 5 中的 Layer A（cmocka host）测试套件。
+本参考补充 [SKILL.md §阶段 5](../SKILL.md#阶段-5--构建--两层回归) 中的 Wave A（cmocka host）测试套件。
 SKILL.md 只列契约；本文给完整目录骨架、stub 设计与扩展流程。
 
 ## 目录骨架
@@ -113,7 +113,7 @@ cd testsuites/unittest/<name>_host && make
 - **幂等**：`mock_part_read` 返回字节级一致结果，无副作用。
 - **故障注入**：`mock_disk_set_read_fail_at(N)` 让第 N 次读失败一次性返回 -1，覆盖
  `los_part_read < 0 → -EIO` 路径。
-- **partition_id 维度恒为 0**：多分区并发场景留给真机测试（Layer B）。
+- **partition_id 维度恒为 0**：多分区并发场景留给真机测试（Wave B / QEMU LTP）。
 
 ## image_builder 设计哲学
 
@@ -125,6 +125,6 @@ cd testsuites/unittest/<name>_host && make
 ## 不在 cmocka 范围
 
 - `<name>_super.c::Vfs<Name>Mount`：依赖整个 VFS 框架的链接表 + 路径解析 + Vnode/Mount
- 全套结构体——为它做 stub 会让 stub 表脚本化。Mount 的端到端覆盖留给 Layer B
+ 全套结构体——为它做 stub 会让 stub 表脚本化。Mount 的端到端覆盖留给 Wave B
  （QEMU LTP smoke）。
 - `<name>_ops.c`：`g_<name>Vops` / `g_<name>Fops` 占位表，无可单测逻辑。

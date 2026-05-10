@@ -3,7 +3,76 @@
 All notable changes to this plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/) loosely; semver applies.
 
-## [0.5.6] — 2026-05-08
+> 文档版本变动归集 / Plugin docs single-source-of-truth: 自 0.5.7 起，所有
+> README / DESIGN / SKILL / commands / prompts 内联的版本/Phase/日期/迁移
+> 记录全部抽到本文件，其他文档仅保留事实性内容。
+
+---
+
+## [0.5.7] — 2026-05-11
+
+### Changed — 文档中英文混合化 + 跨文档去重 + 版本说明集中化
+
+**用户指令 / User directive (2026-05-11)**:
+> "请参考 skill 目录下的文档将剩下的文档改为中英文混合模式 …
+>  command 下面的文档重复度很高，请只保留一份（优先 skills 目录下的参考文档），
+>  其他地方对重复的内容只记录引用 …
+>  请同步将文档里面版本变动移到 CHANGELOG.md 中，其他文档不记录版本相关内容"
+
+**混合策略 / Bilingual strategy** —
+- 标题、frontmatter `description`、章节说明：中文为主，便于中文读者扫读。
+- LLM prompt 模板正文、占位符、JSON key、CLI 标志、库函数、类型签名：保持英文，
+  避免影响 LLM 生成质量。
+- 架构性 Wave A / Wave B（host cmocka / QEMU LTP）保留为术语，不视为版本记录。
+
+**去重策略 / Dedup strategy** — `commands/specfs-port-{spec,code}.md` 中与
+`skills/specfs-port/SKILL.md` 重复的"五阶段流水线"/"防御层次"/"完成报告"
+等概念性段落改写为相对路径 markdown 链接，命令文档只保留各 Step 的编排细节
+（参数解析、MCP 调用、用户分支处理）。
+
+**版本说明集中 / Version-history aggregation** —
+原本散落在以下 17 个文档里的版本/Phase/日期/迁移记录，统一移入本文件并保留
+原有版本号 anchor，便于历史回溯：
+
+| 移出位置 / Removed from | 涉及版本/Phase 标记 |
+|---|---|
+| `README.md` | `since plugin v0.2 / v0.3 / v0.3.4 / v0.5.0`、`P1.1 / P1.2 / P1.3 / P1.4` |
+| `DESIGN.md` | `Layer T (v0.3.4)`、`v0.3.2-era gap`、`v0.4 alignment`、`P1.2 / P1.3 / P1.4 / P4.1`、`v04-pruned-2026-05-07` 等多处 |
+| `commands/specfs-port-spec.md` | `P1.4 / P1.5 / P4.1` 工作流重排说明 |
+| `commands/specfs-port-code.md` | `P1.4 (2026-05-07)` pipeline reorder、`Removed in v0.4`、`P1.3 fully removed`、`On-demand reference expansion (v0.4)` 等 |
+| `prompts/codegen.md` | `P1.6 / P1.7 / P1.8 / P1.9` prompt 演化注释 |
+| `prompts/linux_to_spec.md` | `P1.5 two-phase`、`P1.9 (2026-05-10) realignment`、`pre-realignment` |
+| `prompts/heterogeneous_audit.md` | `P1.8 draft, 2026-05-10`、`P1.9 (2026-05-10)` 删除 Behavior Obligations |
+| `prompts/speceval.md` | `P1.2 (2026-05-07)` scope split、`P1.5` phase-layering |
+| `prompts/style_audit.md` | `v0.3 / P1.2 / P1.4` topology 演化 |
+| `prompts/prompt_optimize.md` | `P1.6 Wave 2`、`P1.7 (2026-05-08)` |
+| `prompts/linux_compare.md` | `P1.6 Wave 2`、`v0.5.5 deferred-work` |
+| `prompts/two_phase_rules.md` | `P1.6 (2026-05-08)` 头注 |
+| `prompts/validation_checklist.md` | `P1.2 / P1.3 / P1.4` 层级标签 |
+| `prompts/unittest_gen.md` | `v0.3.2 / v0.3.4 / P1.4 / P1.9 (2026-05-10)` |
+| `prompts/format_traps.md` | "added after EROFS evaluation…" 历史注释 |
+| `skills/specfs-port/SKILL.md` | `P1.2 / P1.4 / P1.5 / P1.8 / P1.9`、`v0.2 / v0.3 / v0.3.4 / v0.5.0`、`v0.1→v0.2→v0.3→v0.3.4→P1.3→P1.4` 累计史 |
+| `skills/specfs-port/references/fs-debug-recipe.md` | `v0.4 改进项` |
+
+**架构性引用保留 / Kept (architecture, not release-history)** —
+- `DESIGN.md` 里 `Wave A cmocka host + Wave B QEMU LTP smoke` 表述。
+- `SKILL.md §回归套件` 中 `Wave A 9 个 stage` 等 stage-counting 描述（描述当前状态，不是版本演进）。
+
+### Migration notes — 当前层拓扑（来自历次 P1.x 累积）
+
+为了让读者不必翻阅历次条目即可理解今日防御层顺序，下表汇总了截至 0.5.6 已稳定的层定义。后续若再调整请直接编辑此表并升版本号：
+
+| 层 / Layer | 触发位置 / Trigger | 当前实现 / Current behavior |
+|---|---|---|
+| Layer 1a Compile + Style | Loop B Step 4 | LSP (clangd) 编译先行；style audit 串行其后；各自独立重试预算。|
+| Layer 3 SpecEvaluator | Loop B Step 5（先于 Layer 2） | 仅做 spec ↔ code conformance；不再做 style/convention。|
+| Layer 2 Build + cmocka exec + QEMU smoke | Loop B Step 6 | 三段统一为 Layer 2；fold 进了之前的 SpecValidator。|
+| Layer T cmocka test gen | Loop B Step 3a（ex-Loop A） | 已从 Loop A 移到 Loop B，便于 reference 真实生成符号。|
+| Layer 4 用户审核 | Loop B Step 7 | 始终终态闸；Layer 1-3 全 pass 才进入。|
+
+---
+
+
 
 ### Add — Loop C: linux_compare 评估 + prompt-template 反向优化 (P1.6 Wave 2)
 

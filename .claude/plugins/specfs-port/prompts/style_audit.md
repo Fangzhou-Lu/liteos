@@ -1,29 +1,29 @@
 <!--
-LiteOS-A coding-style audit (added in plugin v0.3 per user "加入编码风格
-评估环节"). Topology evolution: Layer S (v0.3 serial after compile) →
-Layer 1b (P1.2 sibling of compile, parallel) → Layer 1a.2 (P1.4 sequential
-sub-step inside Layer 1a, runs only AFTER 1a.1 LSP is clean).
+LiteOS-A 编码风格审计提示词（用户指令"加入编码风格评估环节"的实现）。
+LiteOS-A coding-style audit prompt.
 
 Loaded as {STYLE_AUDIT} placeholder via prompts.py::assemble_style_audit_prompt.
 Output MUST be JSON: {"is_good": bool, "score": int (0..100), "comments": str, "violations": [...]}.
 
-Output is parsed by specfs_server.py and either:
- - is_good=true & score >= 80 → advance to Layer 3 SpecEval (P1.4 promoted
-   ahead of Layer 2 build/QEMU)
+Plugin parses the JSON and either:
+ - is_good=true & score >= 80 → advance to Layer 3 SpecEval.
  - otherwise → inject violations as [Modification suggestions] source=style and
- loop back to codegen (max 5 rounds — independent of LSP retry budget).
+   loop back to codegen (max 5 rounds — independent of LSP retry budget).
 
 Companion runtime checks (run BEFORE this prompt is shown to the LLM):
  - clang-format --dry-run against fs/<module>/.clang-format anchor — captured
- as an ADVISORY hint (the .clang-format anchor is advisory, not a hard gate;
- LiteOS-A's manual whitespace alignment in fs/fat/* and fs/jffs2/* cannot be
- cleanly captured by clang-format options — see fs/exfat/.clang-format
- header comment). The diff goes into [AUTO CHECKS] for the LLM to consider.
- - simple regex scan for bare strcpy / strncpy / memcpy / sprintf
- - function-length / cyclomatic-complexity heuristic
+   as an ADVISORY hint (the .clang-format anchor is advisory, not a hard gate;
+   LiteOS-A's manual whitespace alignment in fs/fat/* and fs/jffs2/* cannot be
+   cleanly captured by clang-format options — see fs/exfat/.clang-format
+   header comment). The diff goes into [AUTO CHECKS] for the LLM to consider.
+ - simple regex scan for bare strcpy / strncpy / memcpy / sprintf.
+ - function-length / cyclomatic-complexity heuristic.
+
 The runtime fills the "[AUTO CHECKS]" section before the LLM judges. The LLM
 weighs the auto checks alongside its own 6-dimension scoring; do NOT treat any
 single auto-check as authoritative.
+
+History/version: see ../CHANGELOG.md.
 -->
 
 This is a coding-style audit task for LiteOS-A kernel filesystem code.

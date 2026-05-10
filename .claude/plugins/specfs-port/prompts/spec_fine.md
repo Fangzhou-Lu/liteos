@@ -1,12 +1,12 @@
 <!--
-F3 SpecFine prompt — paper §4.5 SpecAssistant component, porting variant.
+SpecFine 提示词 — 在 SpecEval 判定缺陷在 spec 而非 code 时，打磨已批准 spec。
+SpecFine prompt — polish an approved spec when SpecEval finds the defect
+is spec-side, not code-side. Paper §4.5 SpecAssistant variant.
 
-Triggered when SpecEval (Layer 3) flags a defect that's spec-side, not
-code-side. Polishes the existing spec instead of regenerating code.
+Hard cap: 3 rounds. Above that, escalate to HITL — Loop B will not retry
+code if SpecFine cap is exceeded.
 
-Hard cap: 3 rounds (per project memory feedback_specfine_cap_3.md). Above
-that, escalate to HITL. Loop B will not retry code if SpecFine cap is
-exceeded — user must intervene.
+History/version: see ../CHANGELOG.md.
 
 Placeholder syntax: {NAME} substituted by server/prompts.py.
 -->

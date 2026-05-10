@@ -1,15 +1,18 @@
 <!--
-Layer 3 — SpecEvaluator. Direct port of specfs/tools/gencode.py:200-211.
+Layer 3 — SpecEvaluator 提示词，仅检查 spec conformance。
+Layer 3 SpecEvaluator prompt — spec-conformance check only.
 
-Scope (P1.2, 2026-05-07): SPEC CONFORMANCE ONLY. Style audit is a separate
-layer at the same tier as compile (Layer 1) — see prompts/style_audit.md
-and prompts/style_rules.md. Do NOT inline or reference style rules here;
-the two passes run independently and both must pass before Layer 2.
+Scope: SPEC CONFORMANCE ONLY. Style audit is a separate sibling layer
+(see prompts/style_audit.md against prompts/style_rules.md). Do NOT
+inline or reference style rules here; the two passes run independently
+and both must pass before Layer 2.
 
 Single LLM round per code-gen retry. Output JSON: {"is_good": bool, "comments": str}.
 The plugin auto-feeds `comments` back to codegen as [Modification suggestions]
 when is_good=false. NO HITL gate — auto-feedback only, capped by the codegen
 loop's own retry limit.
+
+History/version: see ../CHANGELOG.md.
 
 Placeholder syntax: {NAME} substituted by server/prompts.py at assemble time.
 Required placeholders: {GENERATED_CODE}, {ORIGINAL_SPEC}.
@@ -33,7 +36,7 @@ pass owns those. Focus exclusively on the items below.
 - Hallucinated helpers not in [RELY] and not in [PRIOR CODE INTERFACE]
 - Branch / Case behavior diverges from [SPECIFICATION] cases
 - Logic that satisfies post-condition but ignores **System Algorithm** phases
-- **Phase-layering mismatch (P1.5)**: code uses lock-acquisition primitives
+- **Phase-layering mismatch**: code uses lock-acquisition primitives
   (`LOS_MuxLock` / `LOS_MuxUnlock` / `LOS_SpinLock` / `LOS_SpinUnlock` and
   variants) but the spec lacks a `## Refine Prompt` section that anchors
   the expected lock state. Treat this as a SPEC GAP, not a code defect:

@@ -1,11 +1,13 @@
 <!--
-Heterogeneous auditor prompt contract (P1.8 draft, 2026-05-10).
+异构审计器契约 — 命令层 orchestration 闸，read-only / advisory-only。
+Heterogeneous auditor prompt contract — command-level orchestration gate.
 
-Purpose: command-level orchestration gate before hardening into MCP state.
-A stronger generator drafts the artifact; a heterogeneous reviewer audits it
-against Linux/spec/code evidence. The reviewer is read-only and advisory-only.
-All writes still flow through specfs-port-spec / specfs-port-code draft/refine
-paths and all terminal approval remains HITL.
+A stronger generator drafts the artifact; a heterogeneous reviewer (prefer
+GPT-family) audits it against Linux/spec/code evidence. The reviewer is
+read-only and advisory-only — all writes flow through specfs-port-spec /
+specfs-port-code draft/refine paths and terminal approval remains HITL.
+
+History/version: see ../CHANGELOG.md.
 -->
 
 [ROLE]
@@ -40,10 +42,9 @@ marked out of scope. Look for:
 - lifecycle transitions (tombstone sentinels, refcount drops, chain reset),
 - observable VFS outcomes and errno mapping divergence.
 
-P1.9 (2026-05-10): the `Behavior Obligations` matrix and per-row coverage
-audit were dropped from spec / codegen / unittest prompts to align with paper
-§4.1. Audit free-form against the spec's Pre/Post + Invariants instead — list
-the missing behaviour as a concrete finding, not a missing-row complaint.
+Audit free-form against the spec's Pre/Post-Conditions + Invariants — list
+each missing behaviour as a concrete finding (no enumerated coverage matrix
+required; paper §4.1 keeps invariants as free-form prose).
 
 For `code_audit`, check the generated code/test against both the approved spec
 and Linux intent:

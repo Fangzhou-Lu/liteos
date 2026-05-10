@@ -1,10 +1,15 @@
 ---
-description: Show specfs-port DAG status for the current FS module and suggest next action
+description: 查看 specfs-port DAG 当前状态并给出下一步建议（read-only） / Show specfs-port DAG status for the current FS module and suggest next action
 argument-hint: [module-name (default: exfat)]
 allowed-tools: ["Bash", "Read"]
 ---
 
-# specfs-port — status & next action
+# specfs-port — DAG 状态与下一步 / status & next action
+
+读取插件 DAG 状态并推荐下一步命令。**不执行**任何写操作；写操作由
+`/specfs-port-spec` / `/specfs-port-code` 自行触发。
+
+> 方法论与五阶段流水线见 [skills/specfs-port/SKILL.md](../skills/specfs-port/SKILL.md)。
 
 You are helping the user navigate the specfs-port plugin. The user invoked
 `/specfs-port` (with optional module arg `$ARGUMENTS`).

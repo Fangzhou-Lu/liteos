@@ -218,7 +218,7 @@ panic 时刻保存下来的 `.sym.sorted` 才得到正确的栈。
 1. 每次 QEMU 跑出 panic 立刻用 `cp` 把 `OHOS_Image{,.bin,.map,.sym.sorted}`
  存档到一个时间戳目录（如 `/tmp/dump_<ts>/`）。
 2. `tools/regress/qemu_ltp_run.sh` 在检测到 `panic | Oops | Kernel BUG` 后应在
- kill QEMU 的同时归档当前 ELF 与 sym 表（v0.4 改进项，已记入 roadmap）。
+ kill QEMU 的同时归档当前 ELF 与 sym 表（roadmap 改进项，详见 `../../CHANGELOG.md`）。
 3. 后期符号化时优先使用 `--symfile <archived sym.sorted>`；只有当确认 ELF 没动
  过、`stat -c %y OHOS_Image` 比 panic 时间戳早，才直接吃 ELF。
 

@@ -1,6 +1,6 @@
 # LTP + QEMU 端到端回归参考
 
-补充 SKILL.md §阶段 5 中的 Layer B（QEMU LTP smoke）。SKILL.md 只列契约；
+补充 [SKILL.md §阶段 5](../SKILL.md#阶段-5--构建--两层回归) 中的 Wave B（QEMU LTP smoke）。SKILL.md 只列契约；
 本文给完整 LTP 交叉编译流程、镜像注入、QEMU 启停、log 解析。
 
 ## 关键事实：必须用 OHOS clang 动态链接

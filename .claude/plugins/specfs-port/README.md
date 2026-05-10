@@ -1,57 +1,60 @@
 # specfs-port
 
-Claude Code plugin for porting Linux kernel filesystem modules to LiteOS-A
-via a SYSSPEC-style spec-first workflow with HITL gates and 5-layer defense.
+把 Linux 内核文件系统按 **SYSSPEC 规范优先** 流程移植到 OpenHarmony LiteOS-A 的
+Claude Code 插件。HITL 双闸 + 多层防御。
 
-Built on the FAST'26 SpecFS paper (arXiv:2512.13047) but extended:
-- Two HITL loops: spec authoring (Loop A) and code generation (Loop B)
-- Five layers of defense before user review (LSP → compile → build → QEMU → SpecEvaluator)
-- DAG of approved stage nodes preserves cross-stage dependencies + invariants
-- Ask-first clarification: LLM pauses before generation when input is ambiguous
+A Claude Code plugin for porting Linux kernel filesystem modules to LiteOS-A
+via a SYSSPEC-style spec-first workflow with HITL gates and a layered defense
+of compile / style / spec-conformance / build+QEMU before user review.
 
-See `DESIGN.md` for full implementation spec, `CHANGELOG.md` for version history.
+基于 FAST'26 SpecFS 论文（arXiv:2512.13047）扩展：
+
+- **双 HITL 闸**：spec authoring (Loop A) + code generation (Loop B)。
+- **防御层**：Layer 1a Compile + Style → Layer 3 SpecEvaluator → Layer 2 Build + cmocka + QEMU smoke → Layer 4 用户审核；Layer T cmocka 测试派生在 Loop B Step 3a 触发。
+- **DAG 节点**保留跨 stage 依赖与 invariant 继承。
+- **Ask-first**：输入有歧义时 LLM 先发 AskUserQuestion，再生成。
+
+> 完整版本/Phase 演进见 [CHANGELOG.md](CHANGELOG.md)。
+> 实现规格见 [DESIGN.md](DESIGN.md)。
+> 方法论与五阶段流水线契约见 [skills/specfs-port/SKILL.md](skills/specfs-port/SKILL.md)。
 
 ## Slash commands
 
-| Command | Purpose |
+| 命令 / Command | 用途 / Purpose |
 |---|---|
-| `/specfs-port [module]` | Show DAG status, suggest next action. |
-| `/specfs-port-spec <linux-path> <stage>` | Loop A — generate a SYSSPEC spec. |
-| `/specfs-port-code <spec-path>` | Loop B — generate LiteOS-A C code from approved spec. |
-| `/specfs-port-metrics [session-id]` | Telemetry rollup (tool calls, LLM rounds, prompt sizes). |
+| `/specfs-port [module]` | 显示 DAG 状态 + 推荐下一步 / Show DAG status + suggest next action |
+| `/specfs-port-spec <linux-path> <stage>` | Loop A — 起草 SYSSPEC spec / Generate a SYSSPEC spec |
+| `/specfs-port-code <spec-path>` | Loop B — 从已批准 spec 生成 LiteOS-A C 代码 + cmocka 测试 |
+| `/specfs-port-metrics [session-id]` | 遥测聚合（tool 调用、LLM 轮次、prompt 大小） |
 
-Optional flags for `/specfs-port-code`:
-- `--speceval-off` — disable Layer 3 SpecEvaluator self-audit
- (default **ON** since plugin v0.2; user explicitly required self-audit before
- user review. P1.4 (2026-05-07) moved this layer BEFORE Layer 2 build/QEMU —
- cheap-first ordering catches spec-conformance defects without paying build cost.)
-- `--style-off` — disable the style-audit sub-step inside Layer 1a
- (default **ON** since plugin v0.3; user directive "加入编码风格评估环节".
- P1.1 briefly folded the audit into Layer 3 SpecEval; P1.2 split it back out
- as a Layer 1 sibling (Layer 1b); P1.4 (2026-05-07) folded it back into
- Layer 1a as a SEQUENTIAL second sub-step (LSP first, then style; separate
- retry budgets). Rule canon: `prompts/style_rules.md`; LLM template:
- `prompts/style_audit.md`. Layer 3 SpecEval no longer references style.)
-- `--test-off` — disable Layer T cmocka test gen AND Layer 2.2 cmocka exec
- (default **ON** since v0.3.4; P1.4 moved Layer T from Loop A → Loop B Step 3a
- so tests reference real generated symbols instead of spec abstractions.)
-- `--no-build` — skip Layer 2 entirely (no build, no cmocka exec, no QEMU smoke)
-- `--no-regress` — skip the module-completion `tools/regress/run_all.sh` reminder
-- `--prompt-override <file>` — bypass spec-derived prompt assembly
+可选 flag for `/specfs-port-code` — 默认值见 SKILL.md：
 
-## Workflow
+| Flag | 行为 / Behavior |
+|---|---|
+| `--speceval-off` | 关闭 Layer 3 SpecEvaluator 自审。默认 ON。 |
+| `--style-off` | 关闭 Layer 1a 内部 style audit 子步骤。默认 ON。Canon: `prompts/style_rules.md`；模板：`prompts/style_audit.md`。 |
+| `--test-off` | 同时关闭 Layer T cmocka 测试派生 + Layer 2.2 cmocka exec。默认 ON。 |
+| `--no-build` | 跳过 Layer 2 整层（不 build、不跑 cmocka、不跑 QEMU smoke）。 |
+| `--no-regress` | 跳过模块完结的 `tools/regress/run_all.sh` 提醒。 |
+| `--prompt-override <file>` | 用手写 prompt 文件覆盖 spec 派生的拼装。 |
+
+## Workflow / 工作流
+
+> 防御层完整契约与 retry 预算见
+> [skills/specfs-port/SKILL.md §防御层次](skills/specfs-port/SKILL.md#防御层次plugin-与-skill-共享的契约--defense-layer-topology)。
 
 ```
 User: /specfs-port-spec /Users/kissa/Codebase/linux/fs/exfat lookup
     ↓ (Loop A — Linux source → SYSSPEC spec)
-[ask-first scan, generate, user review/refine, approve]
+[ask-first scan, generate, heterogeneous spec audit, user review/refine, approve]
     ↓ saves to spec/exfat/interface/exfat_lookup.spec, DAG node spec layer committed
-    ↓ (P1.4: Layer T cmocka test gen NO LONGER fired here — moved to Loop B)
+    ↓ Layer T cmocka 测试派生在 Loop B Step 3a 触发，本闸不调测试派生
 
 User: /specfs-port-code spec/exfat/interface/exfat_lookup.spec
-    ↓ (Loop B — spec → C code + cmocka tests, P1.4 ordering)
+    ↓ (Loop B — spec → C code + cmocka tests)
 [Step 3   gen C code
  Step 3a  Layer T  cmocka test gen (≤ 3)
+ Step 3b  Heterogeneous code/test audit (≤ 2)
  Step 4   Layer 1a sequential: 4.1 LSP compile (≤ 4) → 4.2 style audit (≤ 5)
  Step 5   Layer 3  SpecEval — spec conformance only (≤ 8)
  Step 6   Layer 2  unified: 6.1 build → 6.2 cmocka exec → 6.3 QEMU smoke (≤ 3)
@@ -63,25 +66,28 @@ User: /specfs-port-code spec/exfat/interface/exfat_lookup.spec
     ↓ git add (no commit — user runs `git commit` themselves)
 ```
 
-## Files
+## 文件结构 / Files
 
 ```
-.claude/plugins/specfs-port/                  # plugin root (v0.5.0 self-contained layout)
+.claude/plugins/specfs-port/                  # plugin root (self-contained, auto-discoverable)
 ├── .claude-plugin/plugin.json                # manifest
 ├── .mcp.json                                 # MCP server spawn config (uses ${CLAUDE_PLUGIN_ROOT})
 ├── DESIGN.md                                 # full implementation spec
 ├── README.md                                 # this file
-├── CHANGELOG.md                              # version history
+├── CHANGELOG.md                              # 版本演进 / version history (single source of truth)
 ├── prompts/                                  # prompt fragments
-│   ├── codegen.md, speceval.md               # verbatim from gencode.py:158/200
+│   ├── codegen.md, speceval.md               # ports of paper gencode.py:158/200
 │   ├── linux_to_spec.md                      # Loop A system prompt
 │   ├── ask_first_rules.md                    # shared "ask before generate"
-│   ├── style_rules.md, style_audit.md        # Layer 1a.2 style audit canon + LLM template
+│   ├── style_rules.md, style_audit.md        # Layer 1a style audit canon + LLM template
 │   ├── linux_to_liteos_table.md              # Linux → LiteOS primitive map
 │   ├── format_traps.md                       # 4 compatibility-trap classes
 │   ├── unittest_gen.md                       # Layer T cmocka test gen template
+│   ├── heterogeneous_audit.md                # spec/code 异构审计契约
+│   ├── linux_compare.md                      # Loop C Linux ↔ port 等价比对
+│   ├── prompt_optimize.md                    # Loop C 元提示词
 │   └── validation_checklist.md               # Layer 4 user review aid
-├── commands/                                 # 3 slash commands
+├── commands/                                 # slash commands
 │   ├── specfs-port.md
 │   ├── specfs-port-spec.md
 │   ├── specfs-port-code.md
@@ -93,7 +99,7 @@ User: /specfs-port-code spec/exfat/interface/exfat_lookup.spec
 │   ├── dag.py                                # DAG load/save/walk
 │   ├── extract.py                            # C declaration extractor
 │   └── prompts.py                            # template loading + assembly
-└── skills/specfs-port/                       # v0.5.0: bundled methodology skill (auto-discovered)
+└── skills/specfs-port/                       # bundled methodology skill (auto-discovered)
     ├── SKILL.md                              # full methodology
     └── references/                           # specfs-format / liteos-vfs-mapping / liteos-fs-style /
                                               # exfat-walkthrough / cmocka-host-harness /
@@ -106,41 +112,39 @@ spec/<module>/                                # per-FS spec tree (LLM-authored, 
 └── .specfs.dag.json                          # DAG state (committed to git)
 
 fs/<module>/                                  # LLM-generated code (frozen after approval)
-testsuites/unittest/<module>/                 # cmocka host harness (Layer 2.2 + Layer A regression)
-tools/regress/run_all.sh                      # aggregate regression runner (cmocka + QEMU LTP)
+testsuites/unittest/<module>/                 # cmocka host harness (Wave A regression)
+tools/regress/run_all.sh                      # aggregate regression runner (Wave A cmocka + Wave B QEMU LTP)
 ```
 
 ## Requirements
 
-- Python 3.11+
-- `uv` (https://docs.astral.sh/uv/) — for dependency management
-- The `mcp` Python package (auto-installed by uv)
-- For Layer 1a: OMC LSP (clangd) — see `oh-my-claudecode:mcp-setup`. P1.3 (2026-05-07) made LSP a hard prerequisite; the gcc -fsyntax-only fallback was removed because clangd reads the repo's real `.clangd` config and never has stub-drift.
-- For Layer 2: SSH access to the build host (default `192.168.1.15` per project memory)
+- Python 3.11+。
+- `uv` (https://docs.astral.sh/uv/) — 依赖管理。
+- `mcp` Python 包（uv 自动装）。
+- Layer 1a 需 **OMC LSP (clangd)**；可通过 `oh-my-claudecode:mcp-setup` 安装。clangd 读仓库 `.clangd` 配置，不依赖 stub。
+- Layer 2 需 SSH 到构建主机（默认 `192.168.1.15`，per project memory）。
 
-## Roles (HITL contract)
+## HITL 角色契约 / Roles
 
 | Actor | Writes | Reviews | Approves |
 |---|---|---|---|
-| User | natural-language description, suggestions, free-form feedback | spec drafts, code drafts, build/QEMU results | spec, code, DAG node commits |
-| LLM (Claude) | spec files, code files, AskUserQuestion calls | own outputs (SpecEvaluator opt-in) | nothing |
-| Plugin | DAG state, prompt assemblies, queue ordering | nothing | nothing |
+| User | 自然语言描述、建议、free-form feedback | spec drafts、code drafts、build / QEMU results | spec、code、DAG node commits |
+| LLM (Claude) | spec 文件、code 文件、AskUserQuestion 调用 | 自审（SpecEvaluator opt-in） | 无 |
+| Plugin | DAG 状态、prompt 拼装、队列顺序 | 无 | 无 |
 
-The user does NOT write specs or code directly. They describe needs, review
-plugin output, suggest edits, and approve. The plugin enforces the iteration
-order; the user remains the final arbiter.
+用户**不**直接写 spec 或 code。用户描述需求、审阅插件产物、提建议、最终批准。
+插件强制流水线顺序；用户始终是最终仲裁者。
 
-## Why this exists
+## 为何如此设计 / Why this exists
 
-Pure batch automation (specfs's `gen.py`) requires comprehensive regression
-tests as the validation gate. LiteOS-A kernel FS porting has no such test
-suite — the QEMU smoke test is slow and shallow. HITL fills the gap: the
-human is the missing test oracle. Plugin extends specfs with:
+纯批处理自动化（specfs 的 `gen.py`）依赖完整回归测试集做 validation gate。
+LiteOS-A 内核 FS 移植没有这种测试集——QEMU smoke 既慢又浅。HITL 填上这个缺口：
+**人就是缺失的 test oracle**。本插件在 specfs 之上额外提供：
 
-1. Linux source → spec phase (specfs assumes specs already written)
-2. Ask-first clarification (specfs assumes spec is final)
-3. Layer 0 (LSP) and Layer 4 (user review) (specfs has compile + speceval only)
-4. Per-stage DAG with explicit invariant tracking (specfs has DAG for evolve mode only)
-5. .prompt override (specfs has no prompt-level user control)
+1. Linux 源码 → spec 阶段（specfs 假设 spec 已写好）。
+2. Ask-first 澄清（specfs 假设 spec 终稿）。
+3. Layer 1a (LSP) 与 Layer 4 (用户审核)（specfs 仅有 compile + speceval）。
+4. 含 invariant 继承的 per-stage DAG（specfs 仅在 evolve 模式有 DAG）。
+5. `--prompt-override` 用户级 prompt 控制（specfs 无）。
 
-See `DESIGN.md §Appendix A` for full mapping vs paper.
+完整 vs-paper 对照见 [DESIGN.md §Appendix A](DESIGN.md)。

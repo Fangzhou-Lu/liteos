@@ -1,10 +1,9 @@
 <!--
-Layer-4 user review aid. Plugin renders this as a checklist with auto-filled
-status for each item. User can override any line. Source: PR-DRAFT.md from
-the exFAT port (commit 4a212c9f).
+Layer 4 用户审核 aid — 渲染给用户的 markdown checklist，含自动填值。
+Layer-4 user review aid — markdown checklist rendered to USER (not LLM),
+with status auto-filled from grep / regex / build-log parsing.
 
-This is rendered to the USER (not LLM) — formatted as a markdown checkbox list
-plus auto-collected status from grep / regex / build-log parsing.
+History/version: see ../CHANGELOG.md.
 -->
 
 # Layer 4 Review — Stage `{STAGE_ID}`
@@ -74,16 +73,16 @@ Diff highlighted:
 
 User confirms equivalence or that differences are intentional improvements.
 
-## 7. Auto-layer status (P1.4 ordering: Layer 1a → Layer 3 → Layer 2)
-- [ ] Layer 1a.1 clangd LSP: {COMPILE_STATUS} (clean / N issues)  — P1.3 LSP-only (gcc fallback dropped)
-- [ ] Layer 1a.2 style audit: {STYLE_STATUS} (is_good / score / violations)  — P1.4 sequential after LSP (was P1.2 sibling Layer 1b)
-- [ ] Layer 3 SpecEvaluator: {SPECEVAL_STATUS} (skipped / is_good=true / comments=...)  — P1.4 moved BEFORE Layer 2
+## 7. Auto-layer status (ordering: Layer 1a → Layer 3 → Layer 2)
+- [ ] Layer 1a.1 clangd LSP: {COMPILE_STATUS} (clean / N issues)
+- [ ] Layer 1a.2 style audit: {STYLE_STATUS} (is_good / score / violations)
+- [ ] Layer 3 SpecEvaluator: {SPECEVAL_STATUS} (skipped / is_good=true / comments=...)
 - [ ] Layer 2 build.sh: {BUILD_STATUS} (pass / fail / image_path)
-- [ ] Layer 2 cmocka unit-tests: {CMOCKA_STATUS} (pass N/N / fail / skipped)  — P1.4 absorbed from holistic SpecValidator
+- [ ] Layer 2 cmocka unit-tests: {CMOCKA_STATUS} (pass N/N / fail / skipped)
 - [ ] Layer 2 QEMU smoke: {QEMU_STATUS} (pass / fail)
 
 ## 8. Layer T (cmocka test gen, Loop B Step 3a)
-- [ ] Layer T test draft: {TESTGEN_STATUS} (skipped / N testpoints / iterations=M)  — P1.4 moved from Loop A to Loop B
+- [ ] Layer T test draft: {TESTGEN_STATUS} (skipped / N testpoints / iterations=M)
 
 ## 9. Diff vs ancestor / vs backup
 ```

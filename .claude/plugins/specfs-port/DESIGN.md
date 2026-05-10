@@ -1,7 +1,14 @@
-# specfs-port plugin — implementation spec
+# specfs-port plugin — implementation spec / 实现规格
 
 > Built on SYSSPEC paper (FAST'26 arXiv:2512.13047) but extended with HITL workflow,
 > layered defense, ask-first clarification, and DAG-managed cross-stage dependencies.
+
+> 完整版本/Phase 演进见 [CHANGELOG.md](CHANGELOG.md)；本文件只描述当前生效的设计。
+> Version/phase history lives in [CHANGELOG.md](CHANGELOG.md); this file
+> describes the **current** design only.
+
+> 防御层各层完整契约与 retry 预算见
+> [skills/specfs-port/SKILL.md §防御层次](skills/specfs-port/SKILL.md#防御层次plugin-与-skill-共享的契约--defense-layer-topology)。
 
 ## 1. Goals & non-goals
 
@@ -12,9 +19,9 @@
 - Plugin enforces **ask-first** clarification before generation when LLM is uncertain
 - Plugin controls iteration order via stateful MCP server; user can't be skipped
 - DAG of approved stage nodes preserves cross-stage dependencies + invariants
-- **Layer T (v0.3.4)**: spec-derived cmocka test generation in the same HITL pass
-  as code review — eliminates the test-debt failure mode where regression coverage
-  silently lags behind merged code (see CHANGELOG v0.3.4 for the v0.3.2-era gap).
+- **Layer T**: spec-derived cmocka test generation in the same HITL pass as code
+  review — eliminates the test-debt failure mode where regression coverage
+  silently lags behind merged code.
 - Reproducibility = "same user decisions → same outputs"; session JSON is the trace
 
 ### Non-goals
@@ -32,7 +39,7 @@
 | **LLM (Claude)** | spec files, code files, response messages, AskUserQuestion calls | own outputs (SpecEvaluator opt-in) | nothing |
 | **Plugin (MCP server)** | DAG state, prompt assemblies, queue ordering | nothing | nothing |
 
-### 2.1.1 Mapping to paper §4.5 (v0.4 alignment)
+### 2.1.1 Mapping to paper §4.5
 
 The SpecFS paper §4.5 defines three components. Our porting variant maps as
 follows — names of our existing tools / commands are NOT renamed (avoid churn);
@@ -52,23 +59,22 @@ this table is the canonical Rosetta stone.
   [SPECIFICATION], same as paper's atomfs_rename example.
 - **SpecEvaluator** (paper §4.5 sub-component of SpecCompiler): Layer 3 in our
   Loop B, single LLM round per code-gen retry, `prompts/speceval.md`. **Spec
-  conformance only** — P1.2 (2026-05-07) split style back out as a sibling of
-  Layer 1 compile (was briefly folded in during v0.4 P1.1; reverted because
-  combined comments mixed style nits with spec violations and made fix
-  prioritisation harder). Style canon lives in `prompts/style_rules.md`,
-  consumed by the standalone style-audit layer (`prompts/style_audit.md`).
+  conformance only** — style is a separate sequential sub-step inside Layer 1a
+  (canon lives in `prompts/style_rules.md`, LLM template in
+  `prompts/style_audit.md`). Splitting them keeps each layer's diagnostic
+  source crisp.
 
 **Things we have, paper does not:**
 
 - DAG with multi-stage spec inheritance (`dag_extract_invariants`) — needed
   because LiteOS porting builds the FS bottom-up across many merges, paper's
   AtomFS is one shot per FS.
-- Layer T (cmocka test generation, v0.3.4) — runs after `spec_gen_approve`
-  in v0.4 (was after `code_gen_approve` in v0.3.4); auto-approved on internal
-  self-check pass.
-- LITEOS_DIGEST + FRAGMENT INDEX (v0.4) — LiteOS-A-specific rules the paper
-  did not need (BSD-3 license, libsec, FSMAP_ENTRY linker tables, partition
-  vs disk addressing). Compact preamble; LLM pulls full detail on demand via
+- Layer T (cmocka test generation) — runs in Loop B Step 3a, immediately after
+  `code_gen_submit`, so the test sees real generated symbols rather than a
+  spec abstraction. Auto-approved on internal self-check pass.
+- LITEOS_DIGEST + FRAGMENT INDEX — LiteOS-A-specific rules the paper did not
+  need (BSD-3 license, libsec, FSMAP_ENTRY linker tables, partition vs disk
+  addressing). Compact preamble; LLM pulls full detail on demand via
   `fetch_prompt_fragment`.
 
 **Things paper has, we explicitly skipped:**
@@ -77,9 +83,10 @@ this table is the canonical Rosetta stone.
   separately, paper §4.5). Skipped per user decision: "拆分两阶段是当时 LLM
   的局限"; current Claude handles single-shot generation. Locking still gets
   separate treatment via spec's optional `## Refine Prompt` segment.
-- ThreadPoolExecutor parallelism (`spec2code.py:188`). Replaced by P4.1
-  Claude `Task()` agent dispatch — same parallel intent, native to our
-  runtime, no additional process management.
+- ThreadPoolExecutor parallelism (`spec2code.py:188`). Replaced by Claude
+  `Task()` agent dispatch (see `commands/specfs-port-spec.md §Batch mode`)
+  — same parallel intent, native to our runtime, no additional process
+  management.
 
 ### 2.2 The two loops
 
@@ -115,29 +122,26 @@ Plugin: assemble codegen prompt
     ▼
 LLM: scan for ambiguities (Layer -1) → AskUserQuestion if needed → generate code
     ▼
-Plugin: Step 3a — Layer T cmocka test gen (default ON since v0.3.4; P1.4
-    moved from Loop A → Loop B so tests see real generated symbols)
+Plugin: Step 3a — Layer T cmocka test gen (default ON; tests see the real
+    just-generated C symbols, not a spec abstraction)
     Plugin assembles unittest_gen.md prompt from {generated_code, spec, harness_layout}
     LLM produces test_<stage>.c.draft (one testpoint per [SPECIFICATION] Case +
     one per testable Invariant; no full-VFS dependencies — those go to Layer 2.3 QEMU smoke).
     Max 3 retries per session (escalate to Loop A if exceeded — spec is under-specified).
     Test draft is HELD; final approval together with code in Layer 4.
     ▼
-Layer 1a: Compile + Style (sequential, single layer — P1.4 folded P1.2 sibling)
-    ├── 4.1 LSP compile  (clangd via OMC LSP — P1.3 LSP-only) — max 4 retries
+Layer 1a: Compile + Style (sequential, single layer)
+    ├── 4.1 LSP compile  (clangd via OMC LSP) — max 4 retries
     └── 4.2 style audit  (LLM self-judge vs prompts/style_rules.md) — max 5 retries
     Diagnostics injected as [Modification suggestions] with source=lsp|style.
-    (v0.3.3 merged former Layer 0 LSP into Layer 1; P1.2 split Layer S out
-     into a sibling Layer 1b; P1.4 collapsed it back into Layer 1a as a
-     sequential second sub-step — diagnostic source stays crisp without
-     paying for two parallel-layer tabulations.)
+    Independent retry budgets keep diagnostic source crisp.
     ▼
-Layer 3: SpecEvaluator — spec conformance ONLY (default ON since v0.2,
-    --speceval-off to skip). Style is NOT inlined here; that's Layer 1a.2's job.
-    P1.4 moved this layer BEFORE Layer 2 (was AFTER) so spec-conformance
-    defects are caught BEFORE paying build/QEMU cost.
+Layer 3: SpecEvaluator — spec conformance ONLY (default ON, --speceval-off
+    to skip). Style is NOT inlined here; that's Layer 1a.2's job.
+    Runs BEFORE Layer 2 so spec-conformance defects are caught before
+    paying build/QEMU cost.
     ▼
-Layer 2: Unified build-tier gate (P1.4 absorbed SpecValidator) — single budget max 3 retries
+Layer 2: Unified build-tier gate (build + cmocka + QEMU) — single budget max 3 retries
     ├── 6.1 build (run_build_kernel)
     ├── 6.2 cmocka unit-test exec (covers test draft from Step 3a + prior approved tests)
     └── 6.3 QEMU smoke (run_qemu_smoke)
@@ -146,7 +150,7 @@ Layer 2: Unified build-tier gate (P1.4 absorbed SpecValidator) — single budget
     failing pre-existing testpoint → loop to Step 3 (code regen).
     ▼
 Layer 4: User review with diff + build status + cmocka result + QEMU log + style score + speceval verdict
-    + cmocka test draft (code AND test reviewed in one HITL pass — v0.3.4)
+    + cmocka test draft (code AND test reviewed in one HITL pass)
     ├─ approve both → save code+test to final paths, mark code.approved_at + tests.approved_at
     ├─ suggest code edits → feed back as [Modification suggestions] → regen code (+ Layer T re-fires)
     ├─ suggest test edits → feed back to Layer T only via test_gen_refine
@@ -176,10 +180,9 @@ mount (root)
 
 Topological constraint: a stage's spec generation can begin only after **all ancestor code layers** are approved. Within a stage, multiple specs (e.g., `lookup.spec` + `readdir.spec` + `open.spec`) can be generated in parallel via sub-agents if they share no [RELY] dependencies on each other.
 
-### 2.4 Spec coverage rule — interface + narrow utilities only (hard rule, v0.4)
+### 2.4 Spec coverage rule — interface + narrow utilities only (hard rule)
 
-**Refined 2026-05-07 after the mkdir over-spec experience.** Initial v0.4 read
-of "1 spec / 1 function" was too literal — promoted 6 helper specs for mkdir
+Initial reading of "1 spec / 1 function" was too literal — promoted 6 helper specs for mkdir
 including 4 implementation orchestrators (`exfat_add_entry`,
 `exfat_alloc_new_dir`, `exfat_init_dir_entry`, `exfat_init_ext_entry`) that
 the paper's AtomFS reference does NOT spec. Implementation orchestrators are
@@ -201,18 +204,18 @@ classes:
 - Field-layout step helpers (set bit pattern N at offset M): `init_dir_entry`, `init_ext_entry`
 - Internal rollback / loop strategies (these are commit-message + cmocka concerns)
 
-**Mkdir module worked example** (post-v0.4, post-prune):
+**Mkdir module worked example** (post-prune):
 ```
 spec/exfat/inode/
 ├── exfat_mkdir.spec            (a) — VOP, 7 invariants
 ├── exfat_calc_num_entries.spec (c) — formula, 2 invariants
 ├── exfat_zeroed_cluster.spec   (b) — Linux public, 3 invariants
-└── exfat_inode_alloc.spec      (c) — narrow util, predates v0.4
+└── exfat_inode_alloc.spec      (c) — narrow util
 ```
 
-The 4 deleted helper specs (`add_entry`, `alloc_new_dir`, `init_dir_entry`,
-`init_ext_entry`) were moved to `backup/spec/exfat/inode/v04-pruned-2026-05-07/`
-for archival.
+The historical pruned helpers (`add_entry`, `alloc_new_dir`, `init_dir_entry`,
+`init_ext_entry`) live in a `backup/spec/exfat/inode/` archive directory
+and are no longer part of the active spec tree.
 
 **Auto-classifier** in `tools/specfs_eval/collect.py::_classify_invariant`
 implements this rule deterministically:
@@ -304,7 +307,7 @@ specfs.code_gen_refine(session_id, user_suggestion)
     → {next_prompt}
 ```
 
-### 4.3.5 Layer T (v0.3.4 — cmocka test gen)
+### 4.3.5 Layer T (cmocka test gen)
 ```
 specfs.toggle_test_gen(session_id, enabled: bool)
 specfs.test_gen_start(session_id)
@@ -331,7 +334,6 @@ specfs.test_gen_approve(session_id, final_test_text)
 ```
 # Layer 1a (compile) is LSP-only: caller runs OMC clangd LSP and feeds
 # diagnostics back via specfs.inject_diagnostics(layer="compile", source="lsp", ...).
-# The gcc -fsyntax-only `run_compile_check` MCP tool was removed in P1.3 (2026-05-07).
 specfs.run_build_kernel() → {ok, stderr, image_path} # build.sh fast path
 specfs.run_qemu_smoke(commands) → {ok, serial_log}
 specfs.inject_diagnostics(session_id, layer, payload)
@@ -432,7 +434,7 @@ You need to generate code according to provided specification and comments.
 
 [Modification suggestions] ← gencode.py:180, only on retry — multi-source
 {tagged segments by origin:
-    <source: compile (lsp)>...</source> ← v0.3.3 merged Layer 0; P1.3 dropped gcc fallback (LSP-only)
+    <source: compile (lsp)>...</source>
     <source: style>...</source>
     <source: build>...</source>
     <source: qemu>...</source>
@@ -489,7 +491,7 @@ Example phrasings:
     "files": ["spec/exfat/interface/exfat_mount.spec"],
     "git_sha": "<oid>",
     "linux_source_ref": "linux/fs/exfat/super.c",
-    "approved_at": "2026-04-30T01:14:00Z",
+    "approved_at": "<ISO-8601 timestamp>",
     "approval_iterations": 2,
     "user_clarifications": [
     {"q": "...", "a": "..."}
@@ -498,7 +500,7 @@ Example phrasings:
     "code": {
     "files": ["fs/exfat/exfat_super.c", "fs/exfat/exfat_balloc.c"],
     "git_sha": "<oid>",
-    "approved_at": "2026-04-30T...",
+    "approved_at": "<ISO-8601 timestamp>",
     "approval_iterations": 1,
     "validations_passed": {
     "lsp": true, "compile": true, "build": true, "qemu_smoke": true
@@ -522,11 +524,11 @@ Example phrasings:
 | Layer | Trigger | Tool | On failure | Max retries |
 |---|---|---|---|---|
 | -1 Ask-first | Before any LLM gen | LLM self-scan + AskUserQuestion | Pause until user clarifies | (not iterative) |
-| **T cmocka test gen** (v0.3.4 ON; P1.4 moved to Loop B Step 3a) | After Step 3 codegen (Loop B), before Layer 1a | LLM assembles `test_<stage>.c.draft` from spec [SPECIFICATION] Cases + Invariants + just-generated code symbols via `prompts/unittest_gen.md` | `test_gen_refine` with prior draft + user feedback → regen | 3 (then escalate to Loop A — spec under-specified) |
-| **1a.1 Compile** (P1.3: LSP-only) | After Step 3a (Loop B) | clangd via OMC LSP — reads repo `.clangd` config so it sees real LiteOS-A headers (no stub-drift). gcc -fsyntax-only fallback removed in P1.3. | Inject diagnostics with source=lsp → re-codegen | 4 |
-| **1a.2 Style** (P1.4: sequential sub-step inside 1a; was Layer 1b sibling in P1.2; was Layer S in v0.3) | After 1a.1 LSP passes | auto-check (clang-format dry-run + libsec scan + length heuristic) → LLM self-judge against `prompts/style_rules.md` → JSON {is_good, score, violations} | Inject violations with source=style → re-codegen | 5 |
-| **3 SpecEvaluator** (v0.2 ON; P1.4 moved BEFORE Layer 2) | After Layer 1a (1a.1+1a.2) passes | LLM self-judge → JSON {is_good, comments} — **spec conformance only**, style stays in Layer 1a.2 | Inject comments → re-codegen | 8 (paper) |
-| **2 Build + cmocka exec + QEMU smoke = SpecValidator** (P1.4 absorbed holistic SpecValidator) | After Layer 3 passes; per-stage | run_build_kernel → cmocka host wave (covers Step 3a draft + prior tests) → qemu-system-arm smoke | Inject build/cmocka/qemu log → re-codegen (or re-Step-3a if cmocka failure is on the just-generated test) | 3 (single shared budget) |
+| **T cmocka test gen** | After Step 3 codegen (Loop B), before Layer 1a | LLM assembles `test_<stage>.c.draft` from spec [SPECIFICATION] Cases + Invariants + just-generated code symbols via `prompts/unittest_gen.md` | `test_gen_refine` with prior draft + user feedback → regen | 3 (then escalate to Loop A — spec under-specified) |
+| **1a.1 Compile** (LSP-only) | After Step 3a (Loop B) | clangd via OMC LSP — reads repo `.clangd` config so it sees real LiteOS-A headers (no stub-drift). | Inject diagnostics with source=lsp → re-codegen | 4 |
+| **1a.2 Style** (sequential sub-step inside 1a) | After 1a.1 LSP passes | auto-check (clang-format dry-run + libsec scan + length heuristic) → LLM self-judge against `prompts/style_rules.md` → JSON {is_good, score, violations} | Inject violations with source=style → re-codegen | 5 |
+| **3 SpecEvaluator** (runs BEFORE Layer 2) | After Layer 1a (1a.1+1a.2) passes | LLM self-judge → JSON {is_good, comments} — **spec conformance only**, style stays in Layer 1a.2 | Inject comments → re-codegen | 8 (paper) |
+| **2 Build + cmocka exec + QEMU smoke** | After Layer 3 passes; per-stage | run_build_kernel → cmocka host wave (covers Step 3a draft + prior tests) → qemu-system-arm smoke | Inject build/cmocka/qemu log → re-codegen (or re-Step-3a if cmocka failure is on the just-generated test) | 3 (single shared budget) |
 | 4 User review | After Layer 2 passes | diff + style score + speceval verdict + build/cmocka/QEMU log + cmocka test draft | Inject user suggestion → re-codegen (or test_gen_refine for test-only edits) | unlimited |
 
 Each layer has its own [Modification suggestions] segment header so the LLM can
@@ -549,19 +551,19 @@ Triggers Loop A. Plugin:
 6. On approve: call `spec_gen_approve` to commit DAG node spec layer
 
 ### `/specfs-port-code <spec-path>`
-Triggers Loop B. Plugin (P1.4 ordering):
+Triggers Loop B. Plugin:
 1. Validates spec is approved
 2. Calls `code_gen_start` → assembled codegen prompt with all injection segments
 3. Skill body runs: Step 3 codegen → Step 3a Layer T cmocka test gen → Step 4 Layer 1a (sequential: 4.1 LSP → 4.2 style) → Step 5 Layer 3 SpecEval → Step 6 Layer 2 (build → cmocka exec → QEMU smoke) → Step 7 Layer 4 user review.
 4. On final approval: call `code_gen_approve` then `test_gen_approve` → commit DAG node code+tests layers + sync common.header + apply Makefile/main.c deltas
 
 ### Optional flags
-- `--speceval-off` (v0.2 ON by default) — disable Layer 3 SpecEvaluator self-audit
-- `--style-off` (v0.3 ON; P1.2 sibling; P1.4 sequential sub-step inside 1a) — disable the style sub-step
-- `--test-off` (v0.3.4 ON by default; P1.4 also skips Layer 2.2 cmocka exec) — disable cmocka test gen + exec
-- `--no-build` — skip Layer 2 entirely (no build / no cmocka exec / no QEMU)
-- `--no-regress` — skip the module-completion `tools/regress/run_all.sh` reminder
-- `--prompt-override <file>` — bypass spec-derived prompt assembly
+- `--speceval-off` (default ON) — disable Layer 3 SpecEvaluator self-audit.
+- `--style-off` (default ON) — disable the Layer 1a.2 style sub-step.
+- `--test-off` (default ON) — disable Layer T cmocka test gen + Layer 2.2 cmocka exec.
+- `--no-build` — skip Layer 2 entirely (no build / no cmocka exec / no QEMU).
+- `--no-regress` — skip the module-completion `tools/regress/run_all.sh` reminder.
+- `--prompt-override <file>` — bypass spec-derived prompt assembly.
 
 ## 9. Edge cases & open questions
 
@@ -610,10 +612,10 @@ The plugin design assumes single FS at a time per project. Multiple FSes
 
 ## 10. Iteration limits & cost guards
 
-- Layer 1a.1 (LSP compile) retries: 4. Layer 1a.2 (style audit, sequential after 1a.1 — P1.4 collapsed P1.2 sibling Layer 1b) retries: 5. Independent budgets.
-- Layer 2 (build + cmocka exec + QEMU smoke, P1.4 unified): single shared budget = 3 retries across all three sub-steps. After exhaustion, escalate to user.
-- Layer 3 retries: 8 (paper). P1.4 moved this layer BEFORE Layer 2. User can override.
-- **Layer T retries: 3.** v0.3.4. P1.4 fires this layer in Loop B Step 3a (was Loop A post-spec_gen_approve). Hard cap is intentionally tight: if Layer T can't converge in 3 rounds, the spec [SPECIFICATION] Cases are likely under-specified (no testable post-condition, ambiguous error path). Escalate back to Loop A and refine the spec rather than grinding more rounds in test gen.
+- Layer 1a.1 (LSP compile) retries: 4. Layer 1a.2 (style audit, sequential after 1a.1) retries: 5. Independent budgets.
+- Layer 2 (build + cmocka exec + QEMU smoke, single layer): shared budget = 3 retries across all three sub-steps. After exhaustion, escalate to user.
+- Layer 3 retries: 8 (paper). User can override.
+- **Layer T retries: 3.** Fires in Loop B Step 3a. Hard cap is intentionally tight: if Layer T can't converge in 3 rounds, the spec [SPECIFICATION] Cases are likely under-specified (no testable post-condition, ambiguous error path). Escalate back to Loop A and refine the spec rather than grinding more rounds in test gen.
 - Sub-agent dispatch: max 4 parallel (avoid Claude Code rate limits).
 - AskUserQuestion: no hard limit, but plugin tracks count per session and warns
  if > 5 in a single generation step (suggests spec is too vague).

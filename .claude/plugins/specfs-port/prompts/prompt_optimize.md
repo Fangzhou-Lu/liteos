@@ -1,22 +1,24 @@
 <!--
-Loop C — prompt-template optimisation meta-prompt (P1.6 Wave 2, 2026-05-08).
+Loop C — prompt-template 优化元提示词，由 `prompt_optimize_propose` 触发。
+Loop C — prompt-template optimisation meta-prompt; triggered by `prompt_optimize_propose`.
 
-Triggered by `prompt_optimize_propose`. Reads accumulated Loop C
-recommendations from docs/<module>_prompt_feedback.md and asks the LLM to
-roll them up into a concrete edit of a TARGET prompt template
-(linux_to_spec.md, codegen.md, or one of the on-demand fragments).
+Reads accumulated Loop C recommendations from
+`docs/<module>_prompt_feedback.md` and asks the LLM to roll them up into a
+concrete edit of a TARGET prompt template (linux_to_spec.md / codegen.md /
+on-demand fragment).
 
 Hard constraints baked in:
   - Output is the FULL revised prompt text, not a diff. Server diffs vs
     current to surface the change to HITL.
   - Edits must be ADDITIVE (paper §"Sharpen the Spec" methodology — the
-    prompt evolves monotonically, with humans doing trim passes manually).
+    prompt evolves monotonically; humans do trim passes manually).
   - Recommendations that duplicate rules already in the template must be
     dropped silently — the LLM is the de-duplication layer.
-  - Recommendations whose merge would require restructuring sections (e.g.
-    splitting [SCOPE GUARDRAILS] into two) MUST be flagged with a comment
-    `# RESTRUCTURE NEEDED:` instead of executed — restructuring is a HITL
-    decision.
+  - Recommendations whose merge would require restructuring sections
+    MUST be flagged with `# RESTRUCTURE NEEDED:` instead of executed —
+    restructuring is a HITL decision.
+
+History/version: see ../CHANGELOG.md.
 
 Placeholder syntax: {NAME} substituted by server/prompts.py.
 -->
@@ -57,12 +59,11 @@ comment block and the `[SECTION]` / `## Heading` skeleton preserved).
 Do NOT wrap the output in code fences. Do NOT prefix with "Here is the
 revised prompt:" or any other prose.
 
-Bump the version line in the leading comment block. Convention: append a
-new dated line like:
-  P1.7 (2026-05-08) integrate {N} additive recommendations from Loop C:
-    - <one-line summary of recommendation 1>
-    - <one-line summary of recommendation 2>
-    ...
+Append a one-line summary of this round's integrated recommendations to
+the leading comment block (just an "integrate {N} additive recommendations
+from Loop C" note plus a few one-line summaries of what was merged). Do
+NOT introduce a numbered version tag — release-history lives in
+`../CHANGELOG.md`.
 
 [QUALITY GATES — your output is rejected if]
 - Any section header from the current template is missing in the output

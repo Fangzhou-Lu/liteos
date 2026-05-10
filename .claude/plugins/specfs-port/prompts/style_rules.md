@@ -1,7 +1,10 @@
 <!--
-Hard style rules for LiteOS-A kernel FS code. Loaded as {STYLE_RULES} placeholder.
-Source: specfs-port skill +后续, validated through fs/exfat QEMU port (commit 4a212c9f).
-Compiler does NOT enforce most of these — LLM must self-enforce + Layer 4 user reviews.
+LiteOS-A 内核 FS 代码硬性风格规则，由 codegen / style_audit 加载为 {STYLE_RULES}。
+Hard style rules for LiteOS-A kernel FS code; loaded as {STYLE_RULES}
+placeholder by codegen / style_audit. Compiler does NOT enforce most of
+these — LLM must self-enforce, Layer 4 user reviews.
+
+History/version: see ../CHANGELOG.md.
 -->
 
 ## Hard rules (non-negotiable)

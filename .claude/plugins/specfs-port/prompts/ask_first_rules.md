@@ -1,9 +1,13 @@
 <!--
-Shared "ask before generate" instruction block. Loaded as {ASK_FIRST_RULES}
-placeholder by both linux_to_spec.md and codegen.md.
+"先问后做"指令块 — Loop A / Loop B 共用，由 linux_to_spec.md 与 codegen.md
+分别按需 fetch。
+Shared "ask before generate" instruction block — fetched on-demand by both
+linux_to_spec.md (Loop A) and codegen.md (Loop B).
 
-Cross-cuts both Loop A (spec) and Loop B (code). The ROI of asking 1 question
-is far higher than generating wrong artifact and reviewing 200 lines.
+Rationale: ROI of one clarifying question >> generating a wrong artifact
+and reviewing 200 lines.
+
+History/version: see ../CHANGELOG.md.
 -->
 
 Before producing the artifact, scan ALL inputs for the following four classes

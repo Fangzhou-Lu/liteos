@@ -1,22 +1,17 @@
 <!--
-v0.3.2 起：从已批准的 spec 派生 cmocka 单元测试草稿。
-v0.3.4 起：服务端真正接通 test_gen_{start,submit,refine,approve}。
-v0.3.4 ~ P1.3 期：调用时机在 Loop A 的 `spec_gen_approve` 之后，与 Loop B
-代码生成并行；不耦合 Layer 1 / Layer 3 的通过条件。
-P1.4 (2026-05-07) 拓扑：本层从 Loop A 移到 Loop B 的 Step 3a，紧跟代码
-生成之后，取代了原"测试看 spec 抽象、代码看具体符号"的解耦——现在测试
-看到的是刚生成的 C 代码真实符号，避免 spec/code 命名漂移导致的 test 失配。
-通过后等待 Step 7 与代码同审批。
+Layer T cmocka 测试派生 — 从已批准 spec + 刚生成的代码合成单元测试。
+Layer T cmocka test gen — synthesize a cmocka unit-test from approved spec + freshly generated code.
 
-输入：原 spec（含 [SPECIFICATION] 各 Case）+ 刚生成的代码 + 已存在的
-testsuites/unittest/<name>_host/ 目录骨架。
+调用时机：Loop B Step 3a，紧跟代码生成之后；测试看到的是真实生成的
+C 符号（函数名、签名、文件路径），不再是 spec 抽象。
+Triggered: Loop B Step 3a, immediately after codegen so the test references real C symbols, not a spec abstraction.
 
-输出：单文件 `test_<stage>.c`，cmocka 风格，含 setup/teardown + 每个 Case
-对应至少一个测点（happy + 各 -EXXX 负向）。
+Inputs:  approved spec ([SPECIFICATION] cases) + just-generated code + existing
+         testsuites/unittest/<name>_host/ skeleton.
+Output:  single file `test_<stage>.c`, cmocka-style, with setup/teardown +
+         one testpoint per Case (happy + each -EXXX negative).
 
-P1.9 (2026-05-10) 论文对齐：spec 不再要求 Behavior Obligations 表，本
-prompt 也同步删除"逐 row 强制覆盖"段。每 Case 与每 testable Invariant
-仍各自产一个测点。
+History/version: see ../CHANGELOG.md.
 -->
 
 This is a cmocka unit-test synthesis task for a freshly generated LiteOS-A FS

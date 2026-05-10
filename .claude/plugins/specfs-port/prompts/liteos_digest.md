@@ -1,13 +1,15 @@
 <!--
-LiteOS-A kernel FS digest. Loaded as {LITEOS_DIGEST} placeholder by codegen.md.
-Replaces style_rules.md + linux_to_liteos_table.md + format_traps.md +
-ask_first_rules.md (those four were 22K combined; this digest is ~1.7K and
-covers the rules the LLM cannot infer from the spec). Used in CODE stage only;
-spec stage does not need this — see linux_to_spec.md.
+LiteOS-A 内核 FS digest — 由 codegen.md 加载为 {LITEOS_DIGEST}。
+LiteOS-A kernel FS digest — loaded as {LITEOS_DIGEST} placeholder by
+codegen.md. Compact (~1.7K) replacement for style_rules / linux_to_liteos_table /
+format_traps / ask_first_rules combined; covers the rules the LLM cannot
+infer from the spec. Used in CODE stage only — spec stage does not need it.
 
 If a code-gen retry round detects a specific class of error (libsec violation,
 disk_id/part_id mix, FSMAP miswiring, packed-struct unaligned access), the
 plugin lazy-injects the corresponding detailed fragment. Default: digest only.
+
+History/version: see ../CHANGELOG.md.
 -->
 
 # Memory & strings
