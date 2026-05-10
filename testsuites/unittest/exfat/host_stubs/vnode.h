@@ -2,8 +2,8 @@
  * Provides the minimal struct shapes used by VFS callback layer TUs:
  *   exfat_open_close.c / exfat_attr.c / exfat_lookup.c /
  *   exfat_file.c / exfat_readdir.c
- * VFS service functions (VnodeAlloc, VnodeFree, VfsHashInsert) are
- * stubbed as simple heap wrappers — sufficient for unit-test isolation. */
+ * VFS service functions (VnodeAlloc, VnodeFree, VfsHashInsert, VfsHashRemove)
+ * are stubbed as simple heap wrappers/no-ops — sufficient for unit-test isolation. */
 #ifndef _HOST_STUB_VNODE_H
 #define _HOST_STUB_VNODE_H
 
@@ -119,6 +119,11 @@ static inline int VfsHashInsert(struct Vnode *vp, uint32_t hash)
 {
     (void)vp; (void)hash;
     return 0;
+}
+
+static inline void VfsHashRemove(struct Vnode *vp)
+{
+    (void)vp;
 }
 
 static inline int VfsHashGet(const struct Mount *mount, uint32_t hash,
