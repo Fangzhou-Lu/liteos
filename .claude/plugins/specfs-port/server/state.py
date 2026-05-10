@@ -1,18 +1,21 @@
 """
-specfs-port plugin — in-memory session state.
+specfs-port plugin — session state.
 
-A session is the runtime container for one /specfs-port-spec or /specfs-port-code
-invocation. The MCP server holds these in a dict keyed by session_id; they live
-across tool calls within a slash-command execution but do not persist beyond
-plugin restart. Persistent state lives in the DAG file (see dag.py).
+A session is the runtime container for one /specfs-port-spec or
+/specfs-port-code invocation. The MCP server holds these in an in-memory
+dict keyed by session_id and (since 2026-05-09) mirrors them to
+``.specfs/sessions/<id>.json`` so that an OpenCode / MCP-server restart
+does not orphan an in-flight workflow. Persistent stage state lives in
+the DAG file (see dag.py).
 """
 from __future__ import annotations
 
+import json
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 
 # repo root resolution: plugin lives at <repo>/.claude/plugins/specfs-port/server/
@@ -141,6 +144,13 @@ class Session:
     # toggle_fast_eval_mode (rare).
     fast_eval_mode: bool = False
 
+    # P1.7 (2026-05-10): SpecEval gate. Set to True by code_gen_approve when
+    # speceval_enabled. Cleared by enforce_speceval after a verdict is
+    # recorded. test_gen_start refuses to run while this flag is True so
+    # SpecEval can never be silently skipped — caller MUST spawn an
+    # independent reviewer agent (e.g. Momus subagent) before proceeding.
+    speceval_pending: bool = False
+
     # Accumulated context that will be re-injected on refine rounds
     clarifications: list[Clarification] = field(default_factory=list)
     failures: list[FailureRecord] = field(default_factory=list)
@@ -158,3 +168,62 @@ def new_session(module: str, mode: str = "gen") -> Session:
         module=module,
         mode=mode,  # type: ignore[arg-type]
     )
+
+
+_SESSIONS_DIR_NAME = ".specfs/sessions"
+
+
+def _sessions_dir() -> Path:
+    return repo_root() / _SESSIONS_DIR_NAME
+
+
+def _session_path(session_id: str) -> Path:
+    return _sessions_dir() / f"{session_id}.json"
+
+
+def _to_jsonable(sess: Session) -> dict[str, Any]:
+    return asdict(sess)
+
+
+def _from_jsonable(d: dict[str, Any]) -> Session:
+    clars_raw = d.pop("clarifications", []) or []
+    fails_raw = d.pop("failures", []) or []
+    sess = Session(**d)
+    sess.clarifications = [Clarification(**c) for c in clars_raw]
+    sess.failures = [FailureRecord(**f) for f in fails_raw]
+    return sess
+
+
+def save_session(sess: Session) -> Path:
+    """Persist session to ``.specfs/sessions/<id>.json``. Best-effort —
+    failures (e.g. read-only fs in tests) are silently ignored; in-memory
+    state remains the source of truth and the disk copy is purely a
+    restart-survival aid.
+    """
+    p = _session_path(sess.session_id)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(_to_jsonable(sess), indent=2), encoding="utf-8")
+    except OSError:
+        pass
+    return p
+
+
+def load_session(session_id: str) -> Session | None:
+    """Return persisted session or None when no on-disk copy exists."""
+    p = _session_path(session_id)
+    if not p.exists():
+        return None
+    try:
+        return _from_jsonable(json.loads(p.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return None
+
+
+def drop_session(session_id: str) -> None:
+    """Remove the on-disk mirror, if any. Idempotent."""
+    p = _session_path(session_id)
+    try:
+        p.unlink(missing_ok=True)
+    except OSError:
+        pass

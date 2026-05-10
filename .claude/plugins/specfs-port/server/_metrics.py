@@ -133,6 +133,15 @@ def _extract_session_id(kwargs: dict[str, Any], result: Any) -> Optional[str]:
     return None
 
 
+def _is_test_invocation() -> bool:
+    """Tag events fired from inside pytest so production aggregates can filter
+    them out. Without this tag the test-suite's negative paths (1099 sessions
+    × ~5 tool calls each) drown out real-user metrics — e.g. session_start
+    1125 vs ~10 production sessions, errors 340 vs ~0 in production.
+    """
+    return "PYTEST_CURRENT_TEST" in os.environ
+
+
 def emit(event: dict[str, Any]) -> None:
     """Append one JSON event to the log file. Never raises — telemetry must
     not crash production."""
@@ -222,6 +231,7 @@ def install_metrics(mcp: Any) -> None:
                         "is_llm_round_trigger": is_trigger,
                         "is_llm_ingest": is_ingest,
                         "error": err,
+                        "is_test": _is_test_invocation(),
                     })
             return decorator(wrapper)
 
@@ -246,6 +256,12 @@ class SessionAggregate:
     llm_output_tokens_est: int = 0   # tokens we got BACK from the LLM
     llm_total_gap_s: float = 0.0     # sum of inter-event gaps for this session
     errors: int = 0
+    expected_rejections: int = 0
+    unexpected_errors: int = 0
+    errors_per_tool: dict[str, int] = field(default_factory=dict)
+    prompt_size_max_tokens: int = 0
+    prompt_size_total_tokens: int = 0
+    prompt_size_per_tool_tokens: dict[str, int] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -258,7 +274,30 @@ class SessionAggregate:
             "llm_output_tokens_est": self.llm_output_tokens_est,
             "llm_total_gap_s": round(self.llm_total_gap_s, 4),
             "errors": self.errors,
+            "expected_rejections": self.expected_rejections,
+            "unexpected_errors": self.unexpected_errors,
+            "errors_per_tool": dict(self.errors_per_tool),
+            "prompt_size_max_tokens": self.prompt_size_max_tokens,
+            "prompt_size_avg_tokens": (
+                round(self.prompt_size_total_tokens / max(self.llm_rounds, 1))
+            ),
+            "prompt_size_per_tool_tokens": dict(self.prompt_size_per_tool_tokens),
         }
+
+
+_EXPECTED_REJECTION_PREFIXES = ("ValueError(", "KeyError(", "FileNotFoundError(")
+
+
+def _classify_error(err: str) -> str:
+    """Distinguish input-validation rejections (caller passed bad args) from
+    unexpected internal errors. Test-suite negative paths and LLM-output
+    parse failures dominate the first category and were inflating the
+    aggregate `errors` counter, masking real production issues."""
+    if not err:
+        return "none"
+    if err.startswith(_EXPECTED_REJECTION_PREFIXES):
+        return "expected_rejection"
+    return "unexpected_error"
 
 
 def read_log(path: Optional[Path] = None) -> list[dict[str, Any]]:
@@ -281,15 +320,22 @@ def read_log(path: Optional[Path] = None) -> list[dict[str, Any]]:
 
 
 def aggregate(events: list[dict[str, Any]],
-              session_id: Optional[str] = None) -> SessionAggregate:
+              session_id: Optional[str] = None,
+              production_only: bool = False) -> SessionAggregate:
     """Roll up events into a SessionAggregate. If session_id is given, filter
     to events on that session; otherwise aggregate ALL events under
-    session_id=None (cross-session view)."""
+    session_id=None (cross-session view).
+
+    production_only=True drops events tagged ``is_test=True`` (emitted from
+    pytest). Use this for prompt-size / churn analysis where the test suite's
+    1099 throwaway sessions skew the picture by 100x.
+    """
     agg = SessionAggregate(session_id=session_id)
 
-    # Filter to this session (or pass-through if no filter)
     if session_id is not None:
         events = [e for e in events if e.get("session_id") == session_id]
+    if production_only:
+        events = [e for e in events if not e.get("is_test")]
 
     # Sort by ts so gap computation is correct even if writes were
     # interleaved across threads.
@@ -304,8 +350,15 @@ def aggregate(events: list[dict[str, Any]],
         agg.mcp_total_duration_s += float(e.get("duration_s", 0))
         agg.mcp_per_tool[tool] = agg.mcp_per_tool.get(tool, 0) + 1
 
-        if e.get("error"):
+        err = e.get("error")
+        if err:
             agg.errors += 1
+            agg.errors_per_tool[tool] = agg.errors_per_tool.get(tool, 0) + 1
+            kind = _classify_error(err)
+            if kind == "expected_rejection":
+                agg.expected_rejections += 1
+            else:
+                agg.unexpected_errors += 1
 
         out_tok = int(e.get("output_tokens_est", 0))
         in_tok = int(e.get("input_tokens_est", 0))
@@ -315,6 +368,12 @@ def aggregate(events: list[dict[str, Any]],
             agg.llm_input_tokens_est += out_tok
             agg.llm_rounds += 1
             last_trigger_ts = float(e.get("ts", 0))
+            if out_tok > agg.prompt_size_max_tokens:
+                agg.prompt_size_max_tokens = out_tok
+            agg.prompt_size_total_tokens += out_tok
+            agg.prompt_size_per_tool_tokens[tool] = (
+                agg.prompt_size_per_tool_tokens.get(tool, 0) + out_tok
+            )
 
         # Tool ingested LLM-generated text → LLM output tokens
         if e.get("is_llm_ingest"):

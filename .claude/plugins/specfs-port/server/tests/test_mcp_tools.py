@@ -52,6 +52,50 @@ def test_session_end_removes_session(tmp_repo: Path, reset_session_registry):
     assert sid not in specfs_server._SESSIONS
 
 
+def test_session_persisted_to_disk(tmp_repo: Path, reset_session_registry):
+    import specfs_server
+    out = specfs_server.session_start(module="exfat")
+    sid = out["session_id"]
+    p = tmp_repo / ".specfs" / "sessions" / f"{sid}.json"
+    assert p.exists(), "session_start must mirror to disk"
+
+
+def test_session_rehydrates_after_in_memory_drop(tmp_repo: Path, reset_session_registry):
+    import specfs_server
+    out = specfs_server.session_start(module="exfat")
+    sid = out["session_id"]
+    specfs_server._SESSIONS.pop(sid)
+    status = specfs_server.session_status(sid)
+    assert status["module"] == "exfat"
+
+
+def test_session_end_unlinks_disk_file(tmp_repo: Path, reset_session_registry):
+    import specfs_server
+    out = specfs_server.session_start(module="exfat")
+    sid = out["session_id"]
+    p = tmp_repo / ".specfs" / "sessions" / f"{sid}.json"
+    assert p.exists()
+    specfs_server.session_end(sid)
+    assert not p.exists(), "session_end must unlink disk mirror"
+
+
+def test_reload_plugin_returns_module_list(reset_session_registry):
+    import specfs_server
+    out = specfs_server.reload_plugin()
+    assert "reloaded" in out
+    assert "errors" in out
+    assert isinstance(out["reloaded"], list)
+    assert "prompts" in out["reloaded"] or "state" in out["reloaded"]
+
+
+def test_reload_plugin_preserves_active_sessions(tmp_repo: Path, reset_session_registry):
+    import specfs_server
+    sid = specfs_server.session_start(module="exfat")["session_id"]
+    specfs_server.reload_plugin()
+    status = specfs_server.session_status(sid)
+    assert status["module"] == "exfat"
+
+
 def test_toggle_speceval(tmp_repo: Path, reset_session_registry):
     import specfs_server
     sid = specfs_server.session_start(module="exfat")["session_id"]
@@ -1004,3 +1048,338 @@ def test_prompt_feedback_summary_counts_stages(
     assert out["exists"] is True
     assert out["stages"] == 2
     assert "mount" in out["content"]
+
+
+def test_sync_common_header_dedups_by_function_name(
+    tmp_repo: Path, reset_session_registry
+):
+    import specfs_server
+    header = tmp_repo / "spec" / "exfat" / "common.header"
+    header.write_text(
+        "extern int  exfat_load_bitmap(exfat_sb_info *sbi);\n",
+        encoding="utf-8",
+    )
+    ifaces = {
+        "fs/exfat/exfat_bitmap.c": extract_stub(
+            functions=["int exfat_load_bitmap(exfat_sb_info *sbi)"]
+        ),
+    }
+    diff = specfs_server._sync_common_header("exfat", ifaces)
+    assert diff == "", (
+        "second sync of exfat_load_bitmap should be a no-op: pre-fix the "
+        "single-vs-double-space whitespace difference defeated the dedup, "
+        "now we compare by function name"
+    )
+
+
+def test_sync_common_header_appends_distinct_function(
+    tmp_repo: Path, reset_session_registry
+):
+    import specfs_server
+    header = tmp_repo / "spec" / "exfat" / "common.header"
+    header.write_text(
+        "extern int exfat_load_bitmap(exfat_sb_info *sbi);\n",
+        encoding="utf-8",
+    )
+    ifaces = {
+        "fs/exfat/exfat_bitmap.c": extract_stub(
+            functions=["int exfat_set_bitmap(exfat_sb_info *sbi, uint32_t clu)"]
+        ),
+    }
+    diff = specfs_server._sync_common_header("exfat", ifaces)
+    assert "exfat_set_bitmap" in diff
+    assert "exfat_load_bitmap" not in diff
+
+
+def test_dedup_common_header_drops_duplicate_signatures(
+    tmp_repo: Path, reset_session_registry
+):
+    import specfs_server
+    header = tmp_repo / "spec" / "exfat" / "common.header"
+    header.write_text(
+        "/* part 1 */\n"
+        "extern int  exfat_load_bitmap(exfat_sb_info *sbi);\n"
+        "extern int exfat_set_bitmap(exfat_sb_info *sbi, uint32_t clu);\n"
+        "/* part 2 */\n"
+        "extern int exfat_load_bitmap(exfat_sb_info *sbi);\n"
+        "typedef struct foo foo_t;\n",
+        encoding="utf-8",
+    )
+    out = specfs_server.dedup_common_header(module="exfat", dry_run=True)
+    assert out["removed_count"] == 1
+    assert out["before_lines"] == 6
+    assert out["after_lines"] == 5
+    assert header.read_text() == (
+        "/* part 1 */\n"
+        "extern int  exfat_load_bitmap(exfat_sb_info *sbi);\n"
+        "extern int exfat_set_bitmap(exfat_sb_info *sbi, uint32_t clu);\n"
+        "/* part 2 */\n"
+        "extern int exfat_load_bitmap(exfat_sb_info *sbi);\n"
+        "typedef struct foo foo_t;\n"
+    ), "dry_run must not modify the file"
+
+    out2 = specfs_server.dedup_common_header(module="exfat", dry_run=False)
+    assert out2["removed_count"] == 1
+    final = header.read_text()
+    assert final.count("exfat_load_bitmap") == 1
+    assert "exfat_set_bitmap" in final
+    assert "typedef struct foo" in final
+    assert "/* part 1 */" in final and "/* part 2 */" in final
+
+
+def test_spec_gen_prompt_includes_full_common_header(
+    tmp_repo: Path, reset_session_registry
+):
+    """Regression: spec_gen used to call filter_common_header_for_spec_gen
+    which dropped every function extern; user pushed back since [RELY] often
+    cites ancestor functions. Spec_gen now ships common.header verbatim."""
+    import specfs_server
+    header = tmp_repo / "spec" / "exfat" / "common.header"
+    header.write_text(
+        "extern int exfat_load_bitmap(exfat_sb_info *sbi);\n"
+        "extern struct VnodeOps g_exfatVops;\n",
+        encoding="utf-8",
+    )
+    linux_src = tmp_repo / "linux_namei.c"
+    linux_src.write_text("int exfat_unlink(void){return 0;}\n", encoding="utf-8")
+    sess = specfs_server.session_start(module="exfat")
+    out = specfs_server.spec_gen_start(
+        session_id=sess["session_id"],
+        linux_path=str(linux_src),
+        target_stage="unlink",
+    )
+    prompt = out["prompt_for_llm"]
+    assert "exfat_load_bitmap" in prompt, (
+        "function externs must reach spec_gen — [RELY] sections cite them"
+    )
+    assert "g_exfatVops" in prompt
+
+
+def extract_stub(functions: list[str]):
+    """Build a minimal ExtractedInterface for sync_common_header tests."""
+    import extract
+    return extract.ExtractedInterface(
+        src_file="stub.c",
+        functions=functions,
+    )
+
+
+def _seed_session_for_speceval(tmp_repo, specfs_server, sample_spec_text):
+    sess_d = specfs_server.session_start(module="exfat")
+    sid = sess_d["session_id"]
+    sess = specfs_server._SESSIONS[sid]
+    spec_p = tmp_repo / "spec" / "exfat" / "interface" / "exfat_x.spec"
+    spec_p.parent.mkdir(parents=True, exist_ok=True)
+    spec_p.write_text(sample_spec_text, encoding="utf-8")
+    sess.code_spec_path = str(spec_p.relative_to(tmp_repo))
+    sess.spec_final_path = sess.code_spec_path
+    sess.code_final_text = "int VfsExfatLookup(struct Vnode *p, const char *n, struct Vnode **o){return 0;}\n"
+    sess.code_final_paths = []
+    sess.speceval_pending = True
+    return sid, sess
+
+
+def test_enforce_speceval_returns_prompt_and_reviewer_contract(
+    tmp_repo, reset_session_registry, sample_spec_text
+):
+    import specfs_server
+    sid, _ = _seed_session_for_speceval(tmp_repo, specfs_server, sample_spec_text)
+    out = specfs_server.enforce_speceval(session_id=sid)
+    assert "prompt_for_llm" in out and "[Generated code]" in out["prompt_for_llm"]
+    assert "VfsExfatLookup" in out["prompt_for_llm"]
+    rc = out["reviewer_contract"]
+    assert "Momus" in rc and "task(" in rc and "FRESH context" in rc
+
+
+def test_enforce_speceval_refuses_when_gate_not_set(
+    tmp_repo, reset_session_registry, sample_spec_text
+):
+    import specfs_server
+    sid, sess = _seed_session_for_speceval(tmp_repo, specfs_server, sample_spec_text)
+    sess.speceval_pending = False
+    with pytest.raises(RuntimeError, match="speceval_pending=False"):
+        specfs_server.enforce_speceval(session_id=sid)
+
+
+def test_record_speceval_verdict_pass_clears_gate(
+    tmp_repo, reset_session_registry, sample_spec_text
+):
+    import specfs_server
+    sid, sess = _seed_session_for_speceval(tmp_repo, specfs_server, sample_spec_text)
+    sess.test_gen_enabled = True
+    out = specfs_server.record_speceval_verdict(
+        session_id=sid, verdict_json='{"is_good": true, "comments": ""}',
+    )
+    assert out["is_good"] is True and out["next"] == "test_gen"
+    assert sess.speceval_pending is False
+    assert sess.phase == "test_drafting"
+
+
+def test_record_speceval_verdict_fail_keeps_gate_armed(
+    tmp_repo, reset_session_registry, sample_spec_text
+):
+    import specfs_server
+    sid, sess = _seed_session_for_speceval(tmp_repo, specfs_server, sample_spec_text)
+    out = specfs_server.record_speceval_verdict(
+        session_id=sid,
+        verdict_json='{"is_good": false, "comments": "missing HOST_TO_LE16 wraps"}',
+    )
+    assert out["is_good"] is False and out["next"] == "code_gen_refine"
+    assert "HOST_TO_LE16" in out["comments"]
+    assert sess.speceval_pending is True, (
+        "Gate must remain armed on fail so the next code_gen_refine + re-eval "
+        "round still has to satisfy enforce_speceval"
+    )
+    assert sess.layer_retries["speceval"] == 1
+    assert any(f.layer == "speceval" for f in sess.failures)
+
+
+def test_test_gen_start_refuses_while_speceval_pending(
+    tmp_repo, reset_session_registry, sample_spec_text
+):
+    import specfs_server
+    sid, _ = _seed_session_for_speceval(tmp_repo, specfs_server, sample_spec_text)
+    with pytest.raises(RuntimeError, match="speceval_pending"):
+        specfs_server.test_gen_start(session_id=sid)
+
+
+def test_record_speceval_verdict_rejects_invalid_json(
+    tmp_repo, reset_session_registry, sample_spec_text
+):
+    import specfs_server
+    sid, _ = _seed_session_for_speceval(tmp_repo, specfs_server, sample_spec_text)
+    with pytest.raises(RuntimeError, match="not valid JSON"):
+        specfs_server.record_speceval_verdict(
+            session_id=sid, verdict_json="not json{",
+        )
+
+
+def test_latest_round_failures_returns_only_max_round():
+    import specfs_server
+    import state as state_mod
+    failures = [
+        state_mod.FailureRecord(layer="lsp", payload="round1 err", round_idx=1),
+        state_mod.FailureRecord(layer="speceval", payload="round1 spec", round_idx=1),
+        state_mod.FailureRecord(layer="lsp", payload="round2 err", round_idx=2),
+        state_mod.FailureRecord(layer="user", payload="round2 hint", round_idx=2),
+        state_mod.FailureRecord(layer="qemu", payload="round3 panic", round_idx=3),
+    ]
+    out = specfs_server._latest_round_failures(failures)
+    assert len(out) == 1
+    assert out[0].layer == "qemu"
+    assert out[0].round_idx == 3
+
+
+def test_latest_round_failures_handles_empty():
+    import specfs_server
+    assert specfs_server._latest_round_failures([]) == []
+
+
+def test_inject_diagnostics_uses_global_round_idx_not_layer_counter(
+    tmp_repo, reset_session_registry, sample_spec_text
+):
+    """Paper alignment: round_idx must be a single global counter
+    (sess.code_iterations) so _latest_round_failures can correctly select
+    the most recent retry across heterogeneous layer sources. Pre-fix,
+    inject_diagnostics used per-layer counters which made round_idx
+    non-comparable across layers."""
+    import specfs_server
+    sid, sess = _seed_session_for_speceval(tmp_repo, specfs_server, sample_spec_text)
+    sess.speceval_pending = False
+    sess.code_iterations = 5
+    specfs_server.inject_diagnostics(
+        session_id=sid, layer="compile", payload="some compile error",
+    )
+    assert sess.failures[-1].round_idx == 6
+    specfs_server.inject_diagnostics(
+        session_id=sid, layer="compile", payload="another compile error",
+    )
+    assert sess.failures[-1].round_idx == 7
+    specfs_server.inject_diagnostics(
+        session_id=sid, layer="qemu", payload="kernel panic",
+    )
+    assert sess.failures[-1].round_idx == 8
+    assert sess.layer_retries["compile"] == 2
+    assert sess.layer_retries["qemu"] == 1
+
+
+def test_spec_gen_refine_only_injects_current_round_suggestion(
+    tmp_repo: Path, reset_session_registry
+):
+    """Paper alignment: spec_gen_refine round N injects ONLY the current
+    round's suggestion. Earlier rounds' suggestions were already
+    materialised into the previous_spec draft when the LLM rewrote it,
+    so re-injecting them would inflate the prompt and confuse the LLM
+    about which hints are still actionable."""
+    import specfs_server
+    sid = specfs_server.session_start(module="exfat")["session_id"]
+    linux_dir = tmp_repo / "linux" / "fs" / "exfat"
+    linux_dir.mkdir(parents=True)
+    specfs_server.spec_gen_start(
+        session_id=sid, linux_path=str(linux_dir), target_stage="mount",
+    )
+    specfs_server.spec_gen_refine(
+        session_id=sid,
+        user_suggestion="ROUND_1_HINT: tighten [GUARANTEE]",
+    )
+    out2 = specfs_server.spec_gen_refine(
+        session_id=sid,
+        user_suggestion="ROUND_2_HINT: add tombstone semantics",
+    )
+    prompt = out2["next_prompt"]
+    assert "ROUND_2_HINT" in prompt, "current round must be injected"
+    assert "ROUND_1_HINT" not in prompt, (
+        "stale round 1 leaked — its effect was already materialised in "
+        "previous_spec, re-injecting here violates paper-aligned single-round semantics"
+    )
+    sess = specfs_server._SESSIONS[sid]
+    assert len(sess.user_suggestions) == 2, (
+        "history must be retained for metric/debug surface; only the prompt "
+        "wire-format is single-round"
+    )
+
+
+def test_spec_gen_start_does_not_inject_session_history_suggestions(
+    tmp_repo: Path, reset_session_registry
+):
+    """Paper alignment: spec_gen_start is a fresh-stage entry point.
+    A session that has lingering user_suggestions from a previous stage
+    (e.g. via session reuse) must NOT leak those into the new stage's
+    prompt — they were addressed by the earlier stage's approved spec."""
+    import specfs_server
+    sid = specfs_server.session_start(module="exfat")["session_id"]
+    sess = specfs_server._SESSIONS[sid]
+    sess.user_suggestions = ["LEAKED_FROM_PRIOR_STAGE: redo locking"]
+    linux_dir = tmp_repo / "linux" / "fs" / "exfat"
+    linux_dir.mkdir(parents=True)
+    out = specfs_server.spec_gen_start(
+        session_id=sid, linux_path=str(linux_dir), target_stage="lookup",
+    )
+    assert "LEAKED_FROM_PRIOR_STAGE" not in out["prompt_for_llm"]
+
+
+def test_rebuild_codegen_prompt_only_renders_latest_round_failures(
+    tmp_repo, reset_session_registry, sample_spec_text
+):
+    """Paper alignment regression: pre-fix, _rebuild_codegen_prompt
+    expanded EVERY accumulated failure into [Modification suggestions],
+    causing monotonic prompt growth across long retry sessions and
+    stale-hint contamination. Post-fix, only the latest round's
+    failures are injected."""
+    import specfs_server
+    import state as state_mod
+    sid, sess = _seed_session_for_speceval(tmp_repo, specfs_server, sample_spec_text)
+    sess.speceval_pending = False
+    sess.failures = [
+        state_mod.FailureRecord(layer="lsp", payload="STALE_ROUND_1_LSP", round_idx=1),
+        state_mod.FailureRecord(layer="user", payload="STALE_ROUND_2_USER", round_idx=2),
+        state_mod.FailureRecord(layer="speceval", payload="LATEST_ROUND_3_SPEC", round_idx=3),
+        state_mod.FailureRecord(layer="qemu", payload="LATEST_ROUND_3_QEMU", round_idx=3),
+    ]
+    sess.current_artifact = "int dummy(void) { return 0; }"
+    out = specfs_server._rebuild_codegen_prompt(sess)
+    prompt = out["next_prompt"]
+    assert "LATEST_ROUND_3_SPEC" in prompt
+    assert "LATEST_ROUND_3_QEMU" in prompt
+    assert "STALE_ROUND_1_LSP" not in prompt, "Stale round 1 leaked into next prompt"
+    assert "STALE_ROUND_2_USER" not in prompt, "Stale round 2 leaked into next prompt"

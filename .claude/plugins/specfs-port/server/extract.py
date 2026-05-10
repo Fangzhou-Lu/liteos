@@ -172,11 +172,35 @@ def extract_module_interface(module: str, repo_root: Path) -> dict[str, Extracte
     return out
 
 
-def render_interface_summary(ifaces: dict[str, ExtractedInterface]) -> str:
+def render_interface_summary(
+    ifaces: dict[str, ExtractedInterface],
+    keep_symbols: set[str] | None = None,
+) -> str:
     """Render interfaces as a markdown-friendly summary for [PRIOR CODE INTERFACE]
-    segment of the codegen prompt."""
+    segment of the codegen prompt.
+
+    When ``keep_symbols`` is provided (typically derived from the spec's
+    [RELY] / [GUARANTEE] / call-sites), function and variable declarations
+    whose symbol name is not in the set are elided. The per-file ``// from
+    <path>`` banner is retained even when its body is empty so the LLM can
+    tell that prior code from that file does exist on disk and may be read
+    on demand. ``None`` (default) preserves the legacy behaviour of dumping
+    every symbol — used by linux_compare and other diagnostic paths.
+    """
     if not ifaces:
         return "(no prior code in fs/<module>/ — this is the first stage)"
+
+    def keep_fn(sig: str) -> bool:
+        if keep_symbols is None:
+            return True
+        m = re.search(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", sig)
+        return bool(m and m.group(1) in keep_symbols)
+
+    def keep_var(decl: str) -> bool:
+        if keep_symbols is None:
+            return True
+        m = re.search(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*(?:\[|=|;|$)", decl)
+        return bool(m and m.group(1) in keep_symbols)
 
     sections: list[str] = []
     for src, iface in sorted(ifaces.items()):
@@ -185,15 +209,20 @@ def render_interface_summary(ifaces: dict[str, ExtractedInterface]) -> str:
             for sym, name in iface.fsmap_entries:
                 block.append(f'FSMAP_ENTRY({sym}, "{name}", ...);')
         for fn in iface.functions:
-            block.append(f"{fn};")
+            if keep_fn(fn):
+                block.append(f"{fn};")
         for var in iface.extern_vars:
-            block.append(f"extern {var};")
+            if keep_var(var):
+                block.append(f"extern {var};")
         for g in iface.pub_globals:
-            block.append(f"{g} = {{ ... }};")
+            if keep_var(g):
+                block.append(f"{g} = {{ ... }};")
         if iface.loscfg_guards:
             block.append(f"// guarded by: {', '.join(iface.loscfg_guards)}")
         if len(block) > 1:
             sections.append("\n".join(block))
+        elif keep_symbols is not None:
+            sections.append(block[0] + "\n// (no spec-referenced symbols; read file on demand)")
     return "\n\n".join(sections) if sections else "(no public interface extracted)"
 
 

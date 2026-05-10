@@ -133,6 +133,40 @@ def test_extract_rely_symbols_no_rely_block_returns_empty():
     assert prompts.extract_rely_symbols(text) == set()
 
 
+def test_collect_codegen_keep_symbols_unions_rely_guarantee_calls(sample_spec_text: str):
+    import prompts
+    keep = prompts.collect_codegen_keep_symbols(sample_spec_text)
+    assert "VnodeAlloc" in keep
+    assert "VfsExfatLookup" in keep
+    body = "int foo(void) { bar(1); }"
+    keep2 = prompts.collect_codegen_keep_symbols(body)
+    assert "bar" in keep2 and "foo" in keep2
+
+
+def test_collect_codegen_keep_symbols_empty_input_returns_empty():
+    import prompts
+    assert prompts.collect_codegen_keep_symbols("") == set()
+
+
+def test_filter_common_header_for_spec_gen_drops_function_externs():
+    import prompts
+    header = (
+        "typedef struct foo { int x; } foo_t;\n"
+        "extern int  some_helper(int x);\n"
+        "extern void another_helper(int x, int y);\n"
+        "extern struct VnodeOps g_xVops;\n"
+        "extern uint32_t g_counter;\n"
+        "#define MAGIC 42\n"
+    )
+    out = prompts.filter_common_header_for_spec_gen(header)
+    assert "some_helper" not in out
+    assert "another_helper" not in out
+    assert "g_xVops" in out
+    assert "g_counter" in out
+    assert "MAGIC" in out
+    assert "typedef" in out
+
+
 # ---------- assembly (golden-path) ----------
 
 def test_assemble_codegen_prompt_contains_required_blocks(sample_spec_text: str):
@@ -221,12 +255,54 @@ def test_assemble_style_audit_no_auto_checks():
 def test_assemble_unittest_gen_prompt(sample_spec_text: str):
     import prompts
     out = prompts.assemble_unittest_gen_prompt(
-        generated_code="int VfsExfatLookup(...) { return 0; }",
+        code_files=["fs/exfat/exfat_lookup.c"],
+        code_diff="--- a/fs/exfat/exfat_lookup.c\n+++ b/fs/exfat/exfat_lookup.c\n@@\n+int VfsExfatLookup(...) { return 0; }\n",
+        spec_path="spec/exfat/interface/exfat_lookup.spec",
         original_spec=sample_spec_text,
         harness_layout="testsuites/unittest/exfat/Makefile\nmain.c\n",
     )
     assert "VfsExfatLookup" in out
+    assert "fs/exfat/exfat_lookup.c" in out
+    assert "spec/exfat/interface/exfat_lookup.spec" in out
     assert "testsuites/unittest/exfat/Makefile" in out
+
+
+def test_assemble_unittest_gen_prompt_handles_empty_diff():
+    import prompts
+    out = prompts.assemble_unittest_gen_prompt(
+        code_files=["fs/exfat/foo.c"],
+        code_diff="",
+        spec_path="spec/exfat/foo.spec",
+        original_spec="[PROMPT]\nfoo.\n[GUARANTEE]\nint foo(void);\n",
+        harness_layout="",
+    )
+    assert "no diff produced" in out
+    assert "fs/exfat/foo.c" in out
+
+
+def test_abridge_spec_for_test_gen_drops_authoring_sections():
+    import prompts
+    spec = (
+        "[PROMPT]\nDestination foo.c\n"
+        "[RELY]\n```c\nuint32_t bar;\n```\n"
+        "[GUARANTEE]\nint foo(void);\n"
+        "[SPECIFICATION]\nCase 1: success\n"
+        "[SCOPE GUARDRAILS]\nDo not include RCU\n"
+        "[REJECTION CRITERIA]\nMissing post-cond\n"
+    )
+    out = prompts.abridge_spec_for_test_gen(spec)
+    assert "[PROMPT]" in out
+    assert "[GUARANTEE]" in out
+    assert "[SPECIFICATION]" in out
+    assert "[RELY]" not in out
+    assert "[SCOPE GUARDRAILS]" not in out
+    assert "[REJECTION CRITERIA]" not in out
+
+
+def test_abridge_spec_for_test_gen_falls_back_when_no_canonical_sections():
+    import prompts
+    weird = "Just some prose with no section markers at all."
+    assert prompts.abridge_spec_for_test_gen(weird) == weird
 
 
 def test_assemble_spec_fine_prompt():

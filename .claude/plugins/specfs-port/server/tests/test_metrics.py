@@ -339,6 +339,78 @@ def test_aggregate_counts_errors():
     assert aggregate(events, session_id="A").errors == 1
 
 
+def test_aggregate_classifies_expected_vs_unexpected_errors():
+    from _metrics import aggregate
+    events = [
+        {"type": "mcp_tool", "tool": "alpha", "session_id": "S",
+         "ts": 1.0, "duration_s": 0.0, "input_tokens_est": 0,
+         "output_tokens_est": 0, "is_llm_round_trigger": False,
+         "is_llm_ingest": False, "error": "ValueError('bad arg')"},
+        {"type": "mcp_tool", "tool": "alpha", "session_id": "S",
+         "ts": 2.0, "duration_s": 0.0, "input_tokens_est": 0,
+         "output_tokens_est": 0, "is_llm_round_trigger": False,
+         "is_llm_ingest": False, "error": "KeyError('missing')"},
+        {"type": "mcp_tool", "tool": "beta", "session_id": "S",
+         "ts": 3.0, "duration_s": 0.0, "input_tokens_est": 0,
+         "output_tokens_est": 0, "is_llm_round_trigger": False,
+         "is_llm_ingest": False, "error": "RuntimeError('flow violation')"},
+        {"type": "mcp_tool", "tool": "beta", "session_id": "S",
+         "ts": 4.0, "duration_s": 0.0, "input_tokens_est": 0,
+         "output_tokens_est": 0, "is_llm_round_trigger": False,
+         "is_llm_ingest": False, "error": "FileNotFoundError('/x.c')"},
+    ]
+    agg = aggregate(events, session_id="S").as_dict()
+    assert agg["errors"] == 4
+    assert agg["expected_rejections"] == 3
+    assert agg["unexpected_errors"] == 1
+    assert agg["errors_per_tool"] == {"alpha": 2, "beta": 2}
+
+
+def test_aggregate_production_only_filters_test_events():
+    from _metrics import aggregate
+    events = [
+        {"type": "mcp_tool", "tool": "real", "session_id": "P",
+         "ts": 1.0, "duration_s": 0.0, "input_tokens_est": 0,
+         "output_tokens_est": 0, "is_llm_round_trigger": False,
+         "is_llm_ingest": False, "error": None, "is_test": False},
+        {"type": "mcp_tool", "tool": "fixture", "session_id": "T",
+         "ts": 2.0, "duration_s": 0.0, "input_tokens_est": 0,
+         "output_tokens_est": 0, "is_llm_round_trigger": False,
+         "is_llm_ingest": False, "error": None, "is_test": True},
+    ]
+    full = aggregate(events).as_dict()
+    assert full["mcp_tool_calls"] == 2
+
+    prod = aggregate(events, production_only=True).as_dict()
+    assert prod["mcp_tool_calls"] == 1
+    assert prod["mcp_per_tool"] == {"real": 1}
+
+
+def test_aggregate_records_prompt_sizes():
+    from _metrics import aggregate
+    events = [
+        {"type": "mcp_tool", "tool": "code_gen_start", "session_id": "A",
+         "ts": 100.0, "duration_s": 0.05, "input_tokens_est": 0,
+         "output_tokens_est": 12000, "is_llm_round_trigger": True,
+         "is_llm_ingest": False, "error": None},
+        {"type": "mcp_tool", "tool": "code_gen_start", "session_id": "A",
+         "ts": 200.0, "duration_s": 0.05, "input_tokens_est": 0,
+         "output_tokens_est": 8000, "is_llm_round_trigger": True,
+         "is_llm_ingest": False, "error": None},
+        {"type": "mcp_tool", "tool": "test_gen_start", "session_id": "A",
+         "ts": 300.0, "duration_s": 0.05, "input_tokens_est": 0,
+         "output_tokens_est": 4000, "is_llm_round_trigger": True,
+         "is_llm_ingest": False, "error": None},
+    ]
+    agg = aggregate(events, session_id="A").as_dict()
+    assert agg["prompt_size_max_tokens"] == 12000
+    assert agg["prompt_size_avg_tokens"] == 8000
+    assert agg["prompt_size_per_tool_tokens"] == {
+        "code_gen_start": 20000,
+        "test_gen_start": 4000,
+    }
+
+
 def test_aggregate_no_filter_includes_all():
     """session_id=None (default) aggregates across ALL sessions."""
     from _metrics import aggregate

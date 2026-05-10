@@ -135,6 +135,53 @@ def extract_rely_symbols(spec_text: str) -> set[str]:
     return set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\b", body))
 
 
+def filter_common_header_for_spec_gen(common_header: str) -> str:
+    """Drop every ``extern <fn>(...);`` from common.header for the Loop A
+    spec-drafting prompt.
+
+    Spec authoring needs the type system (typedefs, struct decls, #define
+    macros, extern variables) but NOT the catalogue of every prior-stage
+    function — the LLM is generating a SYSSPEC's ``[GUARANTEE]`` section,
+    not implementing it. Keeping the function-extern wall in the prompt
+    inflates spec_gen by 10–14 KB per call without improving spec quality.
+
+    Implementation mirrors ``filter_common_header_by_symbols`` but with a
+    universal "drop all function externs" filter instead of a keep-set.
+    Variable externs (``extern struct VnodeOps g_xVops;`` etc.) are
+    PRESERVED because [GUARANTEE] often references them by name.
+    """
+    pattern = re.compile(r"extern\s+[^;{}]+;", re.DOTALL)
+
+    def repl(match: re.Match[str]) -> str:
+        stmt = match.group(0)
+        return "" if re.search(r"\b\w+\s*\(", stmt) else stmt
+
+    text = pattern.sub(repl, common_header)
+    return re.sub(r"\n\s*\n\s*\n+", "\n\n", text)
+
+
+def collect_codegen_keep_symbols(spec_text: str) -> set[str]:
+    """Compute the conservative keep-set for filter_common_header_by_symbols
+    when assembling a codegen prompt.
+
+    Includes every identifier appearing in [RELY], [GUARANTEE], the System
+    Algorithm pseudocode, and any call-site form (``ident(``) anywhere in
+    the spec. The over-approximation is intentional — eliding an actually-
+    needed extern would force a refine round, dwarfing the token savings.
+    Empty set means "no spec available" and the caller must inject the full
+    header verbatim.
+    """
+    if not spec_text:
+        return set()
+    keep: set[str] = set()
+    keep.update(extract_rely_symbols(spec_text))
+    g = re.search(r"\[GUARANTEE\](.*?)(?=^\[[A-Z])", spec_text, re.DOTALL | re.MULTILINE)
+    if g:
+        keep.update(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\b", g.group(1)))
+    keep.update(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", spec_text))
+    return keep
+
+
 # ---- Top-level assembly helpers ----------------------------------------------
 
 
@@ -259,9 +306,54 @@ def assemble_spec_fine_prompt(*, original_spec: str, speceval_comments: str) -> 
     })
 
 
+_SPEC_KEEP_SECTIONS = (
+    "[PROMPT]",
+    "[GUARANTEE]",
+    "[SPECIFICATION]",
+)
+
+
+def abridge_spec_for_test_gen(spec_text: str) -> str:
+    """Return the test-relevant subset of a SYSSPEC document.
+
+    Layer T (cmocka test synthesis) needs the function contract — `[PROMPT]`,
+    `[GUARANTEE]`, `[SPECIFICATION]` Cases / Invariants. Other segments
+    (`[RELY]`, `[SCOPE GUARDRAILS]`, `[REJECTION CRITERIA]`, `[ASK-FIRST RULES]`,
+    TWO-PHASE template boilerplate) are spec-authoring scaffolding that
+    doesn't drive test cases.
+
+    Best-effort: when the spec doesn't follow the canonical section layout,
+    returns the input verbatim so callers never lose information by accident.
+    """
+    if not spec_text:
+        return ""
+    sections: list[str] = []
+    cur_keep = False
+    cur_buf: list[str] = []
+    SECTION_RE = re.compile(r"^(\[[A-Z][A-Z0-9_ ]*\]|\*\*[^*\n]+\*\*)", re.M)
+
+    def flush() -> None:
+        if cur_keep and cur_buf:
+            sections.append("\n".join(cur_buf).rstrip())
+
+    for line in spec_text.splitlines():
+        if SECTION_RE.match(line):
+            flush()
+            cur_buf = [line]
+            cur_keep = any(line.startswith(k) for k in _SPEC_KEEP_SECTIONS)
+            continue
+        cur_buf.append(line)
+    flush()
+
+    abridged = "\n\n".join(s for s in sections if s).strip()
+    return abridged or spec_text
+
+
 def assemble_unittest_gen_prompt(
     *,
-    generated_code: str,
+    code_files: list[str],
+    code_diff: str,
+    spec_path: str,
     original_spec: str,
     harness_layout: str,
 ) -> str:
@@ -272,13 +364,26 @@ def assemble_unittest_gen_prompt(
     no MCP tool consumed this template until v0.3.4. See commit 149487a9 for
     the Wave A test-debt catch-up that motivated wiring it.
 
+    Path-and-diff payload (since 2026-05-09): the prompt no longer inlines the
+    full generated code (60–80 KB per stage). Instead it passes
+    ``code_files`` (the modified file paths so the LLM can read on demand)
+    and ``code_diff`` (the unified diff vs HEAD covering what this stage
+    actually added/changed). For unit-test synthesis the LLM only needs to
+    see the stage's own deltas plus already-frozen ancestor symbols listed
+    in common.header — full per-file source is rarely useful and was the
+    single largest contributor to Layer T prompt bloat.
+
     harness_layout: a snapshot of testsuites/unittest/<module>/ contents so the
     prompt can pin file naming + extern-decl conventions to what already exists.
     """
     template = load("unittest_gen")
+    files_block = "\n".join(f"- {f}" for f in code_files) if code_files else "(none)"
+    abridged = abridge_spec_for_test_gen(original_spec)
     return substitute(template, {
-        "GENERATED_CODE": generated_code.strip(),
-        "ORIGINAL_SPEC": original_spec.strip(),
+        "CODE_FILES": files_block,
+        "CODE_DIFF": (code_diff.strip() or "(no diff produced — files may be untracked or HEAD already matches)"),
+        "SPEC_PATH": spec_path or "(spec path not provided)",
+        "ORIGINAL_SPEC_ABRIDGED": abridged,
         "HARNESS_LAYOUT": harness_layout.strip() or "(harness directory not found)",
     })
 

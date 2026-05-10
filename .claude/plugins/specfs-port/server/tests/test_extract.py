@@ -139,6 +139,34 @@ def test_extract_render_interface_summary_nonempty():
     assert 'FSMAP_ENTRY(exfat_fsmap, "exfat", ...)' in out
 
 
+def test_extract_render_interface_summary_filters_by_keep_symbols():
+    import extract
+    iface = extract.ExtractedInterface(src_file="fs/x/foo.c")
+    iface.functions = [
+        "int VfsExfatLookup(struct Vnode *p, const char *n, int l)",
+        "int VfsExfatRead(struct file *f, char *b, size_t l)",
+    ]
+    iface.fn_names = ["VfsExfatLookup", "VfsExfatRead"]
+    out = extract.render_interface_summary(
+        {"fs/x/foo.c": iface}, keep_symbols={"VfsExfatLookup"}
+    )
+    assert "VfsExfatLookup" in out
+    assert "VfsExfatRead" not in out
+
+
+def test_extract_render_interface_summary_empty_keep_emits_banner_only():
+    import extract
+    iface = extract.ExtractedInterface(src_file="fs/x/foo.c")
+    iface.functions = ["int unused(void)"]
+    iface.fn_names = ["unused"]
+    out = extract.render_interface_summary(
+        {"fs/x/foo.c": iface}, keep_symbols={"VfsExfatLookup"}
+    )
+    assert "// from fs/x/foo.c" in out
+    assert "no spec-referenced symbols" in out
+    assert "unused" not in out
+
+
 def test_extract_collect_all_symbols():
     import extract
     iface = extract.ExtractedInterface(src_file="x.c")

@@ -31,6 +31,7 @@ import prompts
 import state
 from _timeout import install_default_timeout
 from _metrics import install_metrics, read_log, aggregate as metrics_aggregate
+from _persist_session import install_persist
 
 
 mcp = FastMCP("specfs")
@@ -50,19 +51,63 @@ install_default_timeout(mcp)
 # metrics see the full wall-clock including timeout returns.
 install_metrics(mcp)
 
-
-# session_id -> Session
 _SESSIONS: dict[str, state.Session] = {}
 
 
+def _peek_session(session_id: str) -> state.Session | None:
+    return _SESSIONS.get(session_id)
+
+
+install_persist(mcp, _peek_session)
+
+
 def _get(session_id: str) -> state.Session:
-    if session_id not in _SESSIONS:
-        raise KeyError(f"Unknown session_id: {session_id}")
-    return _SESSIONS[session_id]
+    if session_id in _SESSIONS:
+        return _SESSIONS[session_id]
+    rehydrated = state.load_session(session_id)
+    if rehydrated is not None:
+        _SESSIONS[session_id] = rehydrated
+        return rehydrated
+    raise KeyError(f"Unknown session_id: {session_id}")
+
+
+def _persist(sess: state.Session) -> None:
+    """Mirror in-memory session to ``.specfs/sessions/<id>.json`` so that an
+    OpenCode / MCP-server restart does not orphan an in-flight workflow.
+    Best-effort; silent on filesystem errors. Call after every mutation
+    that the workflow could meaningfully resume from.
+    """
+    state.save_session(sess)
 
 
 def _repo_root() -> Path:
     return state.repo_root()
+
+
+_PATH_PREFIX = "@path:"
+
+
+def _resolve_text_or_path(arg: str, kind: str) -> str:
+    """Decode submit/approve text args supporting an `@path:` redirection.
+
+    When `arg` starts with `@path:`, the remainder is interpreted as a path
+    (absolute or repo-relative) and that file's content is returned. This lets
+    callers avoid round-tripping large generated artifacts through tool-call
+    arguments. Otherwise the arg is returned as-is (legacy text mode).
+
+    `kind` is a label used only in error messages.
+    """
+    if not arg.startswith(_PATH_PREFIX):
+        return arg
+    rel = arg[len(_PATH_PREFIX):].strip()
+    if not rel:
+        raise RuntimeError(f"{kind}: empty path after '@path:' prefix")
+    p = Path(rel)
+    if not p.is_absolute():
+        p = _repo_root() / rel
+    if not p.exists():
+        raise RuntimeError(f"{kind}: path-mode file does not exist: {p}")
+    return p.read_text(encoding="utf-8")
 
 
 def _module_dir(module: str) -> Path:
@@ -116,6 +161,46 @@ def _git_sha(path: Path) -> str:
         return ""
 
 
+def _git_diff_for_files(files: list[str]) -> str:
+    """Return a unified diff of ``files`` vs HEAD, including untracked
+    additions. Used by Layer T to show the LLM exactly what this stage
+    added/changed without inlining the full per-file source.
+
+    Returns "" on any failure or when ``files`` is empty.
+    """
+    if not files:
+        return ""
+    try:
+        tracked = subprocess.check_output(
+            ["git", "diff", "--no-color", "HEAD", "--", *files],
+            cwd=str(_repo_root()),
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=15,
+        )
+        untracked = subprocess.check_output(
+            ["git", "ls-files", "--others", "--exclude-standard", "--", *files],
+            cwd=str(_repo_root()),
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=10,
+        ).splitlines()
+        if untracked:
+            untracked_diff = subprocess.check_output(
+                ["git", "diff", "--no-color", "--no-index", "/dev/null", *untracked],
+                cwd=str(_repo_root()),
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=15,
+            )
+            tracked = (tracked + "\n" + untracked_diff).strip()
+        return tracked
+    except subprocess.CalledProcessError as e:
+        return e.output if isinstance(e.output, str) else ""
+    except (subprocess.SubprocessError, OSError):
+        return ""
+
+
 # ---- Section 4.1 — Session lifecycle ----------------------------------------
 
 
@@ -154,6 +239,7 @@ def session_start(module: str, mode: str = "gen") -> dict[str, Any]:
         sess.test_gen_enabled = False
         sess.skip_build_layer = True
     _SESSIONS[sess.session_id] = sess
+    _persist(sess)
     dag_state = dag_module.load(module)
     return {
         "session_id": sess.session_id,
@@ -167,6 +253,7 @@ def session_start(module: str, mode: str = "gen") -> dict[str, Any]:
 def session_status(session_id: str) -> dict[str, Any]:
     """Return current phase and retry counters for a session."""
     sess = _get(session_id)
+    latest = _latest_round_failures(sess.failures)
     return {
         "module": sess.module,
         "mode": sess.mode,
@@ -177,7 +264,9 @@ def session_status(session_id: str) -> dict[str, Any]:
         "speceval_enabled": sess.speceval_enabled,
         "skip_build_layer": sess.skip_build_layer,
         "n_clarifications": len(sess.clarifications),
-        "n_failures": len(sess.failures),
+        "n_failures_total": len(sess.failures),
+        "n_failures_latest_round": len(latest),
+        "n_user_suggestions_total": len(sess.user_suggestions),
     }
 
 
@@ -185,6 +274,7 @@ def session_status(session_id: str) -> dict[str, Any]:
 def session_end(session_id: str) -> dict[str, str]:
     """Drop session state. Idempotent."""
     _SESSIONS.pop(session_id, None)
+    state.drop_session(session_id)
     return {"status": "ended"}
 
 
@@ -321,7 +411,7 @@ def spec_gen_start(
             {"question": c.question, "user_answer": c.user_answer}
             for c in sess.clarifications
         ],
-        user_suggestions=sess.user_suggestions,
+        user_suggestions=[],
         previous_spec="",
     )
     sess.last_prompt = prompt_text
@@ -336,14 +426,20 @@ def spec_gen_start(
 @mcp.tool()
 def spec_gen_refine(session_id: str, user_suggestion: str) -> dict[str, Any]:
     """Refine a draft spec with user feedback. Re-assembles the prompt with
-    the previous draft + user's suggestion baked into [USER SUGGESTIONS] /
-    [Previously generated spec]."""
+    the previous draft + user's CURRENT-ROUND suggestion baked into
+    [USER SUGGESTIONS] / [Previously generated spec].
+
+    Paper-aligned (gencode.py:180 single-round semantics): only the
+    just-submitted suggestion is injected. Earlier rounds' suggestions
+    are already MATERIALISED in `previous_spec` (the LLM rewrote the
+    draft after each round), so re-injecting them inflates the prompt
+    and confuses the LLM about which hints are still actionable.
+    """
     sess = _get(session_id)
     _refuse_if_fast_eval(sess, "spec_gen_refine")
     sess.spec_iterations += 1
     sess.user_suggestions.append(user_suggestion)
 
-    # Read the current draft if it exists
     prev = ""
     draft_p = _repo_root() / sess.spec_draft_path
     if draft_p.exists():
@@ -369,7 +465,7 @@ def spec_gen_refine(session_id: str, user_suggestion: str) -> dict[str, Any]:
             {"question": c.question, "user_answer": c.user_answer}
             for c in sess.clarifications
         ],
-        user_suggestions=sess.user_suggestions,
+        user_suggestions=[user_suggestion],
         previous_spec=prev,
     )
     sess.last_prompt = prompt_text
@@ -378,10 +474,15 @@ def spec_gen_refine(session_id: str, user_suggestion: str) -> dict[str, Any]:
 
 @mcp.tool()
 def spec_gen_submit(session_id: str, generated_spec_text: str) -> dict[str, Any]:
-    """Stash a freshly drafted spec; tell caller to present to user for review."""
+    """Stash a freshly drafted spec; tell caller to present to user for review.
+
+    `generated_spec_text` accepts an `@path:<repo-rel-or-abs>` redirection —
+    the server reads that file's content instead of treating the arg as
+    literal text. Use this for large drafts to keep tool-call args small.
+    """
     sess = _get(session_id)
+    generated_spec_text = _resolve_text_or_path(generated_spec_text, "spec_gen_submit")
     sess.current_artifact = generated_spec_text
-    # Write draft to disk for the user to see in their editor
     draft_p = _repo_root() / sess.spec_draft_path
     draft_p.parent.mkdir(parents=True, exist_ok=True)
     draft_p.write_text(generated_spec_text, encoding="utf-8")
@@ -407,8 +508,19 @@ def spec_gen_approve(session_id: str, final_spec_text: str) -> dict[str, Any]:
 
     Writes <draft>.spec → final .spec, updates the DAG state file, runs `git add`
     on both the spec file and updated dag.json (no commit).
+
+    Path-mode: `final_spec_text` may be `@path:<repo-rel-or-abs>` (most useful:
+    `@path:<draft_path>` to roll the existing draft to final without
+    re-piping the file content through the tool argument).
     """
     sess = _get(session_id)
+    final_spec_text = _resolve_text_or_path(final_spec_text, "spec_gen_approve")
+    if len(final_spec_text) < 50:
+        raise RuntimeError(
+            f"spec_gen_approve: refusing to write {len(final_spec_text)}-byte "
+            f"spec to {sess.spec_final_path} — empty/near-empty payload, "
+            f"likely a caller bug."
+        )
     final_p = _repo_root() / sess.spec_final_path
     final_p.parent.mkdir(parents=True, exist_ok=True)
     final_p.write_text(final_spec_text, encoding="utf-8")
@@ -497,19 +609,24 @@ def code_gen_start(session_id: str, spec_path: str) -> dict[str, Any]:
             "prompt_source": "override",
         }
 
-    # Assemble prompt from template
     target_stage = _stage_from_spec_path(spec_path)
     dag_state = dag_module.load(sess.module)
     node_id = _stage_id(target_stage)
     inv = dag_module.collect_invariants(dag_state, node_id)
     ifaces = extract.extract_module_interface(sess.module, _repo_root())
-    prior_iface_text = extract.render_interface_summary(ifaces)
     prior_symbols = extract.collect_all_symbols(ifaces)
+
+    full_header = _common_header(sess.module)
+    keep = prompts.collect_codegen_keep_symbols(spec_content)
+    filtered_header = (
+        prompts.filter_common_header_by_symbols(full_header, keep) if keep else full_header
+    )
+    prior_iface_text = extract.render_interface_summary(ifaces, keep_symbols=keep or None)
 
     prompt_text = prompts.assemble_codegen_prompt(
         module=sess.module,
         spec_content=spec_content,
-        common_header=_common_header(sess.module),
+        common_header=filtered_header,
         inherited_invariants=inv,
         prior_code_interface=prior_iface_text,
         previous_code="",
@@ -520,7 +637,9 @@ def code_gen_start(session_id: str, spec_path: str) -> dict[str, Any]:
     return {
         "prompt_for_llm": prompt_text,
         "draft_path": _derive_code_path(sess.module, spec_path),
-        "frozen_contract_size": len(_common_header(sess.module)),
+        "frozen_contract_size": len(filtered_header),
+        "frozen_contract_size_full": len(full_header),
+        "frozen_contract_filter_savings": len(full_header) - len(filtered_header),
         "n_inherited_invariants": len(inv),
         "n_prior_symbols": len(prior_symbols),
         "prompt_source": "assembled",
@@ -529,13 +648,24 @@ def code_gen_start(session_id: str, spec_path: str) -> dict[str, Any]:
 
 @mcp.tool()
 def code_gen_submit(session_id: str, generated_code: str) -> dict[str, Any]:
-    """Stash the freshly generated code and tell caller what layer to run next."""
+    """Stash the freshly generated code and tell caller what layer to run next.
+
+    `generated_code` accepts an `@path:<repo-rel-or-abs>` redirection — the
+    server reads the file at that path instead of treating the arg as literal
+    text. Use this for large artifacts to avoid bloating tool-call context.
+    """
     sess = _get(session_id)
+    generated_code = _resolve_text_or_path(generated_code, "code_gen_submit")
+    if len(generated_code) < 30:
+        raise RuntimeError(
+            f"code_gen_submit: refusing to stash {len(generated_code)}-byte "
+            f"draft — empty/near-empty payload. Use a non-empty marker "
+            f"comment if the artifact is already written via Edit/Write."
+        )
     sess.current_artifact = generated_code
     draft_path = _derive_code_path(sess.module, sess.code_spec_path)
     sess.code_draft_paths = [draft_path]
 
-    # Write draft file
     full = _repo_root() / draft_path
     full.parent.mkdir(parents=True, exist_ok=True)
     full.write_text(generated_code, encoding="utf-8")
@@ -579,16 +709,48 @@ def code_gen_approve(
 
     Writes the final code file(s), updates DAG, syncs common.header with new
     exports, runs `git add` on changed files.
+
+    Multi-file mode: when ``final_code`` is empty (``""``), the server treats
+    every path in ``files_to_save`` as already-written on disk (the caller
+    used Edit/Write to apply per-file diffs because the spec required
+    multi-file output that the single-string ``final_code`` API cannot
+    represent). Files are read back from disk; ``code_final_text`` becomes
+    the concatenation with FILE markers so Layer T sees real symbols. The
+    on-disk content is NOT overwritten in this mode — protects working tree
+    against an accidental empty ``final_code``.
+
+    Path-mode: ``final_code`` may be ``@path:<repo-rel-or-abs>`` to redirect
+    to a file on disk (single-file mode); the server reads the path's content
+    and writes it to every entry in ``files_to_save`` (existing single-file
+    semantics preserved).
     """
     sess = _get(session_id)
+    final_code = _resolve_text_or_path(final_code, "code_gen_approve")
 
-    # Save files
     saved: list[str] = []
+    captured_chunks: list[str] = []
+    multi_file = (final_code == "")
+    if not multi_file and len(final_code) < 50:
+        raise RuntimeError(
+            f"code_gen_approve: refusing to write {len(final_code)}-byte "
+            f"final_code to {files_to_save!r} — empty/near-empty payload. "
+            f"If you meant multi-file mode, pass final_code=\"\" exactly."
+        )
     for f in files_to_save:
         full = _repo_root() / f
         full.parent.mkdir(parents=True, exist_ok=True)
-        full.write_text(final_code, encoding="utf-8")
+        if multi_file:
+            if not full.exists():
+                raise RuntimeError(
+                    f"code_gen_approve: multi-file mode requires {f} to "
+                    f"already exist on disk; got missing path"
+                )
+            existing = full.read_text(encoding="utf-8")
+            captured_chunks.append(f"/* === FILE: {f} === */\n{existing}")
+        else:
+            full.write_text(final_code, encoding="utf-8")
         saved.append(f)
+    captured_final = ("\n".join(captured_chunks) if multi_file else final_code)
 
     # Extract new exports + invariants from generated code
     ifaces = extract.extract_module_interface(sess.module, _repo_root())
@@ -622,14 +784,17 @@ def code_gen_approve(
     dag_module.save(sess.module, dag_state)
 
     # v0.3.4: capture for Layer T re-use without re-reading from disk
-    sess.code_final_text = final_code
+    sess.code_final_text = captured_final
     sess.code_final_paths = saved
 
-    # v0.3.4: when Layer T is enabled, code approval transitions into
-    # test_drafting (Layer T) instead of terminal "approved". The user
-    # reviews code+test together in one HITL pass via Step 9.
+    if sess.speceval_enabled:
+        sess.speceval_pending = True
+
     next_phase: str
-    if sess.test_gen_enabled:
+    if sess.speceval_enabled:
+        sess.phase = "speceval_pending"
+        next_phase = "speceval"
+    elif sess.test_gen_enabled:
         sess.phase = "test_drafting"
         next_phase = "test_gen"
     else:
@@ -690,15 +855,26 @@ def _harness_layout(module: str) -> str:
 
 
 @mcp.tool()
-def test_gen_start(session_id: str) -> dict[str, Any]:
+def test_gen_start(session_id: str, spec_path: str = "") -> dict[str, Any]:
     """Begin Layer T: assemble the unittest_gen prompt from the just-approved
     code + spec + harness layout snapshot.
 
-    Pre-condition: code_gen_approve must have completed AND test_gen_enabled
-    is True; otherwise raises RuntimeError so the slash command can short-circuit.
+    Pre-condition: the stage's code layer must be approved (either in this
+    session via code_gen_approve, OR in any prior session — the DAG state
+    carries the code.files manifest forward). Layer T is also gated by
+    test_gen_enabled.
+
+    Session-rebuild path: when ``code_final_text`` is empty but the DAG node
+    for this stage already records ``code.files``, the server reconstructs
+    ``code_final_text`` and ``code_spec_path`` from disk. Pass ``spec_path``
+    when the session was newly minted via ``session_start`` (no prior
+    ``code_gen_start`` call); otherwise the field is recovered from session
+    state. This eliminates the need to re-run code_gen_start/submit/approve
+    just to advance phase after an OpenCode restart.
 
     Returns:
-        {prompt_for_llm, draft_path, final_path, harness_dir_exists}
+        {prompt_for_llm, draft_path, final_path, harness_dir_exists,
+         rehydrated: bool}
     """
     sess = _get(session_id)
     if not sess.test_gen_enabled:
@@ -706,10 +882,47 @@ def test_gen_start(session_id: str) -> dict[str, Any]:
             "test_gen disabled for this session — enable via toggle_test_gen "
             "or remove --test-off from the slash-command args"
         )
-    if not sess.code_final_text:
+    if sess.speceval_pending:
         raise RuntimeError(
-            "Layer T requires an approved code artifact. Run code_gen_approve first."
+            "speceval_pending: code_gen_approve set the SpecEval gate but no "
+            "verdict was recorded. Call enforce_speceval(session_id) FIRST, "
+            "spawn an INDEPENDENT reviewer agent (e.g. Momus subagent) with "
+            "the returned prompt, then post the verdict via record_speceval_verdict."
         )
+
+    rehydrated = False
+    if not sess.code_final_text:
+        if not sess.code_spec_path and spec_path:
+            sess.code_spec_path = spec_path
+        if not sess.code_spec_path:
+            raise RuntimeError(
+                "Layer T requires either an approved code artifact in this "
+                "session, or a spec_path argument so the DAG node can be "
+                "located. Got neither."
+            )
+        target_stage = _stage_from_spec_path(sess.code_spec_path)
+        dag_state = dag_module.load(sess.module)
+        node = dag_module.find_node(dag_state, _stage_id(target_stage))
+        code_layer = (node or {}).get("code") or {}
+        files = code_layer.get("files") or ([code_layer["path"]] if code_layer.get("path") else [])
+        if not files:
+            raise RuntimeError(
+                "Layer T requires an approved code artifact. Neither this "
+                "session nor the DAG node carries one — run code_gen_approve "
+                "first."
+            )
+        chunks: list[str] = []
+        for f in files:
+            full = _repo_root() / f
+            if not full.exists():
+                raise RuntimeError(
+                    f"DAG node references {f} but the file is missing from "
+                    f"the working tree; aborting Layer T rehydrate."
+                )
+            chunks.append(f"/* === FILE: {f} === */\n{full.read_text(encoding='utf-8')}")
+        sess.code_final_text = "\n".join(chunks)
+        sess.code_final_paths = list(files)
+        rehydrated = True
 
     sess.phase = "test_drafting"
     stage = _stage_from_spec_path(sess.code_spec_path)
@@ -721,8 +934,13 @@ def test_gen_start(session_id: str) -> dict[str, Any]:
     spec_p = _repo_root() / sess.code_spec_path
     spec_content = spec_p.read_text(encoding="utf-8") if spec_p.exists() else ""
 
+    code_files = list(sess.code_final_paths) if sess.code_final_paths else []
+    code_diff = _git_diff_for_files(code_files)
+
     prompt_text = prompts.assemble_unittest_gen_prompt(
-        generated_code=sess.code_final_text,
+        code_files=code_files,
+        code_diff=code_diff,
+        spec_path=sess.code_spec_path,
         original_spec=spec_content,
         harness_layout=_harness_layout(sess.module),
     )
@@ -733,6 +951,9 @@ def test_gen_start(session_id: str) -> dict[str, Any]:
         "draft_path": draft_rel,
         "final_path": final_rel,
         "harness_dir_exists": _harness_dir(sess.module).is_dir(),
+        "rehydrated": rehydrated,
+        "code_files": code_files,
+        "code_diff_size": len(code_diff),
     }
 
 
@@ -742,11 +963,16 @@ def test_gen_submit(session_id: str, generated_test_text: str) -> dict[str, Any]
 
     Returns next='review' so the slash command knows to surface code+test
     together in the Layer 4 user-review pass.
+
+    `generated_test_text` accepts an `@path:<repo-rel-or-abs>` redirection —
+    the server reads that file's content instead of treating the arg as
+    literal text. Use this for large drafts to keep tool-call args small.
     """
     sess = _get(session_id)
     if not sess.test_draft_path:
         raise RuntimeError("test_gen_start must be called before test_gen_submit")
 
+    generated_test_text = _resolve_text_or_path(generated_test_text, "test_gen_submit")
     full = _repo_root() / sess.test_draft_path
     full.parent.mkdir(parents=True, exist_ok=True)
     full.write_text(generated_test_text, encoding="utf-8")
@@ -908,11 +1134,22 @@ def test_gen_approve(session_id: str, final_test_text: str) -> dict[str, Any]:
     3. Updates the DAG node's `tests` block (additive — no schema bump).
     4. git-adds the test file + Makefile + main.c + dag.json.
     5. Sets phase = "approved" (terminal).
+
+    Path-mode: `final_test_text` may be `@path:<repo-rel-or-abs>` (most useful:
+    `@path:<draft_path>` to roll the existing draft to final without
+    re-piping the file content through the tool argument).
     """
     sess = _get(session_id)
     if not sess.test_final_path:
         raise RuntimeError("test_gen_start must be called before test_gen_approve")
 
+    final_test_text = _resolve_text_or_path(final_test_text, "test_gen_approve")
+    if len(final_test_text) < 50:
+        raise RuntimeError(
+            f"test_gen_approve: refusing to write {len(final_test_text)}-byte "
+            f"test file to {sess.test_final_path} — empty/near-empty "
+            f"payload, likely a caller bug."
+        )
     final_p = _repo_root() / sess.test_final_path
     final_p.parent.mkdir(parents=True, exist_ok=True)
     final_p.write_text(final_test_text, encoding="utf-8")
@@ -1051,6 +1288,143 @@ def run_qemu_smoke(commands: list[str]) -> dict[str, Any]:
 
 
 @mcp.tool()
+def enforce_speceval(session_id: str) -> dict[str, Any]:
+    """Layer 3 SpecEval gate — assemble the prompt and require an INDEPENDENT
+    reviewer agent.
+
+    Returns the verbatim prompts/speceval.md prompt populated with the
+    just-approved code + original spec, plus an explicit ``reviewer_contract``
+    block telling the caller to spawn a fresh-context reviewer subagent
+    (Momus). The author of the code MUST NOT be the evaluator —
+    self-evaluation introduces confirmation bias and was the root cause of
+    Layer 3 being silently skipped on inode_metadata_model (2026-05-10).
+
+    Pre-condition: speceval_pending == True (set by code_gen_approve when
+    speceval_enabled). Refuses if the gate is not set — prevents callers
+    from running SpecEval at the wrong phase.
+
+    Returns:
+        {prompt_for_llm, reviewer_contract, code_path, spec_path,
+         attempt, retry_cap}
+    """
+    sess = _get(session_id)
+    _refuse_if_fast_eval(sess, "enforce_speceval")
+    if not sess.speceval_pending:
+        raise RuntimeError(
+            "speceval_pending=False; either code_gen_approve was not run "
+            "with speceval_enabled, or a verdict was already recorded. "
+            "Re-run code_gen_approve to re-arm the gate."
+        )
+
+    spec_path = sess.code_spec_path or sess.spec_final_path
+    if not spec_path:
+        raise RuntimeError("no spec_path on session; run code_gen_start first")
+    spec_text = (_repo_root() / spec_path).read_text(encoding="utf-8")
+
+    code_text = sess.code_final_text
+    if not code_text and sess.code_final_paths:
+        chunks = []
+        for p in sess.code_final_paths:
+            full = _repo_root() / p
+            if full.exists():
+                chunks.append(f"// FILE: {p}\n" + full.read_text(encoding="utf-8"))
+        code_text = "\n\n".join(chunks)
+    if not code_text:
+        raise RuntimeError("no code artifact on session; cannot run SpecEval")
+
+    prompt = prompts.assemble_speceval_prompt(
+        generated_code=code_text, original_spec=spec_text,
+    )
+    sess.last_prompt = prompt
+
+    reviewer_contract = (
+        "REVIEWER CONTRACT — READ BEFORE PROCEEDING:\n"
+        "1. The agent calling this tool MUST NOT evaluate the prompt itself.\n"
+        "2. Spawn an INDEPENDENT reviewer subagent with FRESH context using:\n"
+        "     task(subagent_type=\"Momus - Plan Critic\", run_in_background=false,\n"
+        "          load_skills=[], description=\"SpecEval for <stage>\",\n"
+        "          prompt=<prompt_for_llm>)\n"
+        "3. Momus returns a JSON verdict {is_good: bool, comments: str}.\n"
+        "4. Post the verdict back via record_speceval_verdict(session_id, verdict_json).\n"
+        "5. The server uses the verdict to choose: pass-through, code_gen_refine,\n"
+        "   or spec_fine."
+    )
+
+    cap = 8
+    return {
+        "prompt_for_llm": prompt,
+        "reviewer_contract": reviewer_contract,
+        "code_path": sess.code_final_paths or [sess.code_spec_path],
+        "spec_path": spec_path,
+        "attempt": sess.layer_retries.get("speceval", 0),
+        "retry_cap": cap,
+    }
+
+
+@mcp.tool()
+def record_speceval_verdict(
+    session_id: str, verdict_json: str,
+) -> dict[str, Any]:
+    """Consume the JSON verdict that an independent reviewer subagent (Momus)
+    produced from the enforce_speceval prompt.
+
+    Verdict schema (from prompts/speceval.md):
+        {"is_good": bool, "comments": str}
+
+    On is_good=True: clear speceval_pending, advance phase to test_drafting
+        (or "approved" if test_gen disabled). Caller can now call test_gen_start.
+
+    On is_good=False: record FailureRecord(layer="speceval"), increment retry
+        counter (cap 8 from layer_retries), KEEP speceval_pending=True so the
+        gate stays armed, and return next="code_gen_refine" with the comments
+        wired as the suggestion. Caller decides spec_fine vs code_gen_refine.
+
+    Returns:
+        {ok, is_good, next, retries, retry_cap, comments}
+    """
+    sess = _get(session_id)
+    _refuse_if_fast_eval(sess, "record_speceval_verdict")
+    if not sess.speceval_pending:
+        raise RuntimeError(
+            "speceval_pending=False; nothing to record. "
+            "Run enforce_speceval first."
+        )
+
+    try:
+        verdict = json.loads(verdict_json)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"verdict_json is not valid JSON: {e}") from e
+    if "is_good" not in verdict:
+        raise RuntimeError("verdict missing required key 'is_good'")
+    is_good = bool(verdict["is_good"])
+    comments = str(verdict.get("comments", "")).strip()
+
+    if is_good:
+        sess.speceval_pending = False
+        if sess.test_gen_enabled:
+            sess.phase = "test_drafting"
+            nxt = "test_gen"
+        else:
+            sess.phase = "approved"
+            nxt = "done"
+        return {
+            "ok": True, "is_good": True, "next": nxt,
+            "retries": sess.layer_retries.get("speceval", 0),
+            "retry_cap": 8, "comments": "",
+        }
+
+    sess.layer_retries["speceval"] = sess.layer_retries.get("speceval", 0) + 1
+    sess.failures.append(state.FailureRecord(
+        layer="speceval", payload=comments, round_idx=sess.code_iterations,
+    ))
+    return {
+        "ok": True, "is_good": False, "next": "code_gen_refine",
+        "retries": sess.layer_retries["speceval"], "retry_cap": 8,
+        "comments": comments,
+    }
+
+
+@mcp.tool()
 def inject_diagnostics(
     session_id: str,
     layer: str,
@@ -1067,7 +1441,7 @@ def inject_diagnostics(
     sess.failures.append(state.FailureRecord(
         layer=layer,
         payload=payload,
-        round_idx=sess.layer_retries[layer],
+        round_idx=sess.code_iterations,
     ))
     rebuilt = _rebuild_codegen_prompt(sess)
     rebuilt["retries"] = dict(sess.layer_retries)
@@ -1210,6 +1584,53 @@ def sync_common_header(module: str) -> dict[str, str]:
     ifaces = extract.extract_module_interface(module, _repo_root())
     diff = _sync_common_header(module, ifaces)
     return {"diff": diff or "(no changes)"}
+
+
+@mcp.tool()
+def dedup_common_header(module: str, dry_run: bool = False) -> dict[str, Any]:
+    """One-shot cleanup of duplicate `extern fn(...)` lines in common.header.
+
+    Pre-fix sync used raw-string compare so whitespace-different signatures
+    of the same function were both appended. This tool keeps the FIRST
+    occurrence of each function name and drops later duplicates. Non-extern
+    lines (typedefs, struct decls, comments, blank lines) are preserved
+    verbatim. Set dry_run=True to preview without writing.
+    """
+    header_p = _spec_dir(module) / "common.header"
+    if not header_p.exists():
+        return {"ok": False, "reason": "common.header not found"}
+
+    text = header_p.read_text(encoding="utf-8")
+    lines = text.splitlines(keepends=True)
+    seen: set[str] = set()
+    kept: list[str] = []
+    dropped: list[str] = []
+
+    for ln in lines:
+        m = _EXTERN_FN_NAME_RE.match(ln)
+        if m:
+            fn = m.group(1)
+            if fn in seen:
+                dropped.append(ln.rstrip("\n"))
+                continue
+            seen.add(fn)
+        kept.append(ln)
+
+    new_text = "".join(kept)
+    if not dry_run and new_text != text:
+        header_p.write_text(new_text, encoding="utf-8")
+        _git_add([f"spec/{module}/common.header"])
+
+    return {
+        "ok": True,
+        "dry_run": dry_run,
+        "before_lines": len(lines),
+        "after_lines": len(kept),
+        "removed_count": len(dropped),
+        "removed_sample": dropped[:5],
+        "bytes_before": len(text),
+        "bytes_after": len(new_text),
+    }
 
 
 _FRAGMENT_REGISTRY = {
@@ -2241,6 +2662,20 @@ def _passed_layers(sess: state.Session) -> dict[str, bool]:
     }
 
 
+def _latest_round_failures(failures: list[state.FailureRecord]) -> list[state.FailureRecord]:
+    """Paper-aligned (gencode.py:180): only the LATEST retry-round's
+    failures get re-injected as [Modification suggestions]. Prior rounds'
+    suggestions were already addressed by intervening regenerations and
+    should not contaminate the next prompt — keeping them caused
+    monotonic prompt growth and stale-hint contamination across long
+    iteration sessions.
+    """
+    if not failures:
+        return []
+    max_round = max(f.round_idx for f in failures)
+    return [f for f in failures if f.round_idx == max_round]
+
+
 def _rebuild_codegen_prompt(sess: state.Session) -> dict[str, str]:
     """Re-assemble codegen prompt for the next round, including all accumulated failures."""
     spec_p = _repo_root() / sess.code_spec_path
@@ -2250,22 +2685,45 @@ def _rebuild_codegen_prompt(sess: state.Session) -> dict[str, str]:
     node_id = _stage_id(target_stage)
     inv = dag_module.collect_invariants(dag_state, node_id)
     ifaces = extract.extract_module_interface(sess.module, _repo_root())
-    prior_iface_text = extract.render_interface_summary(ifaces)
 
+    full_header = _common_header(sess.module)
+    keep = prompts.collect_codegen_keep_symbols(spec_content)
+    filtered_header = (
+        prompts.filter_common_header_by_symbols(full_header, keep) if keep else full_header
+    )
+    prior_iface_text = extract.render_interface_summary(ifaces, keep_symbols=keep or None)
+
+    latest_failures = _latest_round_failures(sess.failures)
     prompt_text = prompts.assemble_codegen_prompt(
         module=sess.module,
         spec_content=spec_content,
-        common_header=_common_header(sess.module),
+        common_header=filtered_header,
         inherited_invariants=inv,
         prior_code_interface=prior_iface_text,
         previous_code=sess.current_artifact,
         failures=[
             prompts.FailureNote(layer=f.layer, payload=f.payload)
-            for f in sess.failures
+            for f in latest_failures
         ],
     )
     sess.last_prompt = prompt_text
     return {"next_prompt": prompt_text}
+
+
+_EXTERN_FN_NAME_RE = re.compile(
+    r"^\s*extern\s+.+?\b([A-Za-z_]\w*)\s*\(", re.MULTILINE
+)
+
+
+def _existing_extern_fn_names(text: str) -> set[str]:
+    """Return set of function names already declared via `extern ... fn(` in text.
+
+    Used to dedupe by SYMBOL NAME rather than by exact line match — pre-fix
+    behavior compared raw decl strings, so `int  fn(...)` (double-space) and
+    `int fn(...)` (single-space) were treated as distinct and both appended,
+    producing 42 dup function-name lines in the exFAT common.header.
+    """
+    return set(_EXTERN_FN_NAME_RE.findall(text))
 
 
 def _sync_common_header(module: str, ifaces: dict[str, extract.ExtractedInterface]) -> str:
@@ -2275,12 +2733,23 @@ def _sync_common_header(module: str, ifaces: dict[str, extract.ExtractedInterfac
     header_p = _spec_dir(module) / "common.header"
     existing = header_p.read_text(encoding="utf-8") if header_p.exists() else ""
 
+    seen_names = _existing_extern_fn_names(existing)
     new_decls: list[str] = []
     for path, iface in sorted(ifaces.items()):
         for sig in iface.functions:
+            # Extract function name from signature for dedup. Falls back to
+            # raw-string compare if regex misses (e.g. function-pointer typedef).
+            name_match = re.search(r"\b([A-Za-z_]\w*)\s*\(", sig)
             decl = f"extern {sig};"
-            if decl not in existing and decl not in new_decls:
+            if name_match:
+                fn_name = name_match.group(1)
+                if fn_name in seen_names:
+                    continue
+                seen_names.add(fn_name)
                 new_decls.append(decl)
+            else:
+                if decl not in existing and decl not in new_decls:
+                    new_decls.append(decl)
 
     if not new_decls:
         return ""
@@ -2340,16 +2809,22 @@ def _git_add(paths: list[str]) -> None:
 
 
 @mcp.tool()
-def metrics_summary(session_id: Optional[str] = None) -> dict[str, Any]:
+def metrics_summary(
+    session_id: Optional[str] = None, production_only: bool = False,
+) -> dict[str, Any]:
     """Read the per-tool telemetry log and return aggregate counters.
 
     Args:
         session_id: filter to one session (omit for all-sessions rollup).
+        production_only: drop events from pytest (PYTEST_CURRENT_TEST set).
+            Use this when measuring real-user prompt sizes / churn — the
+            test suite's 1099 throwaway sessions otherwise skew everything.
 
     Returns:
         dict with mcp_tool_calls, mcp_total_duration_s, mcp_per_tool,
         llm_rounds, llm_input_tokens_est, llm_output_tokens_est,
-        llm_total_gap_s (sum of LLM round-trip wall-clock), errors.
+        llm_total_gap_s, errors, expected_rejections, unexpected_errors,
+        errors_per_tool.
 
     Note: this tool itself emits an event before returning, so its own
     call shows up in subsequent reads. The event is tagged
@@ -2357,7 +2832,127 @@ def metrics_summary(session_id: Optional[str] = None) -> dict[str, Any]:
     distort the LLM-side counters — only the mcp_per_tool count.
     """
     events = read_log()
-    return metrics_aggregate(events, session_id=session_id).as_dict()
+    return metrics_aggregate(
+        events, session_id=session_id, production_only=production_only,
+    ).as_dict()
+
+
+@mcp.tool()
+def metrics_report(
+    session_id: Optional[str] = None, production_only: bool = False,
+) -> dict[str, Any]:
+    """Render a markdown table summarising the same numbers ``metrics_summary``
+    returns. Intended for the user to paste into review notes / PRs.
+
+    Args:
+        session_id: filter to one session (omit for all-sessions rollup).
+        production_only: drop pytest-generated events.
+    """
+    events = read_log()
+    agg = metrics_aggregate(
+        events, session_id=session_id, production_only=production_only,
+    ).as_dict()
+    per_tool = agg.get("mcp_per_tool", {}) or {}
+    per_tool_tok = agg.get("prompt_size_per_tool_tokens", {}) or {}
+
+    lines = [
+        f"## specfs metrics — {agg.get('session_id') or 'all sessions'}",
+        "",
+        "| metric | value |",
+        "|---|---|",
+        f"| MCP tool calls | {agg.get('mcp_tool_calls', 0)} |",
+        f"| MCP total duration | {agg.get('mcp_total_duration_s', 0):.2f} s |",
+        f"| LLM rounds | {agg.get('llm_rounds', 0)} |",
+        f"| LLM input tokens (sent) | {agg.get('llm_input_tokens_est', 0):,} |",
+        f"| LLM output tokens (received) | {agg.get('llm_output_tokens_est', 0):,} |",
+        f"| LLM round-trip wall-clock | {agg.get('llm_total_gap_s', 0):.2f} s |",
+        f"| prompt size — max | {agg.get('prompt_size_max_tokens', 0):,} tok |",
+        f"| prompt size — avg | {agg.get('prompt_size_avg_tokens', 0):,} tok |",
+        f"| errors | {agg.get('errors', 0)} |",
+    ]
+    if per_tool:
+        lines += ["", "### per-tool calls", "", "| tool | calls | prompt-size total tokens |", "|---|---|---|"]
+        for tool in sorted(per_tool):
+            lines.append(f"| `{tool}` | {per_tool[tool]} | {per_tool_tok.get(tool, 0):,} |")
+    return {"markdown": "\n".join(lines), "raw": agg}
+
+
+# ---- Section 4.11 — Hot-reload (no OpenCode restart needed) ------------------
+
+
+@mcp.tool()
+def reload_plugin() -> dict[str, Any]:
+    """Hot-reload the plugin's pure-Python modules WITHOUT restarting OpenCode.
+
+    Re-imports ``state``, ``dag``, ``extract``, ``prompts``, ``_metrics``,
+    ``_timeout``, and ``_persist_session`` via ``importlib.reload``. The
+    ``@mcp.tool`` registrations on this file (specfs_server.py) are NOT
+    rebuilt — they bind to the original function objects at module-import
+    time, so any pre-existing tool keeps its old code path. New module-level
+    helpers, prompt templates, and dataclass schemas DO take effect because
+    they are looked up by attribute access at call time.
+
+    Effective for: prompt template tweaks (prompts.py), telemetry math
+    (_metrics.py), session schema (state.py), DAG helpers (dag.py),
+    interface extractors (extract.py), middleware (_timeout.py /
+    _persist_session.py).
+
+    NOT effective for: changes to specfs_server.py itself (tool bodies,
+    new @mcp.tool registrations, signature changes). For those you still
+    need to restart OpenCode.
+
+    The currently-active in-memory _SESSIONS dict is preserved across the
+    reload — the dataclass schema is re-bound but instance attribute access
+    keeps working as long as field names didn't change.
+
+    Returns the list of reloaded module names + any per-module import
+    errors so the caller can decide whether to retry or restart.
+    """
+    import importlib
+    import sys as _sys
+
+    targets = [
+        "state",
+        "dag",
+        "extract",
+        "prompts",
+        "_metrics",
+        "_timeout",
+        "_persist_session",
+    ]
+
+    reloaded: list[str] = []
+    errors: dict[str, str] = {}
+
+    for name in targets:
+        try:
+            mod = _sys.modules.get(name)
+            if mod is None:
+                continue
+            importlib.reload(mod)
+            reloaded.append(name)
+        except Exception as e:  # broad on purpose — per-module isolation
+            errors[name] = repr(e)
+
+    global state, dag_module, extract, prompts
+    if "state" in reloaded:
+        state = _sys.modules["state"]
+    if "dag" in reloaded:
+        dag_module = _sys.modules["dag"]
+    if "extract" in reloaded:
+        extract = _sys.modules["extract"]
+    if "prompts" in reloaded:
+        prompts = _sys.modules["prompts"]
+
+    return {
+        "reloaded": reloaded,
+        "errors": errors,
+        "note": (
+            "Tool registrations on specfs_server.py itself are unchanged; "
+            "restart OpenCode if you modified tool bodies, signatures, or "
+            "added new @mcp.tool entries."
+        ),
+    }
 
 
 # ---- Entry -------------------------------------------------------------------
