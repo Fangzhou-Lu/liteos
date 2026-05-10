@@ -1,6 +1,6 @@
 <!--
-Loop A spec-gen 提示词 — 把 Linux FS 源码抽象成 SYSSPEC spec。
-Loop A spec-gen prompt — abstract Linux FS code into a SYSSPEC spec.
+Loop spec spec-gen 提示词 — 把 Linux FS 源码抽象成 SYSSPEC spec。
+Loop spec spec-gen prompt — abstract Linux FS code into a SYSSPEC spec.
 
 History/version: see ../CHANGELOG.md.
 

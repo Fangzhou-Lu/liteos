@@ -1,10 +1,10 @@
 <!--
-Layer T cmocka 测试派生 — 从已批准 spec + 刚生成的代码合成单元测试。
-Layer T cmocka test gen — synthesize a cmocka unit-test from approved spec + freshly generated code.
+cmocka 测试派生 — 从已批准 spec + 刚通过 Step 2 静态检查 + 内核 build 的代码合成单元测试。
+cmocka test gen — synthesize a cmocka unit-test from approved spec + code that has just passed Step 2 (LSP / style / build).
 
-调用时机：Loop B Step 3a，紧跟代码生成之后；测试看到的是真实生成的
+调用时机：Loop code Step 3，紧跟 Step 2 通过之后；测试看到的是已编译通过的真实
 C 符号（函数名、签名、文件路径），不再是 spec 抽象。
-Triggered: Loop B Step 3a, immediately after codegen so the test references real C symbols, not a spec abstraction.
+Triggered: Loop code Step 3, after Step 2 passes; test references already-buildable C symbols, not a spec abstraction.
 
 Inputs:  approved spec ([SPECIFICATION] cases) + just-generated code + existing
          testsuites/unittest/<name>_host/ skeleton.

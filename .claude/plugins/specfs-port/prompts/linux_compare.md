@@ -1,13 +1,13 @@
 <!--
-Loop C — Linux 功能等价比对提示词，跑在 code_gen_approve 之后。
-Loop C — Linux-functional comparison prompt; runs after code_gen_approve.
+Loop eval — Linux 功能等价比对提示词，跑在 code_gen_approve 之后。
+Loop eval — Linux-functional comparison prompt; runs after code_gen_approve.
 
 LLM compares the generated SYSSPEC + LiteOS-A C against the original Linux
 TU and reports:
   (1) Functional gaps — Linux behaviours missing / wrong / under-specified
       in spec or code, with severity + root cause.
   (2) Prompt-tuning recommendations — concrete additive edits to the
-      Loop A spec-extraction prompt and Loop B code-gen prompt that would
+      Loop spec spec-extraction prompt and Loop code code-gen prompt that would
       have prevented each gap class.
 
 `linux_compare_submit` parses the JSON output and:
@@ -18,8 +18,10 @@ TU and reports:
     up automatically as a [Modification suggestions] <source: linux_compare>
     block.
 
-Loop C does NOT replace Layer 3 SpecEval — SpecEval checks code↔spec
-conformance; Loop C checks spec↔Linux and code↔Linux semantic equivalence.
+Loop eval does NOT replace Step 4 spec/code audit — Step 4 checks code↔spec
+conformance + Linux equivalence within the current stage; Loop eval checks
+the broader spec↔Linux and code↔Linux semantic equivalence post-approval to
+feed back into prompt-template tuning.
 
 History/version: see ../CHANGELOG.md.
 
@@ -72,8 +74,8 @@ from recurring.
   * `printk` → `PRINT_*` family.
   * jbd2 / fscrypt / xattr — first-pass ports drop these by policy.
   * naming, libsec `_s` variants, license header, file split — the
-    Style audit (Layer 1b) owns those.
-  * spec-conformance issues — Layer 3 SpecEval already gate-keeps that.
+    Style audit (Step 2.2) owns those.
+  * spec-conformance issues — Step 4 spec/code audit already gate-keeps that.
 
 [ROOT-CAUSE TAXONOMY]
 For each gap, pick exactly one root cause:

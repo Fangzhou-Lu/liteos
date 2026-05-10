@@ -1,6 +1,6 @@
 <!--
-Loop B codegen 提示词 — 从 SYSSPEC spec 生成 LiteOS-A C 代码。
-Loop B codegen prompt — generate LiteOS-A C from a SYSSPEC spec.
+Loop code codegen 提示词 — 从 SYSSPEC spec 生成 LiteOS-A C 代码。
+Loop code codegen prompt — generate LiteOS-A C from a SYSSPEC spec.
 
 Authoritative semantics live in the spec; this prompt does not restate
 them. Direct port of specfs/tools/gencode.py:158-176 + LiteOS-A delta

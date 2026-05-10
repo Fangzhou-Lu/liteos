@@ -1,10 +1,10 @@
 ---
-description: Loop A — 从 Linux FS 源码起草 SYSSPEC spec，HITL 审批 / Generate a SYSSPEC spec from a Linux FS source via HITL workflow
+description: Loop spec — 从 Linux FS 源码起草 SYSSPEC spec，HITL 审批 / Generate a SYSSPEC spec from a Linux FS source via HITL workflow
 argument-hint: <linux-path> <target-stage> [--module=<name>]
 allowed-tools: ["Bash", "Read", "Write", "Edit", "AskUserQuestion", "Grep", "Glob", "Agent"]
 ---
 
-# specfs-port-spec — Loop A（Linux 源码 → SYSSPEC spec）
+# specfs-port-spec — Loop spec（Linux 源码 → SYSSPEC spec）
 
 User invoked: `/specfs-port-spec $ARGUMENTS`.
 
@@ -21,7 +21,7 @@ This command is shared by Claude Code and OpenCode through symlinks. Tool names 
 
 Use the form exposed in the current runtime. If running in OpenCode, convert every `specfs.foo_bar` mention below to `specfs_foo_bar` before calling; do not attempt dot-form tool names. All examples below use the Claude Code form unless an OpenCode-specific name is required.
 
-You are running **Loop A** of the specfs-port plugin. Your goal: produce an
+You are running **Loop spec** of the specfs-port plugin. Your goal: produce an
 approved SYSSPEC specification from a Linux kernel FS module, with the user
 in the review loop. The user does NOT write the spec; you draft it, they review,
 you refine. Approval gate is theirs.
@@ -49,7 +49,7 @@ of `<target-stage>` per the conventional stage DAG (`mount → lookup → readdi
   Run `/specfs-port-code spec/<module>/.../<X>.spec` first."
 - STOP.
 
-## Step 2 — assemble Loop A prompt via MCP
+## Step 2 — assemble Loop spec prompt via MCP
 
 Call `specfs.spec_gen_start(session_id, linux_path=<linux-path>, target_stage=<target-stage>)`.
 Receive `{prompt_for_llm}` — the prompt assembled from `prompts/linux_to_spec.md`
@@ -78,7 +78,7 @@ After the spec text, save it to a temp location via Write tool:
 `inode/` for inode-level ops like inode_alloc, `file/` for file-level ops like
 file_read, etc. Refer to `prompts/style_rules.md §file generation order`.)
 
-## Step 3b — heterogeneous spec audit (generator → auditor → refine)
+## Step 3.5 — heterogeneous spec audit (generator → auditor → refine)
 
 Before showing the draft to the user, run an advisory audit loop. The main
 assistant is the **generator** (prefer the strongest available model, e.g. Claude
@@ -162,14 +162,14 @@ Use `AskUserQuestion` with these options:
 **If approve**: call `specfs.spec_gen_approve(session_id, final_spec_text=<draft content>)`.
 The MCP server moves draft → final, updates DAG, returns confirmation.
 
-> Layer T（cmocka 测试派生）在 Loop B 触发，不在本命令；详见
+> cmocka 测试派生在 Loop code Step 3 触发，不在本命令；详见
 > [SKILL.md §防御层次](../skills/specfs-port/SKILL.md#防御层次plugin-与-skill-共享的契约--defense-layer-topology)。
 
 After spec_gen_approve completes, print:
 
 > Saved `spec/<...>.spec`; DAG node `<stage>-` spec layer committed.
 > Next: `/specfs-port-code <spec-path>` to generate the C code AND its
-> cmocka test (test gen happens immediately after code gen in Loop B).
+> cmocka test (test gen happens immediately after code gen in Loop code).
 
 **If suggest edits**: capture user's free-form feedback. Call
 `specfs.spec_gen_refine(session_id, user_suggestion=<text>)` to get a refined

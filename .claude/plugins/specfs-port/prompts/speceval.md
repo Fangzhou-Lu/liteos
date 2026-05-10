@@ -1,11 +1,11 @@
 <!--
-Layer 3 — SpecEvaluator 提示词，仅检查 spec conformance。
-Layer 3 SpecEvaluator prompt — spec-conformance check only.
+Step 4 spec conformance 提示词 — Loop code Step 4 spec/code audit 的 spec conformance 子提示词。
+Step 4 spec-conformance check — used inside Loop code's merged spec/code audit.
 
-Scope: SPEC CONFORMANCE ONLY. Style audit is a separate sibling layer
-(see prompts/style_audit.md against prompts/style_rules.md). Do NOT
-inline or reference style rules here; the two passes run independently
-and both must pass before Layer 2.
+Scope: SPEC CONFORMANCE ONLY. Style audit is Step 2.2 (see prompts/style_audit.md
+against prompts/style_rules.md); kernel build is Step 2.3. Do NOT inline or
+reference style rules here. Linux equivalence checks belong to the heterogeneous
+audit half of Step 4 (see prompts/heterogeneous_audit.md mode=code_audit).
 
 Single LLM round per code-gen retry. Output JSON: {"is_good": bool, "comments": str}.
 The plugin auto-feeds `comments` back to codegen as [Modification suggestions]

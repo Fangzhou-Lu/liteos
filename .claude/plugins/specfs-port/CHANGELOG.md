@@ -9,6 +9,139 @@ All notable changes to this plugin. Format follows
 
 ---
 
+## [0.5.8] — 2026-05-11
+
+### Changed — Loop code 流水线重排 + Loop 重命名 + Layer/Step 统一编号
+
+**用户指令 / User directive (2026-05-11)**:
+> "lsp compile + build + style audit 应该放在 C 代码生成之后, cmocka test gen 之前；
+>  step 5 和 step3b 实际是同一个事情, step 6 build 已提前；
+>  请按执行顺序调整编号，去掉 layer T 表述，统一用数字
+>  loop A 请改为 loop spec, Loop B 请改为 loop code"
+> "Loop C 命名为 Loop eval"
+
+#### 一. Loop 命名空间重命名（语义化）
+
+- `Loop A` → **`Loop spec`**（规范起草，对应 `/specfs-port-spec` 命令）。
+- `Loop B` → **`Loop code`**（代码 + 测试生成，对应 `/specfs-port-code` 命令）。
+- `Loop C` → **`Loop eval`**（Linux 等价比对 + prompt 反向优化）。
+
+通过 `perl -pi` 在 12 个文档（README / DESIGN / SKILL / 4 commands / 16 prompts）
+做全局替换；CHANGELOG.md 不动（保留历史 entry 中的原 Loop A/B/C 用语作为时间锚点）。
+共替换 78 处 → 0 残留。
+
+#### 二. Loop code 流水线按执行顺序重排为 6 步
+
+**旧拓扑**（Layer 命名混乱：Layer T / Layer 1a.1 / Layer 1a.2 / Layer 3 / Layer 2.1 /
+Layer 2.2 / Layer 2.3 / Layer 4，编号不连续、Step 3a / Step 3b 子步骤难记）：
+```
+Step 3 codegen → Step 3a Layer T cmocka test gen → Step 3b heterogeneous code audit
+→ Step 4 Layer 1a (LSP+style) → Step 5 Layer 3 SpecEval → Step 6 Layer 2 (build+cmocka exec+QEMU)
+→ Step 7 Layer 4 user review
+```
+
+**新拓扑**（按执行顺序，纯数字、含 fail-fast 路径）：
+
+```
+Step 1  生成 C 代码 (codegen)
+Step 2  静态检查 + 内核 build （fail fast）
+        2.1 LSP compile        (≤ 4)
+        2.2 style audit        (≤ 5)
+        2.3 kernel build       (≤ 3)         ← build 提前到 cmocka test gen 之前
+Step 3  cmocka 测试生成 + 测试编译            (≤ 3 共享)
+        3.1 test gen
+        3.2 cmocka build only —— 只编译，不执行
+Step 4  spec/code audit                      (≤ 3)
+        合并旧 SpecEvaluator (spec conformance) + 旧异构审计 (Linux 等价性)
+        ↑ 用户明确判断：旧 Step 5 (SpecEval) 与旧 Step 3b (heterogeneous code audit)
+          是同一件事，分流到 codegen_drift / test_gap / spec_under_specified / prompt_gap
+Step 5  运行时验证                            (≤ 3 共享)
+        5.1 cmocka exec —— 跑 Step 3 编译出来的 binary + 历史 stage 测试
+        5.2 QEMU smoke
+Step 6  用户审核 (HITL，唯一终态闸)
+```
+
+#### 三. 关键设计决策
+
+- **build 提前**到 cmocka test gen 之前（用户指令 "step 6 build 已提前"）。理由：
+  cmocka 测试看到的是已经 LSP-clean + style-clean + kernel-build 通过的真实 C 符号，
+  而不是 spec 抽象——避免一类 test/code drift bug。
+- **静态检查 + build 串行 fail-fast**（用户指令 "lsp compile + build + style audit
+  应该放在 C 代码生成之后, cmocka test gen 之前"）。三者各自独立 retry 预算，失败
+  只消耗自己预算；任一失败回 Step 1。
+- **审计合并**（用户指令 "step 5 和 step 3b 实际是同一事情"）。Step 4 同一个独立异构
+  agent 一次跑完 spec conformance + Linux 等价性 + test 覆盖。审计预算从 8 降到 3
+  (paper 8-round max 是单维 spec conformance；现在审计范围更广，应更早 escalate)。
+- **cmocka exec 推迟到 audit 之后**（Oracle 验证建议）。避免给将要被 audit reject
+  的代码付昂贵的 QEMU 时间。Step 5 共享 3 轮预算覆盖 cmocka exec + QEMU smoke。
+- **失败回退路径明确化**：Step 4 finding 按 `root_cause` 分流——`codegen_drift` →
+  Step 1（重生后必须重跑 Step 2→3→4→5）；`test_gap` → Step 3.1 only；
+  `spec_under_specified` → SpecFine（cap 3）→ Step 1；`prompt_gap` → 累积到
+  `docs/<module>_prompt_feedback.md` 给 Loop eval 用，不消耗本 stage 预算。
+
+#### 四. 术语清理
+
+- 删除全部 `Layer T` / `Layer 1a` / `Layer 1a.1` / `Layer 1a.2` / `Layer 1b` / `Layer 2`
+  / `Layer 2.1` / `Layer 2.2` / `Layer 2.3` / `Layer 3` / `Layer 4` / `Layer S` 标号
+  （13 个文档，共 100+ 处）。
+- 删除全部 `Step 3a` / `Step 3b` 字母后缀子步骤标号；改为纯数字 `Step 2.1` / `Step 3.1`
+  小数点编号（一个层级，不跨层）。
+- `commands/specfs-port-spec.md` 内的 `Step 3b heterogeneous spec audit` 重编为
+  `Step 3.5`（保持 Step 4 = 用户审，序号连续）。
+
+#### 五. CLI flag 同步
+
+| Flag | 旧语义 | 新语义 |
+|---|---|---|
+| `--speceval-off` | 关 Layer 3 SpecEval | 重命名为 `--audit-off`，关 Step 4 spec/code audit |
+| `--style-off` | 关 Layer 1a.2 style | 关 Step 2.2 style audit |
+| `--test-off` | 关 Layer T + Layer 2.2 cmocka | 关 Step 3 + Step 5.1 cmocka exec |
+| `--no-build` | 跳 Layer 2 整层 | 跳 Step 2.3 内核 build + Step 5 整层 |
+| `--no-regress` | 不变 | 不变 |
+| `--prompt-override` | 不变 | 不变 |
+
+#### 六. retry 预算调整（Oracle 验证后）
+
+| Step | 旧预算 | 新预算 | 备注 |
+|---|---|---|---|
+| 2.1 LSP | 4 | 4 | 不变 |
+| 2.2 style | 5 | 5 | 不变 |
+| 2.3 kernel build | (旧 Layer 2 共享 3) | 3 独立 | 早期 build 失败不消耗下游运行时预算 |
+| 3 test gen + compile | 3 (gen) | 3 共享 (gen + compile) | gen 失败 + compile 失败合算 |
+| 4 spec/code audit | 8 (paper) | 3 | 范围更广，更早 escalate |
+| 5 cmocka exec + QEMU | (旧 Layer 2 共享 3) | 3 共享 | 与 build 预算分离 |
+| inner SpecFine | 3 | 3 | 不变 |
+| 6 user review | unlimited | unlimited | 不变 |
+
+#### 七. 涉及文件
+
+13 个文档（按行数排序）：
+
+- `DESIGN.md`：§2.2 工作流图重写 / §4.3.5 重命名 / §7 layer detail 表换列名 / §8 命令章节同步 / §10 retry budget 列表 / §12 用户审 checklist 标号 / 附录 A `gencode.py` 对照行更新。
+- `commands/specfs-port-code.md`：完全重写（300+ 行）。Active layers 表 / Step 0-6 编排 / iteration accounting 表 / final output 模板全部对齐新流水线。
+- `skills/specfs-port/SKILL.md`：frontmatter description / §阶段 4 / §防御层次（整段重写）/ §最终报告契约 / §`--*` flag 列表 / §参考文档全部更新。
+- `README.md`：description bullet / Workflow 框 / flag 表 / files tree comments / Requirements / Why this exists 全部更新；新增"回退路径 / Failure routing"段。
+- `commands/specfs-port-spec.md`：`Step 3b → Step 3.5`，删 Layer T 跨 loop 注释。
+- `prompts/validation_checklist.md`：§7 自动 step status 表（旧 Layer 1a/2/3/4 行 → 新 Step 2.1/2.2/2.3/3/4/5.1/5.2 行）；§8 cmocka draft 段。
+- `prompts/speceval.md`：定位由 "Layer 3" 改为 "Step 4 spec conformance 子提示词"。
+- `prompts/style_audit.md`：通过后跳转目标由 "Layer 3 SpecEval" 改为 "Step 2.3 kernel build"。
+- `prompts/unittest_gen.md`：触发时机表述更新。
+- `prompts/linux_compare.md`：与 Step 4 audit 关系澄清。
+- `prompts/format_traps.md` / `prompts/style_rules.md`：用户审 step 引用更新。
+- `commands/specfs-port-metrics.md`：链接到 SKILL §防御层次 的锚点保持一致。
+
+#### 八. 未变 / 保留
+
+- DAG schema、MCP 工具签名（`code_gen_*` / `test_gen_*` / `spec_gen_*` / `run_build_kernel` /
+  `run_qemu_smoke` / `validator_run_holistic` 等）一律未动——server 代码不需重启；
+  所有变更纯属文档与命令编排重排。
+- 架构性 Wave A (cmocka host) / Wave B (QEMU LTP smoke) 术语保留——它们是回归
+  套件层的轴，不在 Loop code 6 步轴上。
+- 验证：插件目录所有 .md（除 CHANGELOG）中 `Layer T` / `Step 3a` / `Step 3b` /
+  `Layer 1a/1b/2/3/4/S` / `Loop A/B/C` 全部 0 残留。
+
+---
+
 ## [0.5.7] — 2026-05-11
 
 ### Changed — 文档中英文混合化 + 跨文档去重 + 版本说明集中化

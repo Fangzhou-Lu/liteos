@@ -1,6 +1,6 @@
 ---
 name: specfs-port
-description: 凡用户提到将 Linux 内核文件系统（exFAT、F2FS、EROFS、BTRFS、ext4、NTFS 等）移植到 OpenHarmony LiteOS-A 内核，或在本仓库下新增/重写文件系统时，必须立即调用本技能；同时也是 specfs-port Claude Code 插件的伴生技能（自动随插件加载）。触发短语包括："port exFAT to LiteOS-A"、"添加 F2FS 支持"、"重写 FAT"、"把 Linux fs/<name> 翻译过来"、"SpecFS"、"sysspec"、"spec-first 文件系统"、"specfs-port"、"/specfs-port-spec"、"/specfs-port-code"，以及任何将 Linux FS 实现转写为 LiteOS-A 版本的请求；用户希望用 SpecFS 规范优先方法重构现有 LiteOS-A 文件系统（fs/fat、fs/jffs2）时同样触发。本技能驱动一条五阶段流水线（摄取 → 规范 → 映射 → 代码 → 接线），并绑定四层防御 + 一层 HITL：Layer 1a Compile + Style → Layer 3 SpecEvaluator 自审 → Layer 2 Build + cmocka 单测执行 + QEMU smoke → Layer 4 用户审核；Layer T cmocka 测试派生在 Loop B（生成 C 代码后立即生成对应测试）。两层回归套件 Wave A (cmocka host) + Wave B (QEMU LTP smoke) 通过 `tools/regress/run_all.sh` 在模块完结时手动 / CI 触发。
+description: 凡用户提到将 Linux 内核文件系统（exFAT、F2FS、EROFS、BTRFS、ext4、NTFS 等）移植到 OpenHarmony LiteOS-A 内核，或在本仓库下新增/重写文件系统时，必须立即调用本技能；同时也是 specfs-port Claude Code 插件的伴生技能（自动随插件加载）。触发短语包括："port exFAT to LiteOS-A"、"添加 F2FS 支持"、"重写 FAT"、"把 Linux fs/<name> 翻译过来"、"SpecFS"、"sysspec"、"spec-first 文件系统"、"specfs-port"、"/specfs-port-spec"、"/specfs-port-code"，以及任何将 Linux FS 实现转写为 LiteOS-A 版本的请求；用户希望用 SpecFS 规范优先方法重构现有 LiteOS-A 文件系统（fs/fat、fs/jffs2）时同样触发。本技能驱动一条五阶段流水线（摄取 → 规范 → 映射 → 代码 → 接线），并定义 Loop code 的六步流水线（按执行顺序）：Step 1 codegen → Step 2 LSP + style + 内核 build → Step 3 cmocka 测试生成 + 编译 → Step 4 spec/code audit（合并 spec conformance 与 Linux 异构审计）→ Step 5 cmocka exec + QEMU smoke → Step 6 用户审核。两层回归套件 Wave A (cmocka host) + Wave B (QEMU LTP smoke) 通过 `tools/regress/run_all.sh` 在模块完结时手动 / CI 触发。
 ---
 
 # specfs-port — 规范优先的 Linux→LiteOS-A 文件系统移植（plugin 伴生技能）
@@ -134,19 +134,19 @@ inode/ file/ path/ bitmap/ util/）。**用户拍板分层后才进阶段 2**。
 
 具体可工作样例见 [references/exfat-walkthrough.md](references/exfat-walkthrough.md)。
 
-代码生成同样使用同构流程：主生成模型根据已批准 spec 生成 code + Layer T test，
-异构审计器只读对照 `spec + Linux + code + test + inherited invariants`，将问题分为
-`spec_under_specified` / `codegen_drift` / `test_gap` / `prompt_gap` / `uncertain`。
+代码生成走 Step 1（codegen）→ Step 3（cmocka 测试生成）→ Step 4（spec/code audit）
+合并审计：审计器只读对照 `spec + Linux + code + test + inherited invariants`，将问题
+分为 `spec_under_specified` / `codegen_drift` / `test_gap` / `prompt_gap` / `uncertain`。
 codegen / test gap 分别进入 `code_gen_refine` / `test_gen_refine`；
-`spec_under_specified` 不允许静默改已批准 spec，必须回 Loop A 或交用户确认范围裁剪。
-最多 2 轮，最终批准仍只属于用户。
+`spec_under_specified` 不允许静默改已批准 spec，必须回 Loop spec 或交用户确认范围裁剪。
+最多 3 轮，最终批准仍只属于用户。
 
 **破坏性目录操作流程**（unlink / rmdir / rename source-delete / create-overwrite）：
 直接遵循 SysSpec 论文 §4.1 复杂度分级 — 用 Pre/Post-Condition Cases + 必要 Invariant +
 可选 System Algorithm 明确每个 Linux 副作用（path-cache eviction、parent metadata
 refresh、cluster release 等）应当落在哪个 Case 或 Invariant，或显式 prose 说明为何
-OUT-OF-SCOPE。Loop B 把每条 Post-Condition 落到代码语句 / helper / error branch；
-Layer T 给每个 testable Case + Invariant 出测点；异构审计器跨对照
+OUT-OF-SCOPE。Loop code 的 Step 1 把每条 Post-Condition 落到代码语句 / helper / error branch；
+Step 3 给每个 testable Case + Invariant 出测点；Step 4 跨对照
 spec → code → test → Linux 闭环。
 
 ### 阶段 5 — 构建 + 两层回归
@@ -176,69 +176,84 @@ FSMAP_ENTRY(<name>_fsmap, "<name>", g_<name>Mops, FALSE, TRUE);
 ## 防御层次（plugin 与 skill 共享的契约）/ Defense layer topology
 
 ```
-Loop A: 生成 spec 草稿 → 异构 spec_audit（≤2 轮 refine）→ 用户审 / 批 spec，不触发测试派生
-Loop B (per stage):
-  Step 3   生成 C 代码
-  Step 3a  Layer T cmocka 测试派生（≤ 3 轮 self-eval）
-  Step 3b  异构 code_audit（≤2 轮；code/test/spec 问题分流，分歧用户仲裁）
-  Step 4   Layer 1a (sequential): 4.1 LSP compile (≤ 4 轮) → 4.2 style audit (≤ 5 轮)
-  Step 5   Layer 3 SpecEvaluator (≤ 8 轮，spec conformance only)
-  Step 6   Layer 2 (single budget ≤ 3 轮): 6.1 build → 6.2 cmocka exec → 6.3 QEMU smoke
-  Step 7   Layer 4 用户审核（一并审 code + test）
-模块完结：tools/regress/run_all.sh 仍可手动 / CI 触发（per-stage Layer 2 已覆盖）
+Loop spec: 生成 spec 草稿 → 异构 spec_audit（≤ 2 轮 refine）→ 用户审 / 批 spec
+Loop code (per stage)：按执行顺序
+  Step 1  生成 C 代码 (codegen)
+  Step 2  静态检查 + 内核 build （fail fast；任一子步骤失败 → 回 Step 1）
+          2.1 LSP compile (clangd via OMC LSP)            (≤ 4 轮)
+          2.2 style audit (prompts/style_audit.md)        (≤ 5 轮)
+          2.3 kernel build (run_build_kernel)             (≤ 3 轮)
+  Step 3  cmocka 测试生成 + 测试编译                       (≤ 3 轮 共享)
+          3.1 test gen     (prompts/unittest_gen.md)
+          3.2 cmocka build only —— 只编译，不执行
+  Step 4  spec/code audit                                 (≤ 3 轮)
+          合并旧 SpecEvaluator + 旧异构审计：spec↔code conformance + Linux 等价性 +
+          inherited invariant + test 覆盖。Finding 分流：
+            codegen_drift          → 回 Step 1
+            test_gap               → 回 Step 3
+            spec_under_specified   → SpecFine（cap 3） → Step 1
+  Step 5  运行时验证                                      (≤ 3 轮 共享)
+          5.1 cmocka exec (host wave，覆盖刚编译的测试 + 历史 stage 测试)
+          5.2 QEMU smoke (run_qemu_smoke)
+          失败若来自新生成测试 → 回 Step 3；否则 → 回 Step 1，重跑 Step 2 → 4 → 5
+  Step 6  用户审核 (HITL，唯一终态闸；一并审 code + test)
+模块完结：tools/regress/run_all.sh 仍可手动 / CI 触发（per-stage Step 2/3/5 已覆盖）
 ```
 
-**Layer 1a.2 style audit** 从 `prompts/style_rules.md` 读取 LiteOS-A 风格 canon
+**Step 2.2 style audit** 从 `prompts/style_rules.md` 读取 LiteOS-A 风格 canon
 （≥ 17 项硬规则：libsec / 内存 / 锁 / 错误码符号 / FS 注册 / 命名 / ... 完整列表见
-`style_rules.md`）。模板 `.claude/plugins/specfs-port/prompts/style_audit.md`，输出 JSON
-`{is_good, score, summary, violations[]}`。`is_good=true && score≥80` 进 Step 5
-SpecEval；否则注入 violations 重生（≤ 5 轮）。clang-format dry-run 作为
-advisory hint 喂入 `[AUTO CHECKS]` 段，不当硬门。**与 Layer 1a.1 LSP 同 retry
-budget 完全分离**——LSP 失败只消耗 LSP 预算，style 失败只消耗 style 预算。
+`style_rules.md`）。模板 `prompts/style_audit.md`，输出 JSON
+`{is_good, score, summary, violations[]}`。`is_good=true && score≥80` 进 Step 2.3
+内核 build；否则注入 violations 重生（≤ 5 轮）。clang-format dry-run 作为
+advisory hint 喂入 `[AUTO CHECKS]` 段，不当硬门。**与 Step 2.1 LSP / Step 2.3 build
+预算完全分离**——LSP 失败只消耗 LSP 预算、style 失败只消耗 style 预算、build
+失败只消耗 build 预算。
 
-**Layer 3 SpecEvaluator**（spec conformance only）：6 类 spec 偏差—— 函数签名
-≠ `[GUARANTEE]` / Pre-Post-Invariant 违反 / Locking 标注漂移于 `## Refine Prompt` /
-幻觉 helper（不在 `[RELY]`/`[PRIOR CODE INTERFACE]`） / Case 分支与 `[SPECIFICATION]`
-不符 / 跳过 System Algorithm 的 phase 顺序。模板 `.claude/plugins/specfs-port/prompts/speceval.md`。
-**风格不归此层**——看到风格违例本层会作为 false positive 跳过。
-`is_good=true` 进 Layer 2，否则注入 comments 重生（≤ 8 轮，paper 设定）。
+**Step 3 测试生成 + 编译**：由 spec `[SPECIFICATION]` Cases + Invariants + 刚通过
+Step 2 的真实代码符号派生 `testsuites/unittest/<name>/test_<stage>.c.draft`：每个
+Case 至少一个测点、每个可单测的 Invariant 一个测点；用 `mock_disk_*` +
+`<name>_image_builder_*` 原语，禁止依赖完整 VFS（VnodeAlloc / VfsHashInsert 等
+归 Step 5.2 QEMU smoke 覆盖）。模板 `prompts/unittest_gen.md`。Step 3.2 只把测试
+binary 编译出来——执行留给 Step 5。≤ 3 轮预算共享：编译失败也算这预算的消耗。
+超出意味着 spec `[SPECIFICATION]` 写得不够清楚——应回 Loop spec SpecFine。
+MCP 工具：`test_gen_{start,submit,refine,approve}`。`test_gen_approve` 写 `.c` +
+自动接 `Makefile::HARNESS_SRCS` 与 `main.c::run_suite()`。
 
-**Layer 2**（unified single retry budget ≤ 3 轮）：6.1 build (`run_build_kernel`) →
-6.2 cmocka exec (host 单测，覆盖刚生成的 `test_<stage>.c` + 历史已批准测试) →
-6.3 QEMU smoke (`run_qemu_smoke`)。任一子步骤失败统一注入 `layer="build|qemu"` source
-区分，回 Step 3 重生代码（或 Step 3a 重生测试，若 cmocka failure 来自新生成的测点）。
-模块完结时 `tools/regress/run_all.sh` 是手动 / CI 聚合工具。
+**Step 4 spec/code audit**（合并 spec conformance 与 Linux 异构审计）：覆盖
+6 类 spec 偏差（函数签名 ≠ `[GUARANTEE]` / Pre-Post-Invariant 违反 / Locking
+标注漂移于 `## Refine Prompt` / 幻觉 helper / Case 分支与 `[SPECIFICATION]` 不符 /
+跳过 System Algorithm 的 phase 顺序）+ Linux 等价性（Linux 源 ↔ spec/code）+ test
+覆盖缺口。**审计器优先选异构模型族**（如 GPT-family，与生成器不同）以保留独立
+review 价值。模板 `prompts/speceval.md` 与 `prompts/heterogeneous_audit.md`
+（mode=`code_audit`）联合使用。审计器**只读 / advisory**：不写文件、不批准、
+不改 prompt；输出 JSON 含 `finding_id, severity, root_cause, source_anchor,
+generated_anchor, claim, evidence, recommendation, confidence`。
+风格违例不归此 step（已在 Step 2.2 处理）；看到风格 finding 视为 false positive。
 
-**Layer T**（Loop B Step 3a，紧接 Step 3 代码生成之后）由 spec `[SPECIFICATION]`
-Cases + Invariants + 刚生成的代码符号派生
-`testsuites/unittest/<name>/test_<stage>.c.draft`：每个 Case 至少一个测点、每个可单测
-的 Invariant 一个测点；用 `mock_disk_*` + `<name>_image_builder_*` 原语，禁止依赖
-完整 VFS（VnodeAlloc / VfsHashInsert 等归 Layer 2.3 QEMU smoke 覆盖）。
-模板 `.claude/plugins/specfs-port/prompts/unittest_gen.md`。
-通过 `is_good=true && score≥80` → 等待 Step 7 与代码同审批；否则 `test_gen_refine`
-重生（≤ 3 轮，超出意味 spec `[SPECIFICATION]` 写得不够清楚，应回 Loop A 而不是
-在 Layer T 里磨）。MCP 工具：`test_gen_{start,submit,refine,approve}`。
-`test_gen_approve` 写 `.c` + 自动接 `Makefile::HARNESS_SRCS` 与 `main.c::run_suite()`。
+**Step 5 运行时验证**：5.1 cmocka exec (host 单测，跑 Step 3 编译出来的 test +
+历史已批准测试) → 5.2 QEMU smoke (`run_qemu_smoke`)。任一失败统一注入
+`layer="cmocka|qemu"` 区分。**只在审计通过后跑**——避免给审计将要 reject 的代码
+付昂贵的 QEMU 时间。
 
-报告范例：`docs/exfat_speceval.md`（Layer 3 spec conformance）+
-`docs/exfat_style_audit.md`（Layer 1a.2 风格）。
+报告范例：`docs/exfat_speceval.md`（Step 4 spec/code audit）+
+`docs/exfat_style_audit.md`（Step 2.2 风格）。
 
 ---
 
 ## 移植"开局" / Quick start
 
 - `/specfs-port` — 查看 DAG 状态、推荐下一步。
-- `/specfs-port-spec <linux-path> <stage>` — Loop A，从 Linux 源码起草 SYSSPEC spec。
-- `/specfs-port-code <spec-path>` — Loop B，从已批准的 spec 生成 LiteOS-A C 代码。
+- `/specfs-port-spec <linux-path> <stage>` — Loop spec，从 Linux 源码起草 SYSSPEC spec。
+- `/specfs-port-code <spec-path>` — Loop code，从已批准的 spec 生成 LiteOS-A C 代码。
 
 可选 flag：
 
-- `--speceval-off` — 关闭 Layer 3 自审（默认 ON）。
-- `--style-off` — 关闭 Layer 1a.2 风格子步骤（默认 ON）。
-- `--test-off` — 同时关掉 Layer T 派生与 Layer 2.2 cmocka exec（默认 ON）。
+- `--audit-off` — 关闭 Step 4 spec/code audit 自审（默认 ON）。
+- `--style-off` — 关闭 Step 2.2 风格子步骤（默认 ON）。
+- `--test-off` — 同时关掉 Step 3 cmocka 测试生成与 Step 5.1 cmocka exec（默认 ON）。
   仅当新代码无 host-testable 表面时使用（例如纯 QEMU LTP 覆盖的写路径）；用了就在
   最终报告里显式记 "测试覆盖：跳过（gap）"，让后审可补。
-- `--no-build` — 跳过 Layer 2 整层（不 build / 不跑 cmocka / 不跑 QEMU）。
+- `--no-build` — 跳过 Step 2.3 内核 build + Step 5（不 build / 不跑 cmocka / 不跑 QEMU）。
 - `--no-regress` — 跳过模块完结时的 `tools/regress/run_all.sh` 提醒。
 - `--prompt-override <file>` — 跳过 spec 派生的提示拼装。
 
@@ -282,13 +297,14 @@ append-only review evidence，不是批准状态；不能把 auditor pass 当成
 
 - 规范树体量：文件数、规范总 LoC。
 - 生成代码：文件数、代码总 LoC，spec/code 比例（用作 SpecFS 生产力命题的合理性自检）。
-- 构建状态：`make build` 结果（per-stage Layer 2.1）。
-- Layer 2.2 cmocka exec：通过 stage 数 / 总数（per-stage 已运行）。
-- Layer 2.3 QEMU smoke：通过 stage 数 / 总数。
+- Step 2.1 LSP：通过 stage 数 / 总数。
+- Step 2.2 风格审计：通过 stage 数 / 总数 + 主要 hard 违例。
+- Step 2.3 内核 build：`make build` 结果（per-stage 已运行）。
+- Step 4 spec/code audit：`is_good=true` 的 stage 数 / 总数。
+- Step 5.1 cmocka exec：通过 stage 数 / 总数。
+- Step 5.2 QEMU smoke：通过 stage 数 / 总数。
 - 回归状态：`tools/regress/run_all.sh` 退出码 + cmocka pass/fail + LTP pass/fail（模块完结时手动跑）。
-- Layer 3 SpecEval 自审：`is_good=true` 的 stage 数 / 总数。
-- Layer 1a.2 风格审计：通过 stage 数 / 总数 + 主要 hard 违例。
-- **测试覆盖**：N/M — N 个 stage 通过 Layer T 落了 cmocka 测试 / 总 M 个；
+- **测试覆盖**：N/M — N 个 stage 在 Step 3 落了 cmocka 测试 / 总 M 个；
   跳过的 stage 列出名字 + 跳过原因（`--test-off` 还是 `harness_dir` 未就绪）。
 - 标注 "v2 删除" 的开放映射项（如日志、fscrypt），便于规划后续。
 
@@ -311,6 +327,6 @@ append-only review evidence，不是批准状态；不能把 auditor pass 当成
 - `../../DESIGN.md` — 插件实现规格（DAG / MCP 工具表 / prompts 拼装）。
 - `../../CHANGELOG.md` — 插件版本演进与历史 Phase 标记（本文件不再内联）。
 - `docs/dev/exfat_mount.md` — mount 端到端实战记录。
-- `docs/exfat_speceval.md` — Layer 3 SpecEvaluator 自审报告范例。
-- `docs/exfat_style_audit.md` — Layer 1a.2 风格审计报告范例。
+- `docs/exfat_speceval.md` — Step 4 spec/code audit 报告范例。
+- `docs/exfat_style_audit.md` — Step 2.2 风格审计报告范例。
 - `tools/regress/README.md` — 两层回归套件运行手册。

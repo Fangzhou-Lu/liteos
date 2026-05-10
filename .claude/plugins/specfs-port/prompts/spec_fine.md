@@ -3,7 +3,7 @@ SpecFine 提示词 — 在 SpecEval 判定缺陷在 spec 而非 code 时，打�
 SpecFine prompt — polish an approved spec when SpecEval finds the defect
 is spec-side, not code-side. Paper §4.5 SpecAssistant variant.
 
-Hard cap: 3 rounds. Above that, escalate to HITL — Loop B will not retry
+Hard cap: 3 rounds. Above that, escalate to HITL — Loop code will not retry
 code if SpecFine cap is exceeded.
 
 History/version: see ../CHANGELOG.md.
@@ -31,7 +31,7 @@ code. Your task: produce a revised spec.
   If the code was right and the spec was loose, tighten the spec to match the
   code's correct behavior.
 - DO NOT touch the [GUARANTEE] function signatures unless the comments
-  explicitly say a signature is wrong (rare — would be a Loop A breakage).
+  explicitly say a signature is wrong (rare — would be a Loop spec breakage).
 
 [ORIGINAL SPEC]
 {ORIGINAL_SPEC}

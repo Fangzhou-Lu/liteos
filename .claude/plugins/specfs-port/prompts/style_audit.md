@@ -6,7 +6,7 @@ Loaded as {STYLE_AUDIT} placeholder via prompts.py::assemble_style_audit_prompt.
 Output MUST be JSON: {"is_good": bool, "score": int (0..100), "comments": str, "violations": [...]}.
 
 Plugin parses the JSON and either:
- - is_good=true & score >= 80 → advance to Layer 3 SpecEval.
+ - is_good=true & score >= 80 → advance to Step 2.3 kernel build.
  - otherwise → inject violations as [Modification suggestions] source=style and
    loop back to codegen (max 5 rounds — independent of LSP retry budget).
 

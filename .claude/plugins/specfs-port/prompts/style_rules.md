@@ -2,7 +2,7 @@
 LiteOS-A 内核 FS 代码硬性风格规则，由 codegen / style_audit 加载为 {STYLE_RULES}。
 Hard style rules for LiteOS-A kernel FS code; loaded as {STYLE_RULES}
 placeholder by codegen / style_audit. Compiler does NOT enforce most of
-these — LLM must self-enforce, Layer 4 user reviews.
+these — LLM must self-enforce, Step 6 user reviews.
 
 History/version: see ../CHANGELOG.md.
 -->

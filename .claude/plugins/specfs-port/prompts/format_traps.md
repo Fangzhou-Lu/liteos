@@ -93,4 +93,4 @@ config + use le_load helpers — all standard), include in output:
     * - UTF-8 only filenames in ; UTF-16LE filenames return -ENOENT
     */
 ```
-This makes assumptions auditable in Layer 4 user review without blocking generation.
+This makes assumptions auditable in Step 6 user review without blocking generation.

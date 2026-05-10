@@ -1,12 +1,12 @@
 <!--
-Layer 4 用户审核 aid — 渲染给用户的 markdown checklist，含自动填值。
-Layer-4 user review aid — markdown checklist rendered to USER (not LLM),
+Step 6 用户审核 aid — 渲染给用户的 markdown checklist，含自动填值。
+Step 6 user review aid — markdown checklist rendered to USER (not LLM),
 with status auto-filled from grep / regex / build-log parsing.
 
 History/version: see ../CHANGELOG.md.
 -->
 
-# Layer 4 Review — Stage `{STAGE_ID}`
+# Step 6 Review — Stage `{STAGE_ID}`
 
 ## 1. Symbol existence
 For each LiteOS-A API referenced in generated code, plugin auto-greps the repo:
@@ -56,7 +56,7 @@ Format:
 | `exfat-mount-locked-on-success` | mount | regex confirms mount->data still non-NULL on success | [ ] |
 | `exfat-part-name-claimed` | mount | regex confirms SetDiskPartName + free pair | [ ] |
 
-## 6. QEMU smoke baseline (Layer 2 output)
+## 6. QEMU smoke baseline (Step 5.2 output)
 Plugin runs the smoke commands and (optionally) shows side-by-side log
 comparison against a cached prior-approved baseline if one exists:
 
@@ -73,16 +73,17 @@ Diff highlighted:
 
 User confirms equivalence or that differences are intentional improvements.
 
-## 7. Auto-layer status (ordering: Layer 1a → Layer 3 → Layer 2)
-- [ ] Layer 1a.1 clangd LSP: {COMPILE_STATUS} (clean / N issues)
-- [ ] Layer 1a.2 style audit: {STYLE_STATUS} (is_good / score / violations)
-- [ ] Layer 3 SpecEvaluator: {SPECEVAL_STATUS} (skipped / is_good=true / comments=...)
-- [ ] Layer 2 build.sh: {BUILD_STATUS} (pass / fail / image_path)
-- [ ] Layer 2 cmocka unit-tests: {CMOCKA_STATUS} (pass N/N / fail / skipped)
-- [ ] Layer 2 QEMU smoke: {QEMU_STATUS} (pass / fail)
+## 7. Auto-step status (Loop code 6-step pipeline)
+- [ ] Step 2.1 clangd LSP: {COMPILE_STATUS} (clean / N issues)
+- [ ] Step 2.2 style audit: {STYLE_STATUS} (is_good / score / violations)
+- [ ] Step 2.3 kernel build: {BUILD_STATUS} (pass / fail / image_path)
+- [ ] Step 3 cmocka build: {CMOCKA_BUILD_STATUS} (pass / fail / N testpoints compiled)
+- [ ] Step 4 spec/code audit: {AUDIT_STATUS} (skipped / is_good=true / comments=...)
+- [ ] Step 5.1 cmocka exec: {CMOCKA_EXEC_STATUS} (pass N/N / fail / skipped)
+- [ ] Step 5.2 QEMU smoke: {QEMU_STATUS} (pass / fail)
 
-## 8. Layer T (cmocka test gen, Loop B Step 3a)
-- [ ] Layer T test draft: {TESTGEN_STATUS} (skipped / N testpoints / iterations=M)
+## 8. cmocka test draft (Step 3)
+- [ ] test draft: {TESTGEN_STATUS} (skipped / N testpoints / iterations=M)
 
 ## 9. Diff vs ancestor / vs backup
 ```
@@ -97,7 +98,7 @@ User confirms equivalence or that differences are intentional improvements.
 - [ ] **Inline-edit** — user manually edits files, plugin acknowledges and
  records as approved with manual override
 - [ ] **Reject and regenerate** — discard this round, regen from spec
-- [ ] **Reject and revise spec** — go back to Loop A; mark spec as needing edit
+- [ ] **Reject and revise spec** — go back to Loop spec; mark spec as needing edit
 
 User feedback (if Suggest):
 ```

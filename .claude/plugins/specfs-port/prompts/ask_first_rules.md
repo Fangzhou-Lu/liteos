@@ -1,8 +1,8 @@
 <!--
-"先问后做"指令块 — Loop A / Loop B 共用，由 linux_to_spec.md 与 codegen.md
+"先问后做"指令块 — Loop spec / Loop code 共用，由 linux_to_spec.md 与 codegen.md
 分别按需 fetch。
 Shared "ask before generate" instruction block — fetched on-demand by both
-linux_to_spec.md (Loop A) and codegen.md (Loop B).
+linux_to_spec.md (Loop spec) and codegen.md (Loop code).
 
 Rationale: ROI of one clarifying question >> generating a wrong artifact
 and reviewing 200 lines.

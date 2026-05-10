@@ -1,8 +1,8 @@
 <!--
-Loop C — prompt-template 优化元提示词，由 `prompt_optimize_propose` 触发。
-Loop C — prompt-template optimisation meta-prompt; triggered by `prompt_optimize_propose`.
+Loop eval — prompt-template 优化元提示词，由 `prompt_optimize_propose` 触发。
+Loop eval — prompt-template optimisation meta-prompt; triggered by `prompt_optimize_propose`.
 
-Reads accumulated Loop C recommendations from
+Reads accumulated Loop eval recommendations from
 `docs/<module>_prompt_feedback.md` and asks the LLM to roll them up into a
 concrete edit of a TARGET prompt template (linux_to_spec.md / codegen.md /
 on-demand fragment).
@@ -25,7 +25,7 @@ Placeholder syntax: {NAME} substituted by server/prompts.py.
 
 [ROLE]
 Optimise a SYSSPEC-port prompt template by integrating accumulated
-Loop C recommendations from completed stages.
+Loop eval recommendations from completed stages.
 
 [INPUTS]
 - Target prompt: {TARGET_PROMPT_NAME}.md
@@ -61,7 +61,7 @@ revised prompt:" or any other prose.
 
 Append a one-line summary of this round's integrated recommendations to
 the leading comment block (just an "integrate {N} additive recommendations
-from Loop C" note plus a few one-line summaries of what was merged). Do
+from Loop eval" note plus a few one-line summaries of what was merged). Do
 NOT introduce a numbered version tag — release-history lives in
 `../CHANGELOG.md`.
 
