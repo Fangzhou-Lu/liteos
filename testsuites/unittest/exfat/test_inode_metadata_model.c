@@ -567,6 +567,41 @@ static void test_now_seconds_is_in_exfat_range(void **state)
     assert_true(now <= (uint64_t)EXFAT_MAX_TIMESTAMP_SECS);
 }
 
+static void test_decode_rejects_malformed_packed_fields(void **state)
+{
+    (void)state;
+    exfat_sb_info sbi;
+    init_sbi(&sbi, 0);
+
+    uint16_t date_hour25 = (uint16_t)(((2020u - 1980u) << 9) | (1u << 5) | 1u);
+    uint16_t time_hour25 = (uint16_t)((25u << 11) | (0u << 5) | (0u >> 1));
+    assert_int_equal(
+        exfat_decode_entry_time(&sbi, time_hour25, date_hour25, 0u, EXFAT_TZ_VALID),
+        (uint64_t)EXFAT_MIN_TIMESTAMP_SECS);
+
+    uint16_t date_min60 = (uint16_t)(((2020u - 1980u) << 9) | (1u << 5) | 1u);
+    uint16_t time_min60 = (uint16_t)((0u << 11) | (60u << 5) | 0u);
+    assert_int_equal(
+        exfat_decode_entry_time(&sbi, time_min60, date_min60, 0u, EXFAT_TZ_VALID),
+        (uint64_t)EXFAT_MIN_TIMESTAMP_SECS);
+
+    uint16_t date_feb30 = (uint16_t)(((2020u - 1980u) << 9) | (2u << 5) | 30u);
+    uint16_t time_zero  = 0u;
+    assert_int_equal(
+        exfat_decode_entry_time(&sbi, time_zero, date_feb30, 0u, EXFAT_TZ_VALID),
+        (uint64_t)EXFAT_MIN_TIMESTAMP_SECS);
+
+    uint16_t date_feb29_nonleap = (uint16_t)(((2021u - 1980u) << 9) | (2u << 5) | 29u);
+    assert_int_equal(
+        exfat_decode_entry_time(&sbi, time_zero, date_feb29_nonleap, 0u, EXFAT_TZ_VALID),
+        (uint64_t)EXFAT_MIN_TIMESTAMP_SECS);
+
+    uint16_t date_feb29_leap = (uint16_t)(((2020u - 1980u) << 9) | (2u << 5) | 29u);
+    assert_true(
+        exfat_decode_entry_time(&sbi, time_zero, date_feb29_leap, 0u, EXFAT_TZ_VALID)
+        != (uint64_t)EXFAT_MIN_TIMESTAMP_SECS);
+}
+
 /* ======================================================================== */
 
 const struct CMUnitTest test_inode_metadata_model_tests[] = {
@@ -591,6 +626,7 @@ const struct CMUnitTest test_inode_metadata_model_tests[] = {
     cmocka_unit_test(test_get_nlink_dir_clamps_and_uses_num_subdirs),
     cmocka_unit_test(test_truncate_atime_seconds_rounds_down),
     cmocka_unit_test(test_now_seconds_is_in_exfat_range),
+    cmocka_unit_test(test_decode_rejects_malformed_packed_fields),
 };
 
 const size_t test_inode_metadata_model_tests_count =

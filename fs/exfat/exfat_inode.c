@@ -51,6 +51,7 @@
 #define LE16_TO_HOST(x) ((uint16_t)(x))
 #define LE32_TO_HOST(x) ((uint32_t)(x))
 #define LE64_TO_HOST(x) ((uint64_t)(x))
+#define HOST_TO_LE16(x) ((uint16_t)(x))
 #define EXFAT_STAT_BLOCK_SIZE 512u
 #define EXFAT_OFF_MAX ((off_t)0x7FFFFFFFFFFFFFFFLL)
 
@@ -1766,14 +1767,32 @@ uint64_t exfat_decode_entry_time(const exfat_sb_info *sbi,
                                  uint16_t time_le, uint16_t date_le,
                                  uint8_t cs, uint8_t tz)
 {
-    unsigned year = (unsigned)((date_le >> 9) & 0x7Fu) + 1980u;
-    unsigned mon  = (unsigned)((date_le >> 5) & 0x0Fu);
-    unsigned mday = (unsigned)(date_le & 0x1Fu);
-    unsigned hour = (unsigned)((time_le >> 11) & 0x1Fu);
-    unsigned min  = (unsigned)((time_le >> 5) & 0x3Fu);
-    unsigned sec  = (unsigned)((time_le & 0x1Fu) << 1);
+    uint16_t date = LE16_TO_HOST(date_le);
+    uint16_t time = LE16_TO_HOST(time_le);
+    unsigned year = (unsigned)((date >> 9) & 0x7Fu) + 1980u;
+    unsigned mon  = (unsigned)((date >> 5) & 0x0Fu);
+    unsigned mday = (unsigned)(date & 0x1Fu);
+    unsigned hour = (unsigned)((time >> 11) & 0x1Fu);
+    unsigned min  = (unsigned)((time >> 5) & 0x3Fu);
+    unsigned sec  = (unsigned)((time & 0x1Fu) << 1);
 
-    if (mon < 1u || mon > 12u || mday < 1u || mday > 31u) {
+    static const unsigned days_in_month[] = {
+        0u, 31u, 28u, 31u, 30u, 31u, 30u, 31u, 31u, 30u, 31u, 30u, 31u
+    };
+    if (mon < 1u || mon > 12u || mday < 1u) {
+        return (uint64_t)EXFAT_MIN_TIMESTAMP_SECS;
+    }
+    unsigned mday_max = days_in_month[mon];
+    if (mon == 2u) {
+        unsigned leap = ((year % 4u == 0u && year % 100u != 0u) || year % 400u == 0u) ? 1u : 0u;
+        if (leap != 0u) {
+            mday_max = 29u;
+        }
+    }
+    if (mday > mday_max) {
+        return (uint64_t)EXFAT_MIN_TIMESTAMP_SECS;
+    }
+    if (hour > 23u || min > 59u || sec > 59u) {
         return (uint64_t)EXFAT_MIN_TIMESTAMP_SECS;
     }
 
@@ -1857,18 +1876,18 @@ int exfat_inode_load_metadata(const exfat_sb_info *sbi,
                               const struct exfat_dentry *file_dentry)
 {
     ei->atime_sec = exfat_decode_entry_time(sbi,
-        file_dentry->dentry.file.access_time,
-        file_dentry->dentry.file.access_date,
+        LE16_TO_HOST(file_dentry->dentry.file.access_time),
+        LE16_TO_HOST(file_dentry->dentry.file.access_date),
         0u,
         file_dentry->dentry.file.access_tz);
     ei->mtime_sec = exfat_decode_entry_time(sbi,
-        file_dentry->dentry.file.modify_time,
-        file_dentry->dentry.file.modify_date,
+        LE16_TO_HOST(file_dentry->dentry.file.modify_time),
+        LE16_TO_HOST(file_dentry->dentry.file.modify_date),
         file_dentry->dentry.file.modify_time_cs,
         file_dentry->dentry.file.modify_tz);
     ei->ctime_sec = exfat_decode_entry_time(sbi,
-        file_dentry->dentry.file.create_time,
-        file_dentry->dentry.file.create_date,
+        LE16_TO_HOST(file_dentry->dentry.file.create_time),
+        LE16_TO_HOST(file_dentry->dentry.file.create_date),
         file_dentry->dentry.file.create_time_cs,
         file_dentry->dentry.file.create_tz);
     return 0;
@@ -1885,15 +1904,15 @@ int exfat_inode_store_metadata(const exfat_sb_info *sbi,
     exfat_encode_mtime(sbi, ei->mtime_sec, &m_time, &m_date, &m_cs, &m_tz);
     exfat_encode_ctime(sbi, ei->ctime_sec, &c_time, &c_date, &c_cs, &c_tz);
 
-    file_dentry->dentry.file.access_time    = a_time;
-    file_dentry->dentry.file.access_date    = a_date;
+    file_dentry->dentry.file.access_time    = HOST_TO_LE16(a_time);
+    file_dentry->dentry.file.access_date    = HOST_TO_LE16(a_date);
     file_dentry->dentry.file.access_tz      = a_tz;
-    file_dentry->dentry.file.modify_time    = m_time;
-    file_dentry->dentry.file.modify_date    = m_date;
+    file_dentry->dentry.file.modify_time    = HOST_TO_LE16(m_time);
+    file_dentry->dentry.file.modify_date    = HOST_TO_LE16(m_date);
     file_dentry->dentry.file.modify_time_cs = m_cs;
     file_dentry->dentry.file.modify_tz      = m_tz;
-    file_dentry->dentry.file.create_time    = c_time;
-    file_dentry->dentry.file.create_date    = c_date;
+    file_dentry->dentry.file.create_time    = HOST_TO_LE16(c_time);
+    file_dentry->dentry.file.create_date    = HOST_TO_LE16(c_date);
     file_dentry->dentry.file.create_time_cs = c_cs;
     file_dentry->dentry.file.create_tz      = c_tz;
     return 0;

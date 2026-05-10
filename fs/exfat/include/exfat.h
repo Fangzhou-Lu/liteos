@@ -507,6 +507,39 @@ int  VfsExfatCreate(struct Vnode *parent_vp, const char *name,
 int  VfsExfatUnlink(struct Vnode *parent_vp, struct Vnode *target_vp,
                     const char *fileName);
 
+/* ---- inode_metadata_model — fs/exfat/exfat_inode.c (Wave B Stage 5)
+ * Pure / lock-free / IO-free metadata helpers. Caller holds ei->inode_lock
+ * for the touch and bump_version primitives. Documented in
+ * spec/exfat/interface/exfat_inode_metadata_model.spec. */
+void     exfat_encode_atime(const exfat_sb_info *sbi, uint64_t epoch_sec,
+                            uint16_t *time_out, uint16_t *date_out,
+                            uint8_t *tz_out);
+void     exfat_encode_mtime(const exfat_sb_info *sbi, uint64_t epoch_sec,
+                            uint16_t *time_out, uint16_t *date_out,
+                            uint8_t *cs_out, uint8_t *tz_out);
+void     exfat_encode_ctime(const exfat_sb_info *sbi, uint64_t epoch_sec,
+                            uint16_t *time_out, uint16_t *date_out,
+                            uint8_t *cs_out, uint8_t *tz_out);
+uint64_t exfat_decode_entry_time(const exfat_sb_info *sbi,
+                                 uint16_t time_le, uint16_t date_le,
+                                 uint8_t cs, uint8_t tz);
+uint64_t exfat_now_seconds(void);
+uint64_t exfat_truncate_atime_seconds(uint64_t epoch_sec);
+void     exfat_inode_touch_atime(exfat_inode_info *ei);
+void     exfat_inode_touch_mtime(exfat_inode_info *ei);
+void     exfat_inode_touch_ctime(exfat_inode_info *ei);
+void     exfat_inode_touch_atime_mtime(exfat_inode_info *ei);
+void     exfat_inode_touch_mtime_ctime(exfat_inode_info *ei);
+void     exfat_inode_touch_now(exfat_inode_info *ei);
+void     exfat_inode_bump_version(exfat_inode_info *ei);
+int      exfat_inode_load_metadata(const exfat_sb_info *sbi,
+                                   exfat_inode_info *ei,
+                                   const struct exfat_dentry *file_dentry);
+int      exfat_inode_store_metadata(const exfat_sb_info *sbi,
+                                    const exfat_inode_info *ei,
+                                    struct exfat_dentry *file_dentry);
+uint32_t exfat_inode_get_nlink(const exfat_inode_info *ei);
+
 #ifdef __cplusplus
 }
 #endif
