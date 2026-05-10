@@ -81,6 +81,11 @@ inode/ file/ path/ bitmap/ util/）。**用户拍板分层后才进阶段 2**。
 - `[RELY]` 必须列具体 LiteOS-A 函数签名（不能"使用互斥锁"这种泛指）；
 - `[GUARANTEE]` 必须紧跟一段调用约定注释（返回值含义、副作用；**持锁
   状态留到 Phase 2**）；
+- **`[SPECIFICATION]` 必须包含 `**System Algorithm**` 块**——项目策略，
+  比论文 §4.1 严格（论文 Level 1 helper 不要求 SA，本项目要求每条新生成
+  spec 都有；长度按复杂度伸缩，trivial helper 2–4 个 phase bullet 即可，
+  Level 3 完整 Goal / Algorithm / Pre-Post / Error Handling 分 phase）。
+  **Grandfather 条款**：本规则生效前已批准的 spec 豁免，无需 SpecFine 回填。
 - **异构审计门**：主生成模型（优先 Claude Opus / 最强可用模型）抽取规范后，必须交给
   异构审计器（优先 GPT-family）对照 Linux 源码审计。审计器只输出 JSON finding，
   不写文件、不批准、不改 prompt；每条 finding 必须含 Linux/spec anchor、claim、
@@ -143,11 +148,11 @@ codegen / test gap 分别进入 `code_gen_refine` / `test_gen_refine`；
 
 **破坏性目录操作流程**（unlink / rmdir / rename source-delete / create-overwrite）：
 直接遵循 SysSpec 论文 §4.1 复杂度分级 — 用 Pre/Post-Condition Cases + 必要 Invariant +
-可选 System Algorithm 明确每个 Linux 副作用（path-cache eviction、parent metadata
-refresh、cluster release 等）应当落在哪个 Case 或 Invariant，或显式 prose 说明为何
-OUT-OF-SCOPE。Loop code 的 Step 1 把每条 Post-Condition 落到代码语句 / helper / error branch；
-Step 3 给每个 testable Case + Invariant 出测点；Step 4 跨对照
-spec → code → test → Linux 闭环。
+**强制 System Algorithm**（项目策略，比论文严，全 stage 必含）明确每个 Linux 副作用
+（path-cache eviction、parent metadata refresh、cluster release 等）应当落在哪个
+Case / Invariant / Phase，或显式 prose 说明为何 OUT-OF-SCOPE。Loop code 的 Step 1
+把每条 Post-Condition 落到代码语句 / helper / error branch；Step 3 给每个 testable
+Case + Invariant 出测点；Step 4 跨对照 spec → code → test → Linux 闭环。
 
 ### 阶段 5 — 构建 + 两层回归
 
@@ -220,9 +225,10 @@ MCP 工具：`test_gen_{start,submit,refine,approve}`。`test_gen_approve` 写 `
 自动接 `Makefile::HARNESS_SRCS` 与 `main.c::run_suite()`。
 
 **Step 4 spec/code audit**（合并 spec conformance 与 Linux 异构审计）：覆盖
-6 类 spec 偏差（函数签名 ≠ `[GUARANTEE]` / Pre-Post-Invariant 违反 / Locking
+7 类 spec 偏差（函数签名 ≠ `[GUARANTEE]` / Pre-Post-Invariant 违反 / Locking
 标注漂移于 `## Refine Prompt` / 幻觉 helper / Case 分支与 `[SPECIFICATION]` 不符 /
-跳过 System Algorithm 的 phase 顺序）+ Linux 等价性（Linux 源 ↔ spec/code）+ test
+跳过 System Algorithm 的 phase 顺序 / **新生成 spec 缺失 System Algorithm 块**
+[grandfather: 旧 spec 豁免]）+ Linux 等价性（Linux 源 ↔ spec/code）+ test
 覆盖缺口。**审计器优先选异构模型族**（如 GPT-family，与生成器不同）以保留独立
 review 价值。模板 `prompts/speceval.md` 与 `prompts/heterogeneous_audit.md`
 （mode=`code_audit`）联合使用。审计器**只读 / advisory**：不写文件、不批准、

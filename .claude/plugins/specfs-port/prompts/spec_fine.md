@@ -32,6 +32,11 @@ code. Your task: produce a revised spec.
   code's correct behavior.
 - DO NOT touch the [GUARANTEE] function signatures unless the comments
   explicitly say a signature is wrong (rare — would be a Loop spec breakage).
+- **If the comments flag a missing `**System Algorithm**` block** (Step 4
+  audit `spec_under_specified` finding), ADD the block in this polish round.
+  Length scales with complexity — even a 2–4 step block satisfies the rule
+  for trivial helpers. SpecFine is the right place to backfill System
+  Algorithm; do NOT bounce the finding back to Loop spec just for this.
 
 [ORIGINAL SPEC]
 {ORIGINAL_SPEC}

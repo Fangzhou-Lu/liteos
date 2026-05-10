@@ -38,19 +38,32 @@ On demand: `specfs.dag_extract_invariants(module="{MODULE}", node_id="<ancestor-
 [Previously generated spec — only on refine round]
 {PREVIOUS_SPEC}
 
-[OUTPUT FORMAT — paper §4.1, complexity-scaled]
+[OUTPUT FORMAT — paper §4.1 complexity-scaled, plus mandatory System Algorithm]
 
 A spec is plain text with these segments in order. Per paper §4.1, write
 ONLY what the stage's complexity warrants — do NOT pad. Aim:
 
   Level 1 (straightforward helper, ~30 LoC spec):
-    Pre/Post-Condition + (sometimes) Invariant. No System Algorithm.
+    Pre/Post-Condition + (sometimes) Invariant + concise System Algorithm.
+    For trivial helpers a 2–4 step phase outline is enough; do NOT pad.
 
   Level 2 (intricate logic, ~50-90 LoC spec):
-    Add a brief intent / [PROMPT] sentence describing approach.
+    Add a brief intent / [PROMPT] sentence describing approach
+    + System Algorithm (4–8 phase-level steps).
 
   Level 3 (performance-critical or non-trivial concurrency, ~80-200 LoC spec):
-    Add explicit System Algorithm (phase-granularity steps, NOT C-with-braces-removed).
+    Full explicit System Algorithm (phase-granularity steps with Goal /
+    Algorithm / Pre-Post / Error Handling per phase — NOT C-with-braces-removed).
+
+**System Algorithm is MANDATORY in every newly generated spec** (project
+policy beyond paper §4.1, which made it optional for Level 1 / Level 2). Even
+the simplest helper must include a short `**System Algorithm**` block — it
+documents the intended phase order for downstream codegen, audit, and test
+generation to anchor against.
+
+Grandfather clause: specs already approved BEFORE this rule landed are not
+retroactively required to add System Algorithm. Only **new specs** (and
+SpecFine'd specs whose Post-Condition or Invariant changes) must include it.
 
 Reference sizes from paper impl: util helper ~28 LoC, atomfs_del 90 LoC,
 atomfs_rename (most complex, lock) 196 LoC. If you exceed 250 LoC for a
@@ -81,9 +94,12 @@ single stage, you are over-specifying — re-evaluate.
                 Identifiers welcome but not mandated; re-cite via prose
                 when convenient. Skip when the only invariants come
                 from inherited DAG ancestors.
-  **System Algorithm** (optional, Level 3 only): phase-granularity
-                       steps. Skip when pre/post + a one-sentence intent
-                       in [PROMPT] suffices.
+  **System Algorithm** (MANDATORY): phase-granularity steps describing
+                       the intended execution order. Length scales with
+                       complexity — Level 1 may be 2–4 bullets; Level 3
+                       gets Goal / Algorithm / Pre-Post / Error Handling
+                       per phase. Even a one-paragraph "single-phase"
+                       block counts; what is forbidden is omitting it.
 
 ## Refine Prompt (only when two-phase trigger fires)
   [RELY]        ```c block: ONLY lock primitives (LOS_MuxLock etc.)
@@ -91,7 +107,8 @@ single stage, you are over-specifying — re-evaluate.
     Pre-Condition (lock state) / Post-Condition (lock state) per case
     Initialization-order constraint (when applicable)
     Deadlock note (when applicable)
-    System Algorithm (locking phases) (optional)
+    System Algorithm (locking phases) — MANDATORY when Phase 2 exists:
+      describe lock acquire / release order across phases.
 ```
 
 [TWO-PHASE TRIGGER — paper §4.3]
@@ -129,6 +146,11 @@ unsure about a borderline case (e.g., is `LOS_MuxInit` Phase 1 or 2?).
 - [PROMPT] omits file name / header / output rule.
 - [RELY] uses abstract names instead of real C decls.
 - [SPECIFICATION] has no Pre-Condition or no Post-Condition.
+- **[SPECIFICATION] lacks a `**System Algorithm**` block** (mandatory in all
+  newly generated specs; grandfathered specs already approved before this
+  rule are exempt — see grandfather clause above).
+- When Phase 2 is present, the Phase 2 block lacks its own `System Algorithm
+  (locking phases)` sub-block describing lock acquire / release order.
 - Spec exceeds the stage scope.
 - Two-phase violations: trigger fired but no `## Refine Prompt`; lock
   state leaked into Phase 1; Phase 2 restates Phase 1; signature changed

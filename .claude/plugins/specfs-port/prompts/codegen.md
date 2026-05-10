@@ -18,7 +18,10 @@ Input segments (LLM should recognize by literal heading):
 - `[PROMPT]` — destination file, header to include, output rule, intent.
 - `[RELY]` — predefined types/functions; reference, do NOT redefine.
 - `[GUARANTEE]` — signature(s) + calling-convention comment.
-- `[SPECIFICATION]` — Pre/Post conditions, Invariants, optional **System Algorithm**.
+- `[SPECIFICATION]` — Pre/Post conditions, Invariants, **System Algorithm**
+  (mandatory in new specs; grandfathered specs may omit it). Phase order
+  from System Algorithm dictates the order of code phases / helper calls
+  / error-unwind labels you emit.
 - `## Refine Prompt` (optional) — additive locking constraints over Phase 1.
 - `[Previously generated code]` (optional) — modify per suggestions; don't restart.
 - `[Modification suggestions]` (optional) — SpecEvaluator feedback; apply faithfully.

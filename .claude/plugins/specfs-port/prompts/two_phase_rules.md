@@ -75,7 +75,12 @@ The following constructs MUST NOT appear in Phase 2 (they belong only to Phase 1
   - **Post-Condition (lock state)**: which locks held on exit, per Case (success / each error path).
 - **Initialization-order constraint** (when applicable): numbered steps for lock init order vs. external visibility. See `exfat_mount.spec` "初始化顺序约束" 5-step example.
 - **Deadlock note** (when applicable): why this function cannot deadlock against siblings — typical content: "this function acquires no lock that any visible vnode is currently waiting on".
-- **System Algorithm (locking phases)** (optional): named phases with Goal / Algorithm steps / Pre-Post / Error Handling. See `atomfs_rename.spec` Phase 1/2/3 for the canonical pattern.
+- **System Algorithm (locking phases)** (MANDATORY whenever Phase 2 is
+  present): named phases with Goal / Algorithm steps / Pre-Post / Error
+  Handling describing lock acquire / release order across phases. See
+  `atomfs_rename.spec` Phase 1/2/3 for the canonical pattern. Phase 1
+  must also include its own mandatory System Algorithm block in the main
+  `[SPECIFICATION]` segment (see `linux_to_spec.md` REJECTION CRITERIA).
 
 ## Canonical examples
 

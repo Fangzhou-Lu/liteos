@@ -55,8 +55,12 @@ this table is the canonical Rosetta stone.
 
 - **Intent / domain knowledge injection** (paper §4.1): folded into spec
   `[PROMPT]` block, plus `// helper-purpose` comments above [RELY] entries.
-- **System Algorithm** (paper §4.1): optional sub-block within spec
-  [SPECIFICATION], same as paper's atomfs_rename example.
+- **System Algorithm** (paper §4.1): sub-block within spec [SPECIFICATION].
+  **Project-level policy**: mandatory in every newly generated spec, beyond
+  the paper which only required it for Level 3 specs. Rationale: System
+  Algorithm anchors downstream codegen phase order, audit trace, and Layer T
+  test phasing. Existing specs approved before the rule landed are
+  grandfathered (no retroactive SpecFine required).
 - **SpecEvaluator** (paper §4.5 sub-component of SpecCompiler): Step 4
   spec/code audit in our Loop code, merged with the heterogeneous Linux audit
   into one auditor pass. `prompts/speceval.md` covers spec conformance;
@@ -521,6 +525,15 @@ Example phrasings:
     ]
 }
 ```
+
+> **Legacy MCP 工具名 / Legacy tool-name aliases**：Step 4 spec/code audit 在
+> `server/specfs_server.py` 至今以历史名 `toggle_speceval` / `enforce_speceval` /
+> `record_speceval_verdict` 暴露三个 MCP 工具（`--audit-off` 在客户端层映射到
+> `toggle_speceval`）。Session 状态字段 `speceval_enabled` / `speceval_pending` /
+> phase 字符串 `"speceval"` 同理；内部 routing key（`layer_retries["speceval"]` /
+> `_OPTIMIZABLE_PROMPTS["speceval"]` / `assemble_speceval_prompt`）与 inject
+> 标签 `layer="speceval"` 亦保留旧名。**docs 语义按新拓扑读即可——重命名将留待
+> 一次专门的兼容性升级**。
 
 ## 7. Loop code defense pipeline detail
 

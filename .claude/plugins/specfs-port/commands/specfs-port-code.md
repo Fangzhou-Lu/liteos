@@ -23,6 +23,16 @@ This command is shared by Claude Code and OpenCode through symlinks. Tool names 
 
 Use the form exposed in the current runtime. If running in OpenCode, convert every `specfs.foo_bar` mention below to `specfs_foo_bar` before calling; do not attempt dot-form tool names. All examples below use the Claude Code form unless an OpenCode-specific name is required.
 
+> **Legacy 工具名兼容 / Legacy tool-name aliases**：本命令的语义术语是 Step 4
+> spec/code audit 与 `--audit-off`，但 server.py 至今仍以历史名暴露三个对应的
+> MCP 工具：
+> - `specfs.toggle_speceval(session_id, enabled)`  ← 对应 `--audit-off` 开关
+> - `specfs.enforce_speceval(session_id)`          ← 对应 Step 4 gate
+> - `specfs.record_speceval_verdict(session_id, verdict_json)` ← 对应 Step 4 verdict
+>
+> 调用时仍用上述旧名（保留向后兼容）；docs 语义按新拓扑读即可。
+> 字段名 `speceval_enabled` / `speceval_pending` / `phase = "speceval"` 同理。
+
 You are running **Loop code** of the specfs-port plugin. Goal: produce approved
 LiteOS-A C code AND its cmocka test from an approved spec, defended by
 auto-retry steps + a single user review at the end.

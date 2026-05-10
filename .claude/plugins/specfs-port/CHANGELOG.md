@@ -9,6 +9,93 @@ All notable changes to this plugin. Format follows
 
 ---
 
+## [0.5.9] — 2026-05-11
+
+### Changed — System Algorithm 改必选 + Legacy MCP 工具名兼容脚注
+
+**用户指令 / User directive (2026-05-11)**:
+> "spec 规范里面的 algothrim 改为必选"
+> "不改代码，只修 docs 存在名字不一致注释"
+
+#### 一. System Algorithm 强制要求
+
+`[SPECIFICATION]` 段必须含 `**System Algorithm**` 块——**项目策略，比论文 §4.1
+严格**（论文 §4.1 仅 Level 3 要求 SA；本项目扩到全 stage）。
+
+**为何超出论文** — System Algorithm 不仅服务 spec 内部清晰度，还是：
+- Loop code Step 1 codegen 的 phase 顺序锚点
+- Step 3 cmocka 测试派生的 testpoint 划分依据
+- Step 4 spec/code audit 的对照表
+
+缺失 SA 会让 audit 失去稳定锚点，迫使审计器从 Pre/Post 间接推断 phase，
+增加 false negative。
+
+**长度按复杂度伸缩**：
+- Level 1 (trivial helper, ~30 LoC)：2–4 个 phase bullet 即可。
+- Level 2 (intricate, 50–90 LoC)：4–8 phase 步骤。
+- Level 3 (complex / concurrency, 80–200 LoC)：完整 Goal / Algorithm /
+  Pre-Post / Error Handling per phase。
+
+**Grandfather 条款** — 本规则生效前已批准的 31 个 exfat spec 豁免，**不强迫
+SpecFine 回填**。仅对：
+1. 0.5.9 以后新生成的 spec
+2. 已批准 spec 经 SpecFine 后 Post-Condition / Invariant 实质变化的，下次 polish
+   时必须补 SA
+
+强制（其他场景旧 spec 保持原样）。
+
+#### 二. 涉及文档
+
+- `prompts/linux_to_spec.md`：[OUTPUT FORMAT] 删 Level 1 "No System Algorithm"，
+  全部 3 个 Level 都要写；`**System Algorithm**` 标注 MANDATORY；REJECTION
+  CRITERIA 新增 "缺失 SA 块"；新增 grandfather clause 段。
+- `prompts/speceval.md`：spec conformance 6 类 → **7 类**，新增 "missing
+  mandatory System Algorithm block"；finding `root_cause` 设为
+  `spec_under_specified` → 走 SpecFine 而非 codegen retry。
+- `prompts/heterogeneous_audit.md`：`spec_audit` AUDIT FOCUS 新增 SA 缺失检查
+  + grandfather 豁免提示。
+- `prompts/two_phase_rules.md`：Phase 2 内的 `System Algorithm (locking phases)`
+  从 optional 改 MANDATORY when Phase 2 exists。
+- `prompts/codegen.md`：`[SPECIFICATION]` 输入合约从 "optional **System
+  Algorithm**" 改为 "**System Algorithm** (mandatory in new specs; grandfathered
+  specs may omit it)"，并显式说 SA phase 顺序指导代码 phase 顺序。
+- `prompts/spec_fine.md`：[GUIDANCE] 新增 "SpecFine 是补 SA 的正确位置——audit
+  flag 缺失 SA 时直接补，不要把 finding 弹回 Loop spec"。
+- `skills/specfs-port/SKILL.md`：§阶段 2 质量门槛新增 SA 强制条目 + grandfather；
+  §防御层次 Step 4 spec 偏差从 6 类改 7 类。
+- `skills/specfs-port/references/specfs-format.md`：`<op>.spec` 节顶端加项目
+  策略 callout；§规范化质量门槛新增 SA 强制条目。
+- `DESIGN.md` §2.1.1：System Algorithm 段从 "optional sub-block" 改为
+  "project-level policy: mandatory in new specs, grandfathered for old approvals"，
+  并写明 rationale 与 paper 偏离原因。
+
+#### 三. Legacy MCP 工具名兼容脚注
+
+用户决策：**不改 server 代码**——保留 `toggle_speceval` / `enforce_speceval` /
+`record_speceval_verdict` 三个 MCP 工具名，以及 `speceval_enabled` /
+`speceval_pending` / phase `"speceval"` / `layer_retries["speceval"]` /
+`_OPTIMIZABLE_PROMPTS["speceval"]` 等内部 routing key。
+
+Docs 通过 callout 说明命名映射：
+- `commands/specfs-port-code.md` MCP tool naming compatibility 段新增 legacy
+  alias 块，列三个旧名与 `--audit-off` 的对应。
+- `DESIGN.md` §7 顶端加 legacy tool-name aliases callout，列内部 routing key
+  与新拓扑的对应。
+
+Rationale：会话状态 (`spec/<module>/.specfs.dag.json` 与 session JSON) 在
+持久化层用旧名；重命名会破坏现有 session 续断。命名清理留待一次专门的
+兼容性升级 + 持久化层 migration script，本轮只做 docs 同步。
+
+#### 四. 影响范围
+
+- 已批准的 31 个 exfat spec：**0 文件需改动**（grandfather 全部豁免）。
+- 后续 unlink / rmdir / rename / 等新 stage：**Step 4 audit 会强制要求 SA**。
+- server.py / state.py / prompts.py / extract.py / pyproject.toml /
+  plugin.json / .mcp.json：**0 改动**。
+- 测试：**0 改动**（无 SA 强制 assert）。
+
+---
+
 ## [0.5.8] — 2026-05-11
 
 ### Changed — Loop code 流水线重排 + Loop 重命名 + Layer/Step 统一编号

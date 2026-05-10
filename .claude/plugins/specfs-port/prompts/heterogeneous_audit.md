@@ -40,7 +40,14 @@ marked out of scope. Look for:
 - lock-order or initialization-order constraints absent from the
   `## Refine Prompt` (when locking is in scope),
 - lifecycle transitions (tombstone sentinels, refcount drops, chain reset),
-- observable VFS outcomes and errno mapping divergence.
+- observable VFS outcomes and errno mapping divergence,
+- **missing mandatory `**System Algorithm**` block** in the `[SPECIFICATION]`
+  segment (project policy: every newly generated spec must include a
+  System Algorithm describing intended phase order; even Level-1 helpers
+  must carry a concise 2–4 step block). When flagged, classify as
+  `spec_under_specified` so it routes to SpecFine in Step 4.
+  Grandfathered specs already approved before this policy landed are exempt
+  — surface this as `info`, not as a blocking finding.
 
 Audit free-form against the spec's Pre/Post-Conditions + Invariants — list
 each missing behaviour as a concrete finding (no enumerated coverage matrix

@@ -36,6 +36,12 @@ pass owns those. Focus exclusively on the items below.
 - Hallucinated helpers not in [RELY] and not in [PRIOR CODE INTERFACE]
 - Branch / Case behavior diverges from [SPECIFICATION] cases
 - Logic that satisfies post-condition but ignores **System Algorithm** phases
+- **Spec is missing the mandatory `**System Algorithm**` block** (for any
+  spec generated under the new policy — grandfathered specs approved before
+  the rule landed are exempt; if you can confirm via the spec's metadata or
+  prior approval timestamp, downgrade to `info` instead of flagging). When
+  flagged, set `root_cause = "spec_under_specified"` so downstream routes
+  to SpecFine rather than codegen retry.
 - **Phase-layering mismatch**: code uses lock-acquisition primitives
   (`LOS_MuxLock` / `LOS_MuxUnlock` / `LOS_SpinLock` / `LOS_SpinUnlock` and
   variants) but the spec lacks a `## Refine Prompt` section that anchors

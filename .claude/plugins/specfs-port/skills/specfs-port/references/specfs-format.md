@@ -60,6 +60,12 @@ int inode_truncate(struct Vnode *vn, off_t new_size);
 
 工具读取 `.header` 推断每份 `.spec` 的可见类型与可调用函数；规范作者写 `.spec` 时无须显式重复 `[RELY]` 中的此类签名（但建议显式列出关键签名以便人审）。
 
+> **项目策略 / Project policy**：每条**新生成**的 `<op>.spec` 必须在
+> `[SPECIFICATION]` 段内含 `**System Algorithm**` 块（长度按复杂度伸缩：
+> trivial helper 2–4 个 phase bullet；Level 3 完整 Goal / Algorithm / Pre-Post
+> / Error Handling 分 phase）。论文 §4.1 仅 Level 3 要求 SA；本项目把它扩到
+> 全 stage。Grandfather 条款：本规则生效前已批准的 spec 豁免。
+
 ## `<op>.spec` 文件（核心）
 
 每份 `.spec` 描述**一个**函数。整体结构：
@@ -173,6 +179,10 @@ LLM 的元指令。一般写：固定格式即可，唯一变量是函数名与�
 - **每个 Case 都对应一条独立返回路径**。Linux 实现里 `goto unlock` / `goto free_cluster` 等共用尾巴在规范里要拆开。
 - **NULL / 零长 / 最大值**三类边界都必须显式写出。
 - **不变式不可省略**——它是 LLM 自检的钩子，缺失时生成的代码常出现 "悄悄破坏全局状态"。
+- **System Algorithm 是新生成 spec 的强制项**——`[SPECIFICATION]` 段必须含
+  `**System Algorithm**` 块描述 phase 顺序。trivial helper 2–4 个 phase 即可，
+  Level 3 走完整 Goal / Algorithm / Pre-Post / Error Handling per phase。
+  Grandfather 条款：本规则生效前已批准的 spec 豁免。
 - **Refine Prompt 是默认增项**，不是可选项；只有完全无并发的纯函数（如 NLS 转换）才能省略。
 
 ## 与 Linux 实现的对照原则
