@@ -38,6 +38,7 @@ extern const struct CMUnitTest test_dentry_set_write_tests[];       extern const
 extern const struct CMUnitTest test_alloc_dentry_slot_tests[];      extern const size_t test_alloc_dentry_slot_tests_count;
 extern const struct CMUnitTest test_mkdir_tests[];                  extern const size_t test_mkdir_tests_count;
 extern const struct CMUnitTest test_inode_metadata_model_tests[];        extern const size_t test_inode_metadata_model_tests_count;
+extern const struct CMUnitTest test_unlink_tests[];                 extern const size_t test_unlink_tests_count;
 static int run_suite(const char *name,
                      const struct CMUnitTest *tests, size_t n)
 {
@@ -78,6 +79,7 @@ int main(void)
     total += run_suite("alloc_dentry_slot", test_alloc_dentry_slot_tests, test_alloc_dentry_slot_tests_count);
     total += run_suite("mkdir",          test_mkdir_tests,          test_mkdir_tests_count);
     total += run_suite("inode_metadata_model", test_inode_metadata_model_tests, test_inode_metadata_model_tests_count);
+    total += run_suite("unlink",         test_unlink_tests,         test_unlink_tests_count);
     fprintf(stderr, "\n=== exfat TOTAL FAILURES: %d ===\n", total);
     return total == 0 ? 0 : 1;
 }

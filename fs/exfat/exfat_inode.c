@@ -1610,10 +1610,46 @@ phase1_unlock:
         return err;   /* Case 3 / Case 4 */
     }
 
-    /* ---- Phase 2: cluster release (lock-free w.r.t. s_lock) -------------- */
-    chain.dir   = target_ei->start_clu;
-    chain.size  = 0u;
-    chain.flags = target_ei->flags;
+    /* ---- Phase 2: cluster release (lock-free w.r.t. s_lock) --------------
+     *
+     * Per spec/exfat/inode/exfat_unlink.spec System Algorithm Phase 2:
+     *   Step 1: empty-file fast path — if start_clu == EXFAT_EOF_CLUSTER the
+     *           file never had data clusters allocated (lazy-alloc never
+     *           triggered, e.g. created and immediately unlinked). No
+     *           bitmap mutation; return 0 (Case 1b).
+     *   Step 2: derive num_phys_clu = ceil(i_size_ondisk / cluster_size),
+     *           clamp >= 1u. This dodges exfat_free_cluster.spec Case 4's
+     *           size==0 short-circuit (line 106) which would otherwise make
+     *           Phase 2 a silent no-op and leak the chain in the bitmap.
+     *           See invariant exfat-unlink-phase2-size-nonzero.
+     *   Step 3-4: build chain and call exfat_free_cluster.
+     */
+    if (target_ei->start_clu == EXFAT_EOF_CLUSTER) {
+        return 0;   /* Case 1b: empty file, nothing to free */
+    }
+
+    {
+        uint32_t cluster_size = sbi->cluster_size;
+        uint64_t bytes        = target_ei->i_size_ondisk;
+        uint32_t num_phys_clu;
+
+        if (cluster_size == 0u) {
+            /* Defensive: cluster_size == 0 means sbi corruption. Refuse to
+             * call free_cluster which would also misbehave. */
+            PRINT_ERR("[%s] sbi->cluster_size == 0 (sbi corruption)\n", __func__);
+            return -EIO;   /* Case 5 */
+        }
+
+        num_phys_clu = (uint32_t)((bytes + (uint64_t)cluster_size - 1u) /
+                                  (uint64_t)cluster_size);
+        if (num_phys_clu == 0u) {
+            num_phys_clu = 1u;   /* clamp per spec — anomaly defense */
+        }
+
+        chain.dir   = target_ei->start_clu;
+        chain.size  = num_phys_clu;
+        chain.flags = target_ei->flags;
+    }
 
     err = exfat_free_cluster(sbi, &chain);
     if (err != 0) {
