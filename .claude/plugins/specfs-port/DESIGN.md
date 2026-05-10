@@ -58,7 +58,7 @@ this table is the canonical Rosetta stone.
 - **System Algorithm** (paper §4.1): sub-block within spec [SPECIFICATION].
   **Project-level policy**: mandatory in every newly generated spec, beyond
   the paper which only required it for Level 3 specs. Rationale: System
-  Algorithm anchors downstream codegen phase order, audit trace, and Layer T
+  Algorithm anchors downstream codegen phase order, audit trace, and Step 3
   test phasing. Existing specs approved before the rule landed are
   grandfathered (no retroactive SpecFine required).
 - **SpecEvaluator** (paper §4.5 sub-component of SpecCompiler): Step 4
@@ -363,8 +363,9 @@ specfs.dag_get(module) → DAG (full)
 specfs.dag_extract_invariants(node_id) → [{id, text}, ...]
 specfs.dag_extract_interface(node_id) → [{symbol, signature, src_file}, ...]
 specfs.dag_check_node_complete(node_id) → {spec_done, code_done, validations}
-specfs.dag_commit_spec(node_id, spec_files) → updated_dag
-specfs.dag_commit_code(node_id, code_files, validations_passed) → updated_dag
+# DAG node spec/code commit happens IMPLICITLY inside spec_gen_approve and
+# code_gen_approve respectively (no standalone commit MCP tool). DAG state
+# read access lives in dag_get / dag_extract_invariants / dag_extract_interface.
 ```
 
 ### 4.7 Spec/prompt artifacts
@@ -373,6 +374,31 @@ specfs.has_prompt_override(spec_path) → bool
 specfs.write_prompt_override(spec_path, prompt_text)
 specfs.show_assembled_prompt(spec_path) → string # debug/transparency
 specfs.sync_common_header(module, new_decls) → diff # auto-append after code approval
+```
+
+### 4.8 Advanced / internal tools (not on Loop spec / Loop code primary surface)
+
+These tools exist on `server/specfs_server.py` but are **not** invoked by the
+default `/specfs-port-spec` / `/specfs-port-code` command bodies. They are
+exposed for power-user / Loop eval / maintenance use:
+
+```
+# Loop eval (Linux ↔ port equivalence + prompt-template feedback)
+specfs.linux_compare_start(session_id, linux_source_path, code_path?) → prompt
+specfs.linux_compare_submit(session_id, comparison_json) → feedback_doc_path
+specfs.prompt_optimize_propose(target_prompt_name, module) → meta_prompt
+specfs.prompt_optimize_apply(target, new_text, dry_run?) → diff
+specfs.prompt_feedback_summary(module) → markdown_rollup
+
+# Manual escape hatches
+specfs.toggle_skip_build(session_id, skip)
+specfs.toggle_fast_eval_mode(session_id, enabled)
+specfs.dedup_common_header(module, dry_run=False)
+
+# Discovery / debug
+specfs.list_prompt_fragments() → registry
+specfs.metrics_summary(session_id?) → dict   # backing API for metrics_report
+specfs.reload_plugin() → reloaded_modules
 ```
 
 ## 5. Prompt templates
@@ -526,14 +552,18 @@ Example phrasings:
 }
 ```
 
-> **Legacy MCP 工具名 / Legacy tool-name aliases**：Step 4 spec/code audit 在
-> `server/specfs_server.py` 至今以历史名 `toggle_speceval` / `enforce_speceval` /
-> `record_speceval_verdict` 暴露三个 MCP 工具（`--audit-off` 在客户端层映射到
-> `toggle_speceval`）。Session 状态字段 `speceval_enabled` / `speceval_pending` /
-> phase 字符串 `"speceval"` 同理；内部 routing key（`layer_retries["speceval"]` /
-> `_OPTIMIZABLE_PROMPTS["speceval"]` / `assemble_speceval_prompt`）与 inject
-> 标签 `layer="speceval"` 亦保留旧名。**docs 语义按新拓扑读即可——重命名将留待
-> 一次专门的兼容性升级**。
+> **MCP 工具名别名 / MCP tool aliases**：Step 4 audit 同时暴露新旧两套名字：
+>
+> | 新名（首选 / preferred） | 旧名（backward compat） |
+> |---|---|
+> | `toggle_audit(session_id, enabled)` | `toggle_speceval(session_id, enabled)` |
+> | `enforce_audit(session_id)` | `enforce_speceval(session_id)` |
+> | `record_audit_verdict(session_id, verdict_json)` | `record_speceval_verdict(session_id, verdict_json)` |
+>
+> Session JSON 字段 (`speceval_enabled` / `speceval_pending`)、内部 routing
+> key (`layer_retries["speceval"]` / `_OPTIMIZABLE_PROMPTS["speceval"]` /
+> `assemble_speceval_prompt`)、inject 标签 (`layer="speceval"`) 维持旧名以
+> 保持持久化层 backward compat；语义已是 Step 4 spec/code audit。
 
 ## 7. Loop code defense pipeline detail
 
@@ -808,6 +838,6 @@ the repo and is no longer part of the automated comparison.
 | ThreadPoolExecutor | sub-agents within stage | stages serial, files parallel |
 | compile + test feedback | Step 2 + Step 5 | + Step 6 user replaces test suite |
 | (none) Linux→spec | Loop spec | our extension |
-| (none) ask-first | Layer -1 | our extension |
+| (none) ask-first | Step 0 ask-first | our extension |
 | (none) DAG state file | `spec/<module>/.specfs.dag.json` | makes paper's DAG explicit |
 | (none) HITL gate | Step 6 | makes paper's "review patches" explicit |

@@ -36,8 +36,8 @@ Format:
 - [ ] No `printk` / `pr_err` / `pr_info` (replaced with PRINT_ERR/INFO/PRINTK): {PRINTK_OK}
 - [ ] Lock primitive matches sleep-context (mux for sleep paths, spin else): {LOCK_OK}
 
-## 4. Format-compatibility self-check (Layer -1 echo)
-For each of the 4 traps from Layer -1 ask-first scan:
+## 4. Format-compatibility self-check (Step 0 ask-first echo)
+For each of the 4 traps from Step 0 ask-first scan:
 - [ ] Checksum algorithm: {CRC_STATUS} (irrelevant / addressed / **unaddressed**)
 - [ ] Byte order: {ENDIAN_STATUS}
 - [ ] Charset: {CHARSET_STATUS}

@@ -9,6 +9,109 @@ All notable changes to this plugin. Format follows
 
 ---
 
+## [0.5.10] — 2026-05-11
+
+### Changed — Server 代码同步 docs Loop code 6 步流水线 + 工具别名 + 一致性修复
+
+**用户指令 / User directive (2026-05-11)**：
+> "保留 docs 描述顺序，改 server 提供 pre-approve audit 入口"
+> "DESIGN.md 文档里面为正确的设计，请修改代码符合设计"
+
+经一次跨文档↔代码 audit 后发现 docs 早已重排为新流水线，但 server 实际语义仍是
+旧的 post-approve audit gate。此版按 docs 反推 server 改造，使两边一致。
+
+#### 一. Server 流水线语义反转
+
+`speceval_pending` flag 的 set/check 点全部前移：
+
+| 行为 | 旧（≤0.5.9） | 新（0.5.10） |
+|---|---|---|
+| `code_gen_submit` | 仅 stash + return `next=compile` | 按 `style_audit_enabled` / `speceval_enabled` 路由 `next=style_audit` / `speceval` / `compile`；进 audit 分支时自动 set `speceval_pending=True` |
+| `enforce_speceval` | 要求 `speceval_pending=True`（post-approve gate） | pre-approve 可调；自动 arm gate；从 `current_artifact` / draft 文件读 code |
+| `record_speceval_verdict` | is_good=true → 推 phase=test_drafting，next=test_gen | is_good=true → 仅清 gate，next=runtime_validation（caller 进 Step 5） |
+| `code_gen_approve` | 自身 set `speceval_pending=True` | refuse if `speceval_pending=True`；audit 必须先跑完 |
+| `test_gen_start` | refuse if `speceval_pending=True` | 不再依赖 audit gate（audit 已 pre-approve 完成） |
+
+字段名 `speceval_pending` 含义改为"audit pending pre-approve"；持久化层
+backward compat 保持。
+
+#### 二. 新 MCP 工具别名
+
+| 新名（首选） | 旧名（保留） |
+|---|---|
+| `toggle_audit(session_id, enabled)` | `toggle_speceval` |
+| `enforce_audit(session_id)` | `enforce_speceval` |
+| `record_audit_verdict(session_id, verdict_json)` | `record_speceval_verdict` |
+
+新名是 thin wrapper 直接调旧名。docs 更新使用首选名；旧名永远可用。
+
+#### 三. `validator_run_holistic` 加 `mode` 参数
+
+```
+validator_run_holistic(module, mode="holistic" | "cmocka_only" | "qemu_only")
+```
+
+- `holistic` (默认 = 旧行为)：Wave A + Wave B 全跑，模块完结时用。
+- `cmocka_only`：仅 Wave A（cmocka host）；通过 `REGRESS_SKIP_QEMU=1` 透传。
+- `qemu_only`：仅 Wave B（QEMU LTP smoke）；通过 `REGRESS_SKIP_CMOCKA=1` 透传。
+- 未知 mode 立即 raise RuntimeError。
+- 返回值新增 `mode` 字段。
+
+per-stage Step 5.1 / Step 5.2 现可调用 `cmocka_only` / `qemu_only`，无需手动
+拆分 `tools/regress/run_all.sh`。
+
+#### 四. SA grandfather 机制闭环
+
+`assemble_speceval_prompt` 加 `spec_approved_at: str = ""` 参数。
+`enforce_speceval` 自动从 DAG 节点读 `spec.approved_at` 并注入审计 prompt。
+prompts.py 的 `_SA_GRANDFATHER_CUTOFF_ISO = "2026-05-11"`：早于此 cutoff
+的 spec，auditor 把 "missing System Algorithm" 降级为 `info`，不阻塞流水线。
+
+#### 五. Tests
+
+`tests/test_mcp_tools.py` 更新 3 个旧 assert + 新增 8 个：
+
+- 修订：`test_enforce_speceval_auto_arms_gate_when_unset`、
+  `test_record_speceval_verdict_pass_advances_to_runtime`、
+  `test_test_gen_start_does_not_require_speceval_pending`
+- 新增：`test_code_gen_submit_routes_to_style_audit_when_enabled` /
+  `..._speceval_when_style_disabled` / `..._compile_when_both_disabled`、
+  `test_toggle_audit_alias_flips_speceval_enabled`、
+  `test_enforce_audit_alias_returns_same_shape_as_enforce_speceval`、
+  `test_record_audit_verdict_alias`、
+  `test_validator_run_holistic_rejects_unknown_mode`、
+  `test_code_gen_approve_refuses_with_pending_audit_via_inline_call`
+
+测试套：226 → **234 全过**。
+
+#### 六. Docs 一致性同步
+
+- `commands/specfs-port-code.md`：Step 2.2 调用方式改为 `inject_diagnostics(layer="style", ...)`；
+  Step 4 audit 调用 `enforce_audit` / `record_audit_verdict`；Step 5.1 加 mode；
+  legacy callout 重写为新旧 alias 对照表；Step 4 加 SA grandfather clause。
+- `DESIGN.md`：§4 加 §4.8 "Advanced / internal tools"（11 个 server-only
+  tools）；§4.5 删除虚构 `dag_commit_spec/code` 改为"implicit inside
+  `*_gen_approve`" 注释；§7 旁的 Legacy callout 改为新旧 alias 对照表；
+  §Appendix A `Layer -1` → `Step 0 ask-first`；`Layer T` → `Step 3`。
+- `prompts/validation_checklist.md`：`Layer -1` → `Step 0 ask-first`。
+- `skills/specfs-port/SKILL.md`、`skills/specfs-port/references/fs-debug-recipe.md`：
+  回归报告路径统一为 `docs/test/<module>_regression_<ts>.md` + symlink
+  `docs/test/<module>_regression_latest.md`（与 server `validator_run_holistic`
+  实际写出路径一致）。
+- `.claude-plugin/plugin.json`：version `0.5.6` → `0.5.10`；description 改用
+  6 步流水线表述。
+
+#### 七. 影响范围
+
+| 维度 | 改动 |
+|---|---|
+| Server 代码 | 4 工具语义 + 3 alias + 1 mode 参数 = 8 处函数级改动；约 100 行净增 |
+| Tests | 3 改 + 8 新 = 11 改动；234 全过 |
+| Docs | 6 文件触动（commands / DESIGN / SKILL / fs-debug-recipe / validation_checklist / plugin.json）|
+| 持久化 | 0 破坏；session JSON 字段名维持旧名 |
+
+---
+
 ## [0.5.9] — 2026-05-11
 
 ### Changed — System Algorithm 改必选 + Legacy MCP 工具名兼容脚注

@@ -280,10 +280,24 @@ def session_end(session_id: str) -> dict[str, str]:
 
 @mcp.tool()
 def toggle_speceval(session_id: str, enabled: bool) -> dict[str, bool]:
-    """Enable / disable Layer 3 (SpecEvaluator) for this session. Default OFF."""
+    """Enable / disable Step 4 spec/code audit for this session. Default ON.
+
+    Legacy alias retained for backward compat — prefer toggle_audit.
+    """
     sess = _get(session_id)
     sess.speceval_enabled = bool(enabled)
     return {"speceval_enabled": sess.speceval_enabled}
+
+
+@mcp.tool()
+def toggle_audit(session_id: str, enabled: bool) -> dict[str, bool]:
+    """Enable / disable Step 4 spec/code audit for this session. Default ON.
+
+    Backs --audit-off CLI flag in /specfs-port-code.
+    """
+    sess = _get(session_id)
+    sess.speceval_enabled = bool(enabled)
+    return {"audit_enabled": sess.speceval_enabled}
 
 
 @mcp.tool()
@@ -670,16 +684,20 @@ def code_gen_submit(session_id: str, generated_code: str) -> dict[str, Any]:
     full.parent.mkdir(parents=True, exist_ok=True)
     full.write_text(generated_code, encoding="utf-8")
 
-    # P1.6 Wave 2: stash first submission as <code>.first for Loop C
-    # linux_compare. Only written once; refine rounds don't touch it.
-    # Compares against this baseline so the comparison measures the prompt's
-    # first-shot quality, not the LLM's iterative repair ability.
     first_p = full.with_suffix(full.suffix + ".first")
     if not first_p.exists():
         first_p.write_text(generated_code, encoding="utf-8")
 
+    if sess.style_audit_enabled:
+        next_phase = "style_audit"
+    elif sess.speceval_enabled:
+        sess.speceval_pending = True
+        next_phase = "speceval"
+    else:
+        next_phase = "compile"
+
     return {
-        "next": "compile",
+        "next": next_phase,
         "draft_path": draft_path,
         "iteration": sess.code_iterations,
     }
@@ -787,14 +805,16 @@ def code_gen_approve(
     sess.code_final_text = captured_final
     sess.code_final_paths = saved
 
-    if sess.speceval_enabled:
-        sess.speceval_pending = True
+    if sess.speceval_pending:
+        raise RuntimeError(
+            "speceval_pending=True; the merged spec/code audit must complete "
+            "BEFORE code_gen_approve. Call enforce_speceval(session_id), "
+            "spawn an INDEPENDENT reviewer agent, then post the verdict via "
+            "record_speceval_verdict (alias: enforce_audit / record_audit_verdict)."
+        )
 
     next_phase: str
-    if sess.speceval_enabled:
-        sess.phase = "speceval_pending"
-        next_phase = "speceval"
-    elif sess.test_gen_enabled:
+    if sess.test_gen_enabled:
         sess.phase = "test_drafting"
         next_phase = "test_gen"
     else:
@@ -881,13 +901,6 @@ def test_gen_start(session_id: str, spec_path: str = "") -> dict[str, Any]:
         raise RuntimeError(
             "test_gen disabled for this session — enable via toggle_test_gen "
             "or remove --test-off from the slash-command args"
-        )
-    if sess.speceval_pending:
-        raise RuntimeError(
-            "speceval_pending: code_gen_approve set the SpecEval gate but no "
-            "verdict was recorded. Call enforce_speceval(session_id) FIRST, "
-            "spawn an INDEPENDENT reviewer agent (e.g. Momus subagent) with "
-            "the returned prompt, then post the verdict via record_speceval_verdict."
         )
 
     rehydrated = False
@@ -1289,19 +1302,19 @@ def run_qemu_smoke(commands: list[str]) -> dict[str, Any]:
 
 @mcp.tool()
 def enforce_speceval(session_id: str) -> dict[str, Any]:
-    """Layer 3 SpecEval gate — assemble the prompt and require an INDEPENDENT
-    reviewer agent.
+    """Step 4 spec/code audit gate — assemble the prompt and require an
+    INDEPENDENT reviewer agent.
 
-    Returns the verbatim prompts/speceval.md prompt populated with the
-    just-approved code + original spec, plus an explicit ``reviewer_contract``
-    block telling the caller to spawn a fresh-context reviewer subagent
-    (Momus). The author of the code MUST NOT be the evaluator —
-    self-evaluation introduces confirmation bias and was the root cause of
-    Layer 3 being silently skipped on inode_metadata_model (2026-05-10).
+    Returns the prompts/speceval.md prompt populated with the current code
+    artifact + original spec, plus a ``reviewer_contract`` block telling the
+    caller to spawn a fresh-context reviewer subagent. The author of the
+    code MUST NOT be the evaluator — self-evaluation introduces confirmation
+    bias.
 
-    Pre-condition: speceval_pending == True (set by code_gen_approve when
-    speceval_enabled). Refuses if the gate is not set — prevents callers
-    from running SpecEval at the wrong phase.
+    Runs PRE-APPROVE: caller invokes after code_gen_submit + Step 2 static
+    checks pass, but BEFORE code_gen_approve. Refuses with backward-compat
+    behaviour if speceval_pending is unset (older sessions that approved
+    code first will see this on a code_gen_submit re-run).
 
     Returns:
         {prompt_for_llm, reviewer_contract, code_path, spec_path,
@@ -1309,19 +1322,13 @@ def enforce_speceval(session_id: str) -> dict[str, Any]:
     """
     sess = _get(session_id)
     _refuse_if_fast_eval(sess, "enforce_speceval")
-    if not sess.speceval_pending:
-        raise RuntimeError(
-            "speceval_pending=False; either code_gen_approve was not run "
-            "with speceval_enabled, or a verdict was already recorded. "
-            "Re-run code_gen_approve to re-arm the gate."
-        )
 
     spec_path = sess.code_spec_path or sess.spec_final_path
     if not spec_path:
         raise RuntimeError("no spec_path on session; run code_gen_start first")
     spec_text = (_repo_root() / spec_path).read_text(encoding="utf-8")
 
-    code_text = sess.code_final_text
+    code_text = sess.current_artifact or sess.code_final_text
     if not code_text and sess.code_final_paths:
         chunks = []
         for p in sess.code_final_paths:
@@ -1329,11 +1336,38 @@ def enforce_speceval(session_id: str) -> dict[str, Any]:
             if full.exists():
                 chunks.append(f"// FILE: {p}\n" + full.read_text(encoding="utf-8"))
         code_text = "\n\n".join(chunks)
+    if not code_text and sess.code_draft_paths:
+        chunks = []
+        for p in sess.code_draft_paths:
+            full = _repo_root() / p
+            if full.exists():
+                chunks.append(f"// FILE: {p}\n" + full.read_text(encoding="utf-8"))
+        code_text = "\n\n".join(chunks)
     if not code_text:
-        raise RuntimeError("no code artifact on session; cannot run SpecEval")
+        raise RuntimeError(
+            "no code artifact on session; call code_gen_submit first"
+        )
+
+    if not sess.speceval_pending and sess.speceval_enabled:
+        sess.speceval_pending = True
+
+    spec_approved_at = ""
+    try:
+        dag_state = dag_module.load(sess.module)
+        node_id = sess.code_spec_path.rsplit("/", 1)[-1].removesuffix(".spec")
+        for node in dag_state.get("stages", []):
+            if node.get("id") == node_id:
+                spec_approved_at = (node.get("spec") or {}).get(
+                    "approved_at", ""
+                ) or ""
+                break
+    except Exception:
+        spec_approved_at = ""
 
     prompt = prompts.assemble_speceval_prompt(
-        generated_code=code_text, original_spec=spec_text,
+        generated_code=code_text,
+        original_spec=spec_text,
+        spec_approved_at=spec_approved_at,
     )
     sess.last_prompt = prompt
 
@@ -1365,30 +1399,26 @@ def enforce_speceval(session_id: str) -> dict[str, Any]:
 def record_speceval_verdict(
     session_id: str, verdict_json: str,
 ) -> dict[str, Any]:
-    """Consume the JSON verdict that an independent reviewer subagent (Momus)
-    produced from the enforce_speceval prompt.
+    """Consume the JSON verdict from an independent reviewer subagent.
 
     Verdict schema (from prompts/speceval.md):
         {"is_good": bool, "comments": str}
 
-    On is_good=True: clear speceval_pending, advance phase to test_drafting
-        (or "approved" if test_gen disabled). Caller can now call test_gen_start.
+    On is_good=True: clear speceval_pending. Caller advances to Step 5
+        runtime validation (cmocka exec + QEMU smoke), then code_gen_approve
+        on user approval.
 
-    On is_good=False: record FailureRecord(layer="speceval"), increment retry
-        counter (cap 8 from layer_retries), KEEP speceval_pending=True so the
-        gate stays armed, and return next="code_gen_refine" with the comments
-        wired as the suggestion. Caller decides spec_fine vs code_gen_refine.
+    On is_good=False: record FailureRecord(layer="speceval"), increment
+        retry counter (cap 8), KEEP speceval_pending=True so the gate stays
+        armed. Returns next="code_gen_refine" with the comments wired as the
+        suggestion. Caller decides spec_fine vs code_gen_refine based on
+        finding root_cause.
 
     Returns:
         {ok, is_good, next, retries, retry_cap, comments}
     """
     sess = _get(session_id)
     _refuse_if_fast_eval(sess, "record_speceval_verdict")
-    if not sess.speceval_pending:
-        raise RuntimeError(
-            "speceval_pending=False; nothing to record. "
-            "Run enforce_speceval first."
-        )
 
     try:
         verdict = json.loads(verdict_json)
@@ -1401,14 +1431,8 @@ def record_speceval_verdict(
 
     if is_good:
         sess.speceval_pending = False
-        if sess.test_gen_enabled:
-            sess.phase = "test_drafting"
-            nxt = "test_gen"
-        else:
-            sess.phase = "approved"
-            nxt = "done"
         return {
-            "ok": True, "is_good": True, "next": nxt,
+            "ok": True, "is_good": True, "next": "runtime_validation",
             "retries": sess.layer_retries.get("speceval", 0),
             "retry_cap": 8, "comments": "",
         }
@@ -1422,6 +1446,27 @@ def record_speceval_verdict(
         "retries": sess.layer_retries["speceval"], "retry_cap": 8,
         "comments": comments,
     }
+
+
+@mcp.tool()
+def enforce_audit(session_id: str) -> dict[str, Any]:
+    """Step 4 spec/code audit gate — alias of enforce_speceval.
+
+    Use this name from new code; the legacy enforce_speceval is retained
+    for session-JSON backward compat. Same returns and semantics.
+    """
+    return enforce_speceval(session_id)
+
+
+@mcp.tool()
+def record_audit_verdict(
+    session_id: str, verdict_json: str,
+) -> dict[str, Any]:
+    """Consume Step 4 audit verdict — alias of record_speceval_verdict.
+
+    Use this name from new code. Same returns and semantics.
+    """
+    return record_speceval_verdict(session_id, verdict_json)
 
 
 @mcp.tool()
@@ -1673,26 +1718,35 @@ _SPEC_FINE_CAP = 3  # per project memory feedback_specfine_cap_3.md
 # v0.5.2: override default 30 s timeout — holistic validator wraps
 # tools/regress/run_all.sh which itself has subprocess.run(timeout=900).
 # Allow ~920 s at the MCP layer before declaring the wrapper stuck.
+_VALIDATOR_MODES = {"holistic", "cmocka_only", "qemu_only"}
+
+
 @mcp.tool(timeout=920)
-def validator_run_holistic(module: str) -> dict[str, Any]:
-    """F4 — holistic SpecValidator (paper §4.5).
+def validator_run_holistic(
+    module: str, mode: str = "holistic",
+) -> dict[str, Any]:
+    """Module-completion regression runner (paper §4.5 SpecValidator) with
+    per-stage shortcuts.
 
-    Runs at MODULE COMPLETION (not per-stage). Single comprehensive pass:
-    1. Wave A — host cmocka via testsuites/unittest/<module>/Makefile
-    2. Wave B — QEMU LTP smoke via tools/regress/qemu_<module>_run.sh
-    3. Both aggregated by tools/regress/run_all.sh
-
-    Per-stage validation in v0.4 is reduced to LSP only (Layer 1). This
-    holistic validator replaces the per-stage Layer 2 (build + QEMU smoke)
-    that v0.3 ran on every code_gen_approve — wasteful for module sizes
-    that approach the paper's 500 LoC budget.
+    Modes:
+      - "holistic" (default): Wave A cmocka host + Wave B QEMU LTP smoke,
+        aggregated by tools/regress/run_all.sh. Use at module completion.
+      - "cmocka_only": Wave A only — used by Loop code Step 5.1 per-stage
+        cmocka exec. Skips QEMU.
+      - "qemu_only": Wave B only — used by Loop code Step 5.2 per-stage
+        QEMU smoke. Skips cmocka.
 
     Returns:
-      {ok: bool, cmocka_pass: bool, qemu_smoke_pass: bool, exit_code: int,
-       report_path: str, stderr_tail: str}
+      {ok, cmocka_pass, qemu_smoke_pass, exit_code, report_path,
+       stderr_tail, mode}
 
-    Exit codes from run_all.sh: 0=pass, 1=test failure, 2=panic-or-hang.
+    Exit codes: 0=pass, 1=test failure, 2=panic-or-hang.
     """
+    if mode not in _VALIDATOR_MODES:
+        raise RuntimeError(
+            f"validator_run_holistic: unknown mode={mode!r}; "
+            f"expected one of {sorted(_VALIDATOR_MODES)}"
+        )
     repo = _repo_root()
     runner = repo / "tools" / "regress" / "run_all.sh"
     if not runner.exists():
@@ -1703,14 +1757,20 @@ def validator_run_holistic(module: str) -> dict[str, Any]:
             "exit_code": -1,
             "report_path": "",
             "stderr_tail": f"run_all.sh not found at {runner}",
+            "mode": mode,
         }
-    log_path = f"/tmp/specfs_holistic_{module}.log"
+    log_path = f"/tmp/specfs_{mode}_{module}.log"
+    extra_env = {"MODULE": module, "REGRESS_LOG": log_path}
+    if mode == "cmocka_only":
+        extra_env["REGRESS_SKIP_QEMU"] = "1"
+    elif mode == "qemu_only":
+        extra_env["REGRESS_SKIP_CMOCKA"] = "1"
     try:
         res = subprocess.run(
             ["bash", str(runner)],
             cwd=str(repo),
             capture_output=True, text=True, timeout=900,
-            env={**os.environ, "MODULE": module, "REGRESS_LOG": log_path},
+            env={**os.environ, **extra_env},
         )
     except subprocess.TimeoutExpired:
         return {
@@ -1719,7 +1779,8 @@ def validator_run_holistic(module: str) -> dict[str, Any]:
             "qemu_smoke_pass": False,
             "exit_code": -2,
             "report_path": "",
-            "stderr_tail": "holistic validator timeout (>15 min)",
+            "stderr_tail": "validator timeout (>15 min)",
+            "mode": mode,
         }
     except FileNotFoundError as ex:
         return {
@@ -1729,18 +1790,28 @@ def validator_run_holistic(module: str) -> dict[str, Any]:
             "exit_code": -3,
             "report_path": "",
             "stderr_tail": f"failed to run: {ex}",
+            "mode": mode,
         }
 
     out = (res.stdout or "") + (res.stderr or "")
     report_link = repo / "docs" / "test" / f"{module}_regression_latest.md"
     report_path = str(report_link.resolve()) if report_link.exists() else ""
+    cmocka_pass = (
+        "TOTAL FAILURES: 0" in out if mode != "qemu_only" else True
+    )
+    qemu_smoke_pass = (
+        ("LTP_DONE" in out and "panic" not in out.lower())
+        if mode != "cmocka_only"
+        else True
+    )
     return {
         "ok": res.returncode == 0,
-        "cmocka_pass": "TOTAL FAILURES: 0" in out,
-        "qemu_smoke_pass": "LTP_DONE" in out and "panic" not in out.lower(),
+        "cmocka_pass": cmocka_pass,
+        "qemu_smoke_pass": qemu_smoke_pass,
         "exit_code": res.returncode,
         "report_path": report_path,
         "stderr_tail": "\n".join(out.strip().splitlines()[-30:]),
+        "mode": mode,
     }
 
 

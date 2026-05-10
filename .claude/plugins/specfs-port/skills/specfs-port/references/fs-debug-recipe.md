@@ -248,7 +248,7 @@ panic 时刻保存下来的 `.sym.sorted` 才得到正确的栈。
 ### 与 QEMU 测试 loop 的衔接
 
 把脚本接到 `qemu_ltp_run.sh` 的 panic 分支里：检测到 `panic | Oops | Kernel BUG`
-立刻 `kill QEMU` 并自动 symbolicate，把符号化后的栈写到 `docs/exfat_regression_<ts>.md`。
+立刻 `kill QEMU` 并自动 symbolicate，把符号化后的栈写到 `docs/test/exfat_regression_<ts>.md`。
 这样 fail 报告里直接是函数名而不是裸地址，无需事后人肉 addr2line。
 
 ### 与上游 parse_excinfo.py 的差别

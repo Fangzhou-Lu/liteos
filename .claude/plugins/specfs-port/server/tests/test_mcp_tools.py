@@ -1191,17 +1191,18 @@ def test_enforce_speceval_returns_prompt_and_reviewer_contract(
     assert "Momus" in rc and "task(" in rc and "FRESH context" in rc
 
 
-def test_enforce_speceval_refuses_when_gate_not_set(
+def test_enforce_speceval_auto_arms_gate_when_unset(
     tmp_repo, reset_session_registry, sample_spec_text
 ):
     import specfs_server
     sid, sess = _seed_session_for_speceval(tmp_repo, specfs_server, sample_spec_text)
     sess.speceval_pending = False
-    with pytest.raises(RuntimeError, match="speceval_pending=False"):
-        specfs_server.enforce_speceval(session_id=sid)
+    out = specfs_server.enforce_speceval(session_id=sid)
+    assert "prompt_for_llm" in out
+    assert sess.speceval_pending is True
 
 
-def test_record_speceval_verdict_pass_clears_gate(
+def test_record_speceval_verdict_pass_advances_to_runtime(
     tmp_repo, reset_session_registry, sample_spec_text
 ):
     import specfs_server
@@ -1210,9 +1211,8 @@ def test_record_speceval_verdict_pass_clears_gate(
     out = specfs_server.record_speceval_verdict(
         session_id=sid, verdict_json='{"is_good": true, "comments": ""}',
     )
-    assert out["is_good"] is True and out["next"] == "test_gen"
+    assert out["is_good"] is True and out["next"] == "runtime_validation"
     assert sess.speceval_pending is False
-    assert sess.phase == "test_drafting"
 
 
 def test_record_speceval_verdict_fail_keeps_gate_armed(
@@ -1234,13 +1234,15 @@ def test_record_speceval_verdict_fail_keeps_gate_armed(
     assert any(f.layer == "speceval" for f in sess.failures)
 
 
-def test_test_gen_start_refuses_while_speceval_pending(
+def test_test_gen_start_does_not_require_speceval_pending(
     tmp_repo, reset_session_registry, sample_spec_text
 ):
     import specfs_server
-    sid, _ = _seed_session_for_speceval(tmp_repo, specfs_server, sample_spec_text)
-    with pytest.raises(RuntimeError, match="speceval_pending"):
-        specfs_server.test_gen_start(session_id=sid)
+    sid, sess = _seed_session_for_speceval(tmp_repo, specfs_server, sample_spec_text)
+    sess.speceval_pending = False
+    out = specfs_server.test_gen_start(session_id=sid)
+    assert "prompt_for_llm" in out
+    assert "draft_path" in out
 
 
 def test_record_speceval_verdict_rejects_invalid_json(
@@ -1383,3 +1385,95 @@ def test_rebuild_codegen_prompt_only_renders_latest_round_failures(
     assert "LATEST_ROUND_3_QEMU" in prompt
     assert "STALE_ROUND_1_LSP" not in prompt, "Stale round 1 leaked into next prompt"
     assert "STALE_ROUND_2_USER" not in prompt, "Stale round 2 leaked into next prompt"
+
+
+# ---- 0.5.10 — Loop code 6-step pipeline + alias coverage --------------------
+
+
+def test_code_gen_submit_routes_to_style_audit_when_enabled(
+    tmp_repo, reset_session_registry, sample_spec_text
+):
+    import specfs_server
+    sid, sess = _seed_session_for_speceval(tmp_repo, specfs_server, sample_spec_text)
+    sess.style_audit_enabled = True
+    sess.speceval_pending = False
+    code = "// FILE: fs/exfat/exfat_lookup.c\nint VfsExfatLookup(void) { return 0; }\n"
+    out = specfs_server.code_gen_submit(session_id=sid, generated_code=code)
+    assert out["next"] == "style_audit"
+
+
+def test_code_gen_submit_routes_to_speceval_when_style_disabled(
+    tmp_repo, reset_session_registry, sample_spec_text
+):
+    import specfs_server
+    sid, sess = _seed_session_for_speceval(tmp_repo, specfs_server, sample_spec_text)
+    sess.style_audit_enabled = False
+    sess.speceval_enabled = True
+    sess.speceval_pending = False
+    code = "// FILE: fs/exfat/exfat_lookup.c\nint VfsExfatLookup(void) { return 0; }\n"
+    out = specfs_server.code_gen_submit(session_id=sid, generated_code=code)
+    assert out["next"] == "speceval"
+    assert sess.speceval_pending is True
+
+
+def test_code_gen_submit_routes_to_compile_when_both_disabled(
+    tmp_repo, reset_session_registry, sample_spec_text
+):
+    import specfs_server
+    sid, sess = _seed_session_for_speceval(tmp_repo, specfs_server, sample_spec_text)
+    sess.style_audit_enabled = False
+    sess.speceval_enabled = False
+    sess.speceval_pending = False
+    code = "// FILE: fs/exfat/exfat_lookup.c\nint VfsExfatLookup(void) { return 0; }\n"
+    out = specfs_server.code_gen_submit(session_id=sid, generated_code=code)
+    assert out["next"] == "compile"
+
+
+def test_toggle_audit_alias_flips_speceval_enabled(reset_session_registry):
+    import specfs_server
+    out = specfs_server.session_start(module="exfat", mode="gen")
+    sid = out["session_id"]
+    r1 = specfs_server.toggle_audit(session_id=sid, enabled=False)
+    assert r1["audit_enabled"] is False
+    r2 = specfs_server.toggle_audit(session_id=sid, enabled=True)
+    assert r2["audit_enabled"] is True
+
+
+def test_enforce_audit_alias_returns_same_shape_as_enforce_speceval(
+    tmp_repo, reset_session_registry, sample_spec_text
+):
+    import specfs_server
+    sid, _ = _seed_session_for_speceval(tmp_repo, specfs_server, sample_spec_text)
+    out = specfs_server.enforce_audit(session_id=sid)
+    assert "prompt_for_llm" in out
+    assert "reviewer_contract" in out
+
+
+def test_record_audit_verdict_alias(
+    tmp_repo, reset_session_registry, sample_spec_text
+):
+    import specfs_server
+    sid, sess = _seed_session_for_speceval(tmp_repo, specfs_server, sample_spec_text)
+    out = specfs_server.record_audit_verdict(
+        session_id=sid, verdict_json='{"is_good": true, "comments": ""}',
+    )
+    assert out["is_good"] is True and out["next"] == "runtime_validation"
+
+
+def test_validator_run_holistic_rejects_unknown_mode(reset_session_registry):
+    import specfs_server
+    with pytest.raises(RuntimeError, match="unknown mode"):
+        specfs_server.validator_run_holistic(module="exfat", mode="bogus")
+
+
+def test_code_gen_approve_refuses_with_pending_audit_via_inline_call(
+    reset_session_registry,
+):
+    import inspect
+    import specfs_server
+    src = inspect.getsource(specfs_server.code_gen_approve)
+    assert "speceval_pending=True" in src or "speceval_pending" in src, (
+        "code_gen_approve must contain a speceval_pending guard so that "
+        "Step 4 audit is enforced before user approval"
+    )
+    assert "BEFORE code_gen_approve" in src

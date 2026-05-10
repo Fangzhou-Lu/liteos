@@ -144,11 +144,9 @@ class Session:
     # toggle_fast_eval_mode (rare).
     fast_eval_mode: bool = False
 
-    # P1.7 (2026-05-10): SpecEval gate. Set to True by code_gen_approve when
-    # speceval_enabled. Cleared by enforce_speceval after a verdict is
-    # recorded. test_gen_start refuses to run while this flag is True so
-    # SpecEval can never be silently skipped — caller MUST spawn an
-    # independent reviewer agent (e.g. Momus subagent) before proceeding.
+    # Audit pending gate (0.5.10 semantics: pre-approve, not post-approve).
+    # Field name retained for session-JSON backward compat; meaning is now
+    # "audit must run before code_gen_approve".
     speceval_pending: bool = False
 
     # Accumulated context that will be re-injected on refine rounds

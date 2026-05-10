@@ -23,15 +23,11 @@ This command is shared by Claude Code and OpenCode through symlinks. Tool names 
 
 Use the form exposed in the current runtime. If running in OpenCode, convert every `specfs.foo_bar` mention below to `specfs_foo_bar` before calling; do not attempt dot-form tool names. All examples below use the Claude Code form unless an OpenCode-specific name is required.
 
-> **Legacy 工具名兼容 / Legacy tool-name aliases**：本命令的语义术语是 Step 4
-> spec/code audit 与 `--audit-off`，但 server.py 至今仍以历史名暴露三个对应的
-> MCP 工具：
-> - `specfs.toggle_speceval(session_id, enabled)`  ← 对应 `--audit-off` 开关
-> - `specfs.enforce_speceval(session_id)`          ← 对应 Step 4 gate
-> - `specfs.record_speceval_verdict(session_id, verdict_json)` ← 对应 Step 4 verdict
->
-> 调用时仍用上述旧名（保留向后兼容）；docs 语义按新拓扑读即可。
-> 字段名 `speceval_enabled` / `speceval_pending` / `phase = "speceval"` 同理。
+> **MCP 工具名 / MCP tool aliases**：Step 4 audit 在 server 上以一对名字暴露，
+> 旧名（`toggle_speceval` / `enforce_speceval` / `record_speceval_verdict`）保留
+> backward compat，新名（`toggle_audit` / `enforce_audit` / `record_audit_verdict`）
+> 是首选。功能一致；本命令两套都接受。Session 字段名 `speceval_enabled` /
+> `speceval_pending` 维持旧名（持久化兼容）。
 
 You are running **Loop code** of the specfs-port plugin. Goal: produce approved
 LiteOS-A C code AND its cmocka test from an approved spec, defended by
@@ -125,16 +121,16 @@ If clangd is unreachable (no OMC LSP server), proceed to Step 2.2 and note
 
 ### Step 2.2 — Style audit (retry budget: 5; skip if `--style-off`)
 
-Call `specfs.code_gen_submit(session_id, generated_code=<code>)`. The server
-returns `next: "style_audit"` with the assembled style-audit prompt
-(`prompts/style_audit.md` against `prompts/style_rules.md`).
+After `code_gen_submit` (called once in Step 1), the response carries
+`next="style_audit"` when `style_audit_enabled` is True. Caller assembles
+the style-audit prompt locally via the bundled fragments (`prompts/style_audit.md`
++ `prompts/style_rules.md`); LLM produces JSON
+`{is_good: bool, score: int, summary: str, violations: [...]}`.
 
-- Read the style-audit prompt.
-- Generate JSON `{is_good: bool, score: int, summary: str, violations: [...]}` in your response.
-- Call `specfs.code_gen_submit` again with the JSON.
 - If `is_good=true && score >= 80` → advance to Step 2.3.
-- If `is_good=false || score < 80` → inject as
-  `[Modification suggestions]` source=style and loop back to Step 1.
+- If `is_good=false || score < 80` → call
+  `specfs.inject_diagnostics(session_id, layer="style", payload=<violations>)`
+  and loop back to Step 1.
 
 ### Step 2.3 — Kernel build (retry budget: 3; skip if `--no-build`)
 
@@ -199,10 +195,13 @@ heterogeneous code/test audit**。审计器优先选异构模型族（如 GPT-fa
 
 ### 调用方式
 
-Call `specfs.code_gen_submit(session_id, generated_code=<code>)` — server 返回
-`next: "speceval"` 与组装好的 audit 提示词。读完提示词后**用 `Task()` 起一个独立
-异构审计 subagent**（推荐 GPT-family 模型；fallback 用 Sonnet 同款不同上下文）。
-不要在主 session 上下文里直接审 — 同模型 + 同上下文会丢独立 review value。
+Call `specfs.enforce_audit(session_id)` (alias `enforce_speceval`) — 返回组装好
+的 audit 提示词 + reviewer_contract。**用 `Task()` 起一个独立异构审计 subagent**
+（推荐 GPT-family 模型；fallback 用 Sonnet 同款不同上下文）。不要在主 session
+上下文里直接审 — 同模型 + 同上下文会丢独立 review value。
+
+Reviewer 返回 JSON 后调用 `specfs.record_audit_verdict(session_id, verdict_json)`
+（alias `record_speceval_verdict`）。
 
 ### Auditor 契约 (read-only, advisory-only)
 
@@ -218,10 +217,10 @@ Call `specfs.code_gen_submit(session_id, generated_code=<code>)` — server 返�
 
 ### Loop policy
 
-Call `specfs.code_gen_submit` again with the JSON.
+`record_audit_verdict` 收 JSON：
 
-- `is_good=true` → advance to Step 5。
-- `is_good=false`：按 finding `root_cause` 分流：
+- `is_good=true` → server 返 `next="runtime_validation"`，Step 5 进入 cmocka exec + QEMU smoke。
+- `is_good=false` → server 返 `next="code_gen_refine"`，按 finding `root_cause` 分流：
 
   **codegen_drift** (~70% 案例)：注入
   `[Modification suggestions]` source=audit_code 回 Step 1 重生代码（Step 1 重生后必须
@@ -241,6 +240,13 @@ Call `specfs.code_gen_submit` again with the JSON.
 
 Audit 预算 3 轮用完仍不通过 → 升 Step 6 让用户仲裁。
 
+### Grandfather clause for old specs
+
+`enforce_audit` 自动从 DAG 读取 `spec.approved_at` 时戳并注入审计 prompt。
+若该 spec 在 SA 强制规则之前已批准（cutoff `2026-05-11`），auditor 会把
+"missing System Algorithm" finding 降级为 `info` + `requires_user_arbitration=false`，
+不阻塞流水线。新 spec 没有此豁免。
+
 ## Step 5 — 运行时验证 (skip if `--no-build`)
 
 只在 Step 4 audit 通过后跑——避免给将要被 audit reject 的代码付昂贵的
@@ -249,8 +255,8 @@ QEMU 时间。Step 5 共享 retry 预算 **3 轮**（5.1 + 5.2 共算）。
 ### Step 5.1 — cmocka exec (skip if `--test-off`)
 
 跑 host cmocka 套件，覆盖 Step 3 编译出来的 `test_<stage>` + 历史 stage 已批准测试。
-Call `specfs.validator_run_holistic(module=<module>, mode="cmocka_only")` 或等价
-`tools/regress/run_all.sh --cmocka-only`。
+Call `specfs.validator_run_holistic(module=<module>, mode="cmocka_only")`；
+mode 取 `cmocka_only` / `qemu_only` / `holistic` 之一（详见 server docstring）。
 
 - 全部 testpoints pass → 进 Step 5.2。
 - Failure：识别失败来源：
@@ -265,7 +271,8 @@ Call `specfs.validator_run_holistic(module=<module>, mode="cmocka_only")` 或等
 ### Step 5.2 — QEMU smoke
 
 Call `specfs.run_qemu_smoke(commands=[...])` with the mount/umount cycle
-(or stage-specific smoke). 失败 inject `source=qemu` 回 Step 1。
+(or stage-specific smoke). 等价：`specfs.validator_run_holistic(module, mode="qemu_only")`
+跑 QEMU LTP 子集。失败 inject `source=qemu` 回 Step 1。
 
 Step 5 预算 3 轮用完 → 升 Step 6，状态 "Step 5 runtime exhausted retries"。
 

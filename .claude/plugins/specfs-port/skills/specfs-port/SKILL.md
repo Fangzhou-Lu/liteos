@@ -174,7 +174,7 @@ FSMAP_ENTRY(<name>_fsmap, "<name>", g_<name>Mops, FALSE, TRUE);
 | **Wave B: QEMU LTP smoke** | QEMU + LiteOS-A | `tools/regress/qemu_<name>_run.sh` | [references/ltp-qemu-regression.md](references/ltp-qemu-regression.md) |
 
 **聚合**：`tools/regress/run_all.sh` 顺序跑 Wave A → Wave B，时间戳化报告写到
-`docs/<name>_regression_<ts>.md`，symlink 到 `_latest.md`。退出码 `0/1/2 = 全过 / 有失败 / panic-or-hang`。
+`docs/test/<name>_regression_<ts>.md`，symlink 到 `docs/test/<name>_regression_latest.md`。退出码 `0/1/2 = 全过 / 有失败 / panic-or-hang`。
 
 ---
 

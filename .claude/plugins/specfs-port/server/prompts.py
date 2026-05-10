@@ -278,18 +278,38 @@ def assemble_linux_to_spec_prompt(
     return substitute(template, ctx)
 
 
-def assemble_speceval_prompt(*, generated_code: str, original_spec: str) -> str:
-    """Layer 3 SpecEvaluator prompt from prompts/speceval.md.
+_SA_GRANDFATHER_CUTOFF_ISO = "2026-05-11"
 
-    Spec conformance ONLY. Style/convention checks live in a sibling layer
-    at the same tier as compile (Layer 1) — see assemble_style_audit_prompt
-    + prompts/style_audit.md + prompts/style_rules.md. The two layers run
-    independently and both must pass before Layer 2.
+
+def assemble_speceval_prompt(
+    *,
+    generated_code: str,
+    original_spec: str,
+    spec_approved_at: str = "",
+) -> str:
+    """Step 4 spec/code conformance prompt from prompts/speceval.md.
+
+    Spec conformance ONLY. Style is Step 2.2; Linux equivalence is the
+    heterogeneous_audit half of Step 4 (mode=code_audit).
+
+    spec_approved_at: ISO-8601 timestamp from DAG `spec.approved_at`. When
+    earlier than the System Algorithm mandatory cutoff, the auditor downgrades
+    "missing System Algorithm" findings to info (grandfather clause). Empty
+    string means "treat as new spec — SA mandatory".
     """
     template = load("speceval")
+    grandfather = ""
+    if spec_approved_at and spec_approved_at < _SA_GRANDFATHER_CUTOFF_ISO:
+        grandfather = (
+            f"\n\n[GRANDFATHER NOTE]\n"
+            f"This spec was approved at {spec_approved_at}, BEFORE the "
+            f"System Algorithm mandatory cutoff ({_SA_GRANDFATHER_CUTOFF_ISO}).\n"
+            f"Downgrade any \"missing System Algorithm\" finding to severity=info\n"
+            f"with requires_user_arbitration=false."
+        )
     return substitute(template, {
         "GENERATED_CODE": generated_code.strip(),
-        "ORIGINAL_SPEC": original_spec.strip(),
+        "ORIGINAL_SPEC": original_spec.strip() + grandfather,
     })
 
 
