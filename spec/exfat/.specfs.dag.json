@@ -3636,7 +3636,7 @@
         "dirty": false
       },
       "code": {
-        "path": "fs/exfat/exfat_dentry_set_write.c",
+        "path": "fs/exfat/exfat_inode.c",
         "approved_at": "2026-05-04T17:08:57+00:00",
         "dirty": false
       },
@@ -3687,7 +3687,18 @@
           "symbol": "exfat_set_dentry_set",
           "kind": "func"
         }
-      ]
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_dentry_set_write.c"
+        ],
+        "git_sha": "a612f875441d9ef6442b5e807b5be06d3e07549a",
+        "approved_at": "2026-05-11T04:53:49Z",
+        "approval_iterations": 0,
+        "testpoints": 22,
+        "test_array_name": "test_dentry_set_write_tests",
+        "dirty": false
+      }
     },
     {
       "id": "alloc_dentry_slot",
@@ -3703,7 +3714,7 @@
         "dirty": false
       },
       "code": {
-        "path": "fs/exfat/exfat_alloc_dentry_slot.c",
+        "path": "fs/exfat/exfat_file.c",
         "approved_at": "2026-05-05T02:20:43+00:00",
         "dirty": false
       },
@@ -3750,7 +3761,18 @@
           "symbol": "exfat_alloc_dentry_slot",
           "kind": "func"
         }
-      ]
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_alloc_dentry_slot.c"
+        ],
+        "git_sha": "53471039b07bf46c0d8316cefa4ee80b0a50208f",
+        "approved_at": "2026-05-11T04:54:29Z",
+        "approval_iterations": 0,
+        "testpoints": 21,
+        "test_array_name": "test_alloc_dentry_slot_tests",
+        "dirty": false
+      }
     },
     {
       "id": "mkdir",
