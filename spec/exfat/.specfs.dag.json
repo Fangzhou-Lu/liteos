@@ -3787,7 +3787,18 @@
         "dirty": false,
         "note": "P1.5.1 2026-05-08: [PROMPT] reworded from exfat_mkdir.c → exfat_inode.c addition."
       },
-      "invariants": []
+      "invariants": [],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_mkdir.c"
+        ],
+        "git_sha": "a6eda1f9e49fe944e4b870da4bad9ca7fc8d1122",
+        "approved_at": "2026-05-11T04:47:24Z",
+        "approval_iterations": 0,
+        "testpoints": 29,
+        "test_array_name": "test_mkdir_tests",
+        "dirty": false
+      }
     },
     {
       "id": "inode_metadata_model",
