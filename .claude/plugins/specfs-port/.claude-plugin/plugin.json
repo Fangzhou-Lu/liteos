@@ -1,6 +1,6 @@
 {
   "name": "specfs-port",
-  "version": "0.5.10",
+  "version": "0.5.11",
   "description": "Port Linux kernel filesystem modules to LiteOS-A via SYSSPEC-style spec-first workflow with HITL gates and a 6-step Loop code pipeline (codegen → LSP+style+build → cmocka test gen+compile → spec/code audit → cmocka exec+QEMU smoke → user review) plus Wave A (cmocka host) + Wave B (QEMU LTP) regression. Bundles the specfs-port methodology skill at skills/specfs-port/ — auto-discovered when plugin enables.",
   "author": {
     "name": "Lu Fangzhou"

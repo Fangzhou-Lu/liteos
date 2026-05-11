@@ -337,10 +337,113 @@ stage 间依赖比 复杂（fat_chain → dentry_iter → lookup 三层），
 
 ---
 
-## 8. 引用
+## 8. v2 写路径完成回填（2026-05-11）
+
+§7 列出的 "后续+ 展望" 写路径核心在 v2 已经全部落地。下表把每条计划与
+实际交付的 stage / 测试 / commit 对齐：
+
+| v1.0 计划 | v2 实际 stage | 主要 commits | testpoints |
+|---|---|---|---|
+| bitmap 修改 (exfat_set_bitmap) | alloc_cluster / free_cluster | (Wave B Stage 2b/2c) | 已含 |
+| FAT 写 (exfat_ent_set) | ent_set | (Wave B Stage 2a) | 13 |
+| create / unlink | create + unlink | `581e2111`, `0e43a7c3` | 5 + 15 |
+| journal-like vol_flags | vol_flags | (Wave B Stage 2a) | 已含 |
+| 锁路径 sbi-level mux | 所有 Wave B inode/interface stage | s_lock + bitmap_lock + inode_lock 三层 | 已含 |
+
+v2 还额外交付了：
+
+| 额外完成 | stage | commit |
+|---|---|---|
+| 完整 inode 元数据时间编/解码 + nlink | inode_metadata_model | (Wave B Stage 5) |
+| mkdir + cmocka 测试固化 | mkdir | `d11fa145` |
+| dentry_set_write + alloc_dentry_slot DAG 闭环 | dentry_set_write, alloc_dentry_slot | `39722191` |
+| rmdir 全流程 | rmdir | `e08c2358` (8 invariants, 22 testpoints) |
+| rename 全流程 (完整 Linux 语义) | rename | `96fd9f8e` (8 invariants, 16 testpoints) |
+| MountOps 收口 (statfs / sync) | mount_ops_rest | `3d29e7a7` (5 invariants, 10 testpoints) |
+| vfs_ops_stub DAG 对齐 | vfs_ops_stub | `f18ee50d` (8 testpoints) |
+
+**当前状态**：31/31 stage 全部 fully_complete (spec + code + tests)。
+VFS 写表面五件套 (mkdir/rmdir/create/unlink/rename) 全到位；MountOps 四
+件套 (mount/unmount/statfs/sync) 全到位。
+
+cmocka host 套件 350+ testpoints `=== exfat TOTAL FAILURES: 0 ===`。
+
+---
+
+## 9. v3 路线图（非当前范围）
+
+v2 推迟到 v3 的项目，列在这里方便接手者：
+
+### 9.1 parent metadata sync
+
+mkdir / create / unlink / rmdir / rename 都在 in-memory 增减
+`parent_ei->num_subdirs`，但**不**写父目录 on-disk dentry。
+导致 umount → remount 后父目录的统计数据从盘读回，不反映 v1 期间变更。
+
+**v3 stage**：`parent_metadata_sync`
+- 新 helper `exfat_sync_parent_dentry(sbi, parent_ei)`，回填 num_subdirs / mtime
+- 每个写路径 VOP 在 phase1 unlock 前调用一次
+- 影响 spec：mkdir.spec / unlink.spec / rmdir.spec / rename.spec 都需 SpecFine
+  添加 "on-disk parent dentry now reflects new num_subdirs" 条款
+
+### 9.2 rename rollback semantics
+
+rename Case 11/12 (新 set 写入成功后 src 端 tombstone 写入失败) 在 v2 是
+**no rollback** —— disk 上同名两份，PRINT_ERR 后留给 future fsck。
+
+**v3 stage**：`rename_rollback`
+- Case 11/12 触发时，反向把新 set tombstone (top-bit clear)，恢复 disk 到 rename
+  前状态
+- 新 invariant `exfat-rename-atomic-rollback`
+- 复杂度：需要在每个 init_dir_entry / init_ext_entry / set_dentry_set 都保留
+  足够的回滚状态。预计 +150 LOC。
+
+### 9.3 inode hash key 优化
+
+当前 `i_pos = (start_clu << 32) | entry` 作为 VfsHashInsert 的 key。
+- 零簇文件 (start_clu == EXFAT_EOF_CLUSTER) 全部碰撞到同一 bucket
+- 大文件 (start_clu > 0xFFFFFFFF / cluster_size) 上半段也碰撞
+
+**v3 stage**：`inode_hash_key_v2`
+- 改为 `XXH3(parent_inode_no, entry) ^ start_clu`
+- 评估对 lookup 性能影响（应该减半 hash 冲突率）
+
+### 9.4 mount-time eager exfat_count_used_clusters
+
+当前 `mount.spec` 不调 exfat_count_used_clusters，sbi->used_clusters 保持
+EXFAT_CLUSTERS_UNTRACKED 直到 alloc_cluster 第一次被调用。
+- statfs 在此期间返回 f_bfree=0（v2 通过 mount_ops_rest 显式声明）
+- 用户态 df 命令初次执行就误报"满"
+
+**v3 stage**：`mount_count_eager`
+- mount.spec SpecFine：Step 11 (root vnode init) 之后 / Step 12 (FsmapEntry
+  insert) 之前调 exfat_count_used_clusters
+- 失败路径：返回 0 但 PRINT_WARN——这是 best-effort 优化，不影响 mount 成功
+
+### 9.5 Setattr / Chattr / Link / Symlink 等剩余 VOP
+
+v2 后 g_exfatVops 仍有 8 个 NULL slot (Setattr, Chattr, Link, Symlink,
+Readlink, ReadPage, WritePage, Fscheck)。其中：
+- **Setattr / Chattr**: exFAT 不支持 POSIX 文件 mode/owner（mount 选项已覆盖
+  全局 uid/gid）。Linux 实现是 `exfat_setattr` 仅处理 size 变更 ——
+  和 truncate 重叠。v3 可考虑实现一个最小版本支持 utime。
+- **Link / Symlink / Readlink**: exFAT 文件系统**结构上**不支持 hard link 或
+  symbolic link。Linux 也不实现。这 3 个 slot 应永远保持 NULL；可在 v3 加
+  invariant `exfat-vfs-no-link-symlink` 锚定。
+- **ReadPage / WritePage**: LiteOS-A v1 无 page cache。当 v2+ 引入 bcache /
+  page cache 时填充。
+- **Fscheck**: Linux 也没实现（fsck 是用户态工具）。永久 NULL。
+
+---
+
+## 10. 引用
 
 - `docs/specfs_plugin_design.md` —— 插件设计与 8 项论文差异
 - `docs/dev/exfat_mount.md` —— 开发流程实录（本文档的前传）
 - Linux 源码：`/Users/kissa/Codebase/linux/fs/exfat/dir.c, file.c, inode.c, namei.c`
 - 论文 *Sharpen the Spec, Cut the Code*（FAST'26，arXiv:2512.13047）的 §evolvefs
  小节描述阶段化演化策略——后续 即按此模式。
+- `spec/exfat/.specfs.dag.json` —— DAG 状态 (31 stages, 全部 fully_complete)
+- v2 commits: `0e43a7c3`(unlink) → `d11fa145`(mkdir) → `39722191`(dsw+ads) →
+  `e08c2358`(rmdir) → `96fd9f8e`(rename) → `3d29e7a7`(mount_ops_rest) →
+  `f18ee50d`(vfs_ops_stub) —— 完整 v2 写路径交付时间线

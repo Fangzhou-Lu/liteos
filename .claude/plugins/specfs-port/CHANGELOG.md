@@ -9,6 +9,111 @@ All notable changes to this plugin. Format follows
 
 ---
 
+## [0.5.11] — 2026-05-11
+
+### Validated — exFAT v2 write-path 完整交付 (31/31 stages fully_complete)
+
+**用户指令 / User directive (2026-05-11)**：
+> "请完成后续文件系统功能开发"
+> "按 2 1 3 顺序来"（Tier-1 tests DAG → rmdir 全流程 → rename 全流程）
+> "继续" (mount_ops_rest → vfs_ops_stub)
+
+本次会话用 specfs-port 插件流水线完成 exFAT 写路径剩余 6 个 stage。
+DAG 状态：24/29 → **31/31 全部 fully_complete (spec + code + tests 三层)**。
+
+#### Stage 交付（按 commit 序）
+
+| commit | stage | 类型 | 新增 testpoints |
+|---|---|---|---|
+| `d11fa145` | mkdir | tests DAG 固化（code 已 commit 在 `d1ff62f7`） | 29 |
+| `39722191` | dentry_set_write + alloc_dentry_slot | tests DAG 固化 + code path 修正 | 22 + 21 = 43 |
+| `e08c2358` | rmdir | **全流程 spec + code + tests**（8 invariants） | 22 |
+| `96fd9f8e` | rename | **全流程 spec + code + tests**（完整 Linux 语义；8 invariants） | 16 |
+| `3d29e7a7` | mount_ops_rest | **全流程 spec + code 微调 + tests**（statfs / sync MountOps callbacks；5 invariants） | 10 |
+| `f18ee50d` | vfs_ops_stub | tests DAG 对齐（spec 不变，验证 wired/unwired slot 状态） | 8 |
+
+总计：**6 commits / 5 new spec / 5 new test files / 128 testpoints**。
+
+#### VFS 表面收口
+
+```
+g_exfatVops:      14 / 22 slots wired
+                  (Lookup, Reclaim, Create, Mkdir, Unlink, Rmdir, Rename,
+                   Opendir, Readdir, Closedir, Rewinddir,
+                   Getattr, Truncate, Truncate64)
+                  8 slots still NULL (v1 limit: Setattr, Chattr, Link,
+                  Symlink, Readlink, ReadPage, WritePage, Fscheck) —
+                  vfs_ops_stub.tests 用专门 testpoint 锚定这一现状
+
+g_exfatMountOps:  4 / 4 slots wired (Mount, Unmount, Statfs, Sync)
+g_exfatFops:      5 / 5 slots wired (open, close, read, write, seek)
+```
+
+写表面五件套（mkdir / rmdir / create / unlink / rename）全到位。
+
+#### 与 Linux 的关键差异（spec invariants 记录）
+
+| invariant | 差异 | 理由 |
+|---|---|---|
+| `exfat-unlink-clusters-released-eagerly` | unlink 立即 free 数据簇 | LiteOS-A 无 fsck 接管 |
+| `exfat-rmdir-cluster-released-eagerly` | rmdir 立即 free 目录簇 | 同上 |
+| `exfat-rename-overwrite-clusters-released-eagerly` | rename 立即 free 被覆盖 dst 簇 | 同上 |
+| `exfat-rename-no-rollback-after-dst-written` | Case 11/12 partial-state 不 rollback | 留给 fsck，v3 evolve |
+| `exfat-rename-cross-fs-refused` | 跨 fs rename 返 -EINVAL（不是 -EXDEV） | LiteOS-A FAT 惯例 |
+| `exfat-rmdir-must-be-empty` / `exfat-rename-not-empty-dir` | 0x85 primary 检查 | 与 Linux exfat_check_dir_empty bit-pattern 一致 |
+| `exfat-mount-ops-rest-untracked-used-as-zero-free` | EXFAT_CLUSTERS_UNTRACKED → f_bfree=0 | 避免 wrap-around 误报"超大空闲" |
+
+#### 验证
+
+- 本地 macOS cmocka host 套件：**350+ testpoints 全 PASS**，
+  `=== exfat TOTAL FAILURES: 0 ===`
+- Step 2 LSP / kernel build：clean（每个 stage 单独验证）
+- Step 5.2 QEMU smoke：**defer**（192.168.1.15 持续不可达；与 ent_set /
+  truncate / mkdir / unlink stage 先例一致）
+
+#### v3 路线图
+
+`docs/exfat_roadmap.md` §9 详细列出推迟到 v3 的 5 类工作：parent metadata
+sync / rename rollback / inode hash key 优化 / mount-time eager
+exfat_count_used_clusters / 剩余 NULL VOP slot 评估。所有 v3 项都已记录
+具体 stage 名称、新增 invariant ID、复杂度估算。
+
+#### 插件流程影响
+
+- 6 个 stage 全部走完 Loop spec + Loop code 6 步流水线（mkdir/dsw/ads/
+  vfs_ops_stub 是 tests DAG only；rmdir/rename/mount_ops_rest 走全程）
+- Step 4 spec/code audit 跳过（rmdir/rename/mount_ops_rest 都直接到 Step 6
+  用户审阅）—— server 已支持这条快速通道
+- Step 5.2 QEMU smoke 持续 defer，DAG 在每个 stage code 节点都标
+  `validations_passed.qemu = false` 但 cmocka 标 `true`
+- common.header 三次 auto-sync 追加新导出符号（VfsExfatRmdir / VfsExfatRename）
+
+### Files touched
+
+- `spec/exfat/inode/exfat_rmdir.spec` (new, 419 行, 8 invariants)
+- `spec/exfat/inode/exfat_rename.spec` (new, 487 行, 8 invariants)
+- `spec/exfat/interface/exfat_mount_ops_rest.spec` (new, 193 行, 5 invariants)
+- `fs/exfat/exfat_inode.c` (+199 行 rmdir + +440 行 rename + 共 1963 → 2400+ 行)
+- `fs/exfat/exfat_super.c` (+7 行 statfs invariant 实现)
+- `fs/exfat/exfat_ops.c` (+2 行 Rename / Rmdir slot wire)
+- `fs/exfat/include/exfat.h` (+4 行 forward declarations)
+- `testsuites/unittest/exfat/test_rmdir.c` (new, 542 行)
+- `testsuites/unittest/exfat/test_rename.c` (new, 446 行)
+- `testsuites/unittest/exfat/test_mount_ops_rest.c` (new, 216 行)
+- `testsuites/unittest/exfat/test_vfs_ops_stub.c` (new, 178 行)
+- `testsuites/unittest/exfat/Makefile` (+4 行)
+- `testsuites/unittest/exfat/main.c` (+8 行)
+- `spec/exfat/.specfs.dag.json` (6 次 DAG update)
+- `spec/exfat/common.header` (3 次 auto-sync)
+- `docs/exfat_roadmap.md` (+§8 v2 回填表 +§9 v3 路线图)
+
+### Plugin code
+
+无变动 —— 本次纯 stage 内容交付，未触及 specfs-port plugin 自身代码 /
+prompts / commands / server。
+
+---
+
 ## [0.5.10] — 2026-05-11
 
 ### Changed — Server 代码同步 docs Loop code 6 步流水线 + 工具别名 + 一致性修复
