@@ -531,8 +531,15 @@ static int VfsExfatStatfs(struct Mount *mount, struct statfs *sbp)
     sbp->f_type    = EXFAT_SUPER_MAGIC;
     sbp->f_bsize   = sbi->cluster_size;
     sbp->f_blocks  = (sbi->num_clusters >= 2u) ? (sbi->num_clusters - 2u) : 0u;
-    sbp->f_bfree   = (sbp->f_blocks > sbi->used_clusters)
-                        ? (sbp->f_blocks - sbi->used_clusters) : 0u;
+    /* Invariant exfat-mount-ops-rest-untracked-used-as-zero-free: an
+     * unbumped sbi->used_clusters (the ~0u sentinel) reports zero free
+     * blocks rather than wrapping into a huge value. */
+    if (sbi->used_clusters == EXFAT_CLUSTERS_UNTRACKED) {
+        sbp->f_bfree = 0u;
+    } else {
+        sbp->f_bfree = (sbp->f_blocks > sbi->used_clusters)
+                          ? (sbp->f_blocks - sbi->used_clusters) : 0u;
+    }
     sbp->f_bavail  = sbp->f_bfree;
     sbp->f_namelen = EXFAT_MAX_NAME_LEN;
     return 0;
