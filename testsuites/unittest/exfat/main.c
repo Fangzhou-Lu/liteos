@@ -43,6 +43,7 @@ extern const struct CMUnitTest test_rmdir_tests[];                  extern const
 extern const struct CMUnitTest test_rename_tests[];                 extern const size_t test_rename_tests_count;
 extern const struct CMUnitTest test_mount_ops_rest_tests[];         extern const size_t test_mount_ops_rest_tests_count;
 extern const struct CMUnitTest test_vfs_ops_stub_tests[];           extern const size_t test_vfs_ops_stub_tests_count;
+extern const struct CMUnitTest test_parent_metadata_sync_tests[];   extern const size_t test_parent_metadata_sync_tests_count;
 static int run_suite(const char *name,
                      const struct CMUnitTest *tests, size_t n)
 {
@@ -88,6 +89,8 @@ int main(void)
     total += run_suite("rename",         test_rename_tests,         test_rename_tests_count);
     total += run_suite("mount_ops_rest", test_mount_ops_rest_tests, test_mount_ops_rest_tests_count);
     total += run_suite("vfs_ops_stub",   test_vfs_ops_stub_tests,   test_vfs_ops_stub_tests_count);
+    total += run_suite("parent_metadata_sync", test_parent_metadata_sync_tests,
+                       test_parent_metadata_sync_tests_count);
     fprintf(stderr, "\n=== exfat TOTAL FAILURES: %d ===\n", total);
     return total == 0 ? 0 : 1;
 }

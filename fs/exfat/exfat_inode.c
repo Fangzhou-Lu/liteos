@@ -1300,6 +1300,16 @@ int VfsExfatMkdir(struct Vnode *parent_vp, const char *name,
 
     err = exfat_add_entry(sbi, parent_vp, name, TYPE_DIR, &info);
 
+    if (err == 0) {
+        int pmds_rc = exfat_sync_parent_dir_metadata(sbi, parent_ei);
+        if (pmds_rc != 0) {
+            PRINT_ERR("[%s] parent metadata sync failed (%d); primary "
+                      "mkdir already succeeded — soft fail per invariant "
+                      "exfat-pmds-callers-vop-soft-fail\n",
+                      __func__, pmds_rc);
+        }
+    }
+
     cd_ret = exfat_clear_volume_dirty(sbi);
     if (cd_ret != 0) {
         PRINT_ERR("[%s] clear_volume_dirty: %d\n", __func__, cd_ret);
@@ -1401,9 +1411,10 @@ int VfsExfatMkdir(struct Vnode *parent_vp, const char *name,
 int VfsExfatCreate(struct Vnode *parent_vp, const char *name,
                    int mode, struct Vnode **vpp)
 {
-    exfat_sb_info        *sbi    = NULL;
-    exfat_inode_info     *new_ei = NULL;
-    struct Vnode         *new_vp = NULL;
+    exfat_sb_info        *sbi       = NULL;
+    exfat_inode_info     *parent_ei = NULL;   /* v3 parent-meta-sync */
+    exfat_inode_info     *new_ei    = NULL;
+    struct Vnode         *new_vp    = NULL;
     struct exfat_dir_entry info;
     errno_t serr;
     int     sd_ret;
@@ -1424,7 +1435,8 @@ int VfsExfatCreate(struct Vnode *parent_vp, const char *name,
         return -EINVAL;
     }
 
-    sbi = (exfat_sb_info *)parent_vp->originMount->data;
+    sbi       = (exfat_sb_info *)parent_vp->originMount->data;
+    parent_ei = (exfat_inode_info *)parent_vp->data;
 
     serr = memset_s(&info, sizeof(info), 0, sizeof(info));
     if (serr != EOK) {
@@ -1440,6 +1452,16 @@ int VfsExfatCreate(struct Vnode *parent_vp, const char *name,
     }
 
     err = exfat_add_entry(sbi, parent_vp, name, TYPE_FILE, &info);
+
+    if (err == 0) {
+        int pmds_rc = exfat_sync_parent_dir_metadata(sbi, parent_ei);
+        if (pmds_rc != 0) {
+            PRINT_ERR("[%s] parent metadata sync failed (%d); primary "
+                      "create already succeeded — soft fail per invariant "
+                      "exfat-pmds-callers-vop-soft-fail\n",
+                      __func__, pmds_rc);
+        }
+    }
 
     cd_ret = exfat_clear_volume_dirty(sbi);
     if (cd_ret != 0) {
@@ -1540,6 +1562,7 @@ int VfsExfatUnlink(struct Vnode *parent_vp, struct Vnode *target_vp,
 {
     exfat_sb_info       *sbi       = NULL;
     exfat_inode_info    *target_ei = NULL;
+    exfat_inode_info    *parent_ei = NULL;   /* v3 parent-meta-sync */
     struct exfat_dentry  set[EXFAT_DENTRY_SET_MAX];
     int                  num_entries = 0;
     int                  i;
@@ -1560,6 +1583,8 @@ int VfsExfatUnlink(struct Vnode *parent_vp, struct Vnode *target_vp,
 
     sbi       = (exfat_sb_info *)parent_vp->originMount->data;
     target_ei = (exfat_inode_info *)target_vp->data;
+    parent_ei = (parent_vp->data != NULL)
+                    ? (exfat_inode_info *)parent_vp->data : NULL;
 
     if (target_ei->type != TYPE_FILE) {
         return -EINVAL;   /* Case 2: rmdir is separate */
@@ -1600,6 +1625,16 @@ int VfsExfatUnlink(struct Vnode *parent_vp, struct Vnode *target_vp,
 
     /* Step 7: in-memory tombstone (only after on-disk write-back succeeded). */
     target_ei->dir.dir = DIR_DELETED;
+
+    {
+        int pmds_rc = exfat_sync_parent_dir_metadata(sbi, parent_ei);
+        if (pmds_rc != 0) {
+            PRINT_ERR("[%s] parent metadata sync failed (%d); unlink "
+                      "tombstone already persisted — soft fail per invariant "
+                      "exfat-pmds-callers-vop-soft-fail\n",
+                      __func__, pmds_rc);
+        }
+    }
 
 phase1_unlock:
     /* Step 8: ALWAYS clear the volume-dirty bracket, even on failure. */
@@ -2123,6 +2158,16 @@ int VfsExfatRmdir(struct Vnode *parent_vp, struct Vnode *target_vp,
         parent_ei->num_subdirs--;   /* in-memory only; on-disk sync deferred */
     }
 
+    {
+        int pmds_rc = exfat_sync_parent_dir_metadata(sbi, parent_ei);
+        if (pmds_rc != 0) {
+            PRINT_ERR("[%s] parent metadata sync failed (%d); rmdir "
+                      "tombstone already persisted — soft fail per invariant "
+                      "exfat-pmds-callers-vop-soft-fail\n",
+                      __func__, pmds_rc);
+        }
+    }
+
 phase1_unlock:
     (void)exfat_clear_volume_dirty(sbi);
     (void)LOS_MuxUnlock(&sbi->s_lock);
@@ -2581,6 +2626,23 @@ int VfsExfatRename(struct Vnode *src, struct Vnode *dstParent,
         }
     }
 
+    /* v3 parent metadata sync: bump timestamps on src parent + (if cross-dir)
+     * dst parent. Soft-fail per invariant exfat-pmds-callers-vop-soft-fail. */
+    {
+        int pmds_rc = exfat_sync_parent_dir_metadata(sbi, src_parent_ei);
+        if (pmds_rc != 0) {
+            PRINT_ERR("[%s] src parent metadata sync failed (%d)\n",
+                      __func__, pmds_rc);
+        }
+        if (!same_parent) {
+            pmds_rc = exfat_sync_parent_dir_metadata(sbi, dst_parent_ei);
+            if (pmds_rc != 0) {
+                PRINT_ERR("[%s] dst parent metadata sync failed (%d)\n",
+                          __func__, pmds_rc);
+            }
+        }
+    }
+
 phase1_unlock:
     (void)exfat_clear_volume_dirty(sbi);
     (void)LOS_MuxUnlock(&sbi->s_lock);
@@ -2605,4 +2667,88 @@ phase1_unlock:
 
     (void)srcName;   /* v1: name accepted only for diagnostics */
     return 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * exfat_sync_parent_dir_metadata — v3 helper that persists parent timestamp
+ * + version updates to the parent's own File dentry inside the grand-parent
+ * directory, closing the v2 "no-parent-dentry-write" deferral.
+ *
+ * Spec: spec/exfat/interface/exfat_parent_metadata_sync.spec
+ * Invariants enforced (7): exfat-pmds-root-noop, -no-locks, -best-effort,
+ *   -chksum-recompute, -time-fields-only, -stream-name-untouched,
+ *   -callers-vop-soft-fail.
+ *
+ * Caller (mkdir / create / unlink / rmdir / rename) holds sbi->s_lock for
+ * the Phase 1 window that brackets this call. Helper itself acquires no
+ * lock and treats errors as soft (PRINT_ERR + return errno; caller logs
+ * and discards).
+ * --------------------------------------------------------------------------- */
+int exfat_sync_parent_dir_metadata(exfat_sb_info *sbi,
+                                   exfat_inode_info *parent_ei)
+{
+    struct exfat_dentry set[EXFAT_DENTRY_SET_MAX];
+    int num_entries = 0;
+    uint16_t chksum;
+    int rc;
+
+    if (sbi == NULL || parent_ei == NULL) {
+        return 0;   /* Case 0 (no-op): NULL inputs treated as soft skip */
+    }
+    if (parent_ei->entry < 0) {
+        return 0;   /* Case 0 (no-op): root, no on-disk File dentry */
+    }
+
+    /* Step 1: in-memory time bump (touch_mtime_ctime also increments
+     * ei->version by 1 internally, satisfying the version-bump portion of
+     * spec System Algorithm Step 1). Done before any fallible IO so the
+     * next in-memory read sees fresh values even if disk writeback fails
+     * (Invariant exfat-pmds-best-effort). */
+    exfat_inode_touch_mtime_ctime(parent_ei);
+
+    /* Step 2: fetch parent's own dentry-set from grand-parent dir. */
+    rc = exfat_get_dentry_set(sbi, &parent_ei->dir, parent_ei->entry,
+                              set, EXFAT_DENTRY_SET_MAX, &num_entries);
+    if (rc != 0) {
+        PRINT_ERR("[%s] get_dentry_set failed (%d)\n", __func__, rc);
+        return rc;   /* Case 2 */
+    }
+
+    /* Step 3: validate before mutating. */
+    if (exfat_validate_dentry_set(set, num_entries) != 0) {
+        PRINT_ERR("[%s] validate_dentry_set failed at entry %d\n",
+                  __func__, parent_ei->entry);
+        return -EIO;   /* Case 3 */
+    }
+
+    /* Step 4: store time fields into File primary (set[0]). store_metadata
+     * touches only time + attr bytes per invariant
+     * exfat-pmds-time-fields-only; stream + name dentries are unmodified
+     * per exfat-pmds-stream-name-untouched. */
+    rc = exfat_inode_store_metadata(sbi, parent_ei, &set[0]);
+    if (rc != 0) {
+        PRINT_ERR("[%s] store_metadata failed (%d)\n", __func__, rc);
+        return rc;
+    }
+
+    /* Step 5: recompute SetChecksum over the mutated set (Invariant
+     * exfat-pmds-chksum-recompute). Microsoft spec: chksum field is treated
+     * as 0 during compute, then result stored back. CS_DIR_ENTRY skips
+     * offsets 2-3 (the SetChecksum field bytes) automatically. */
+    set[0].dentry.file.checksum = 0u;
+    chksum = exfat_calc_chksum16(set, num_entries * (int)DENTRY_SIZE,
+                                 0u, CS_DIR_ENTRY);
+    set[0].dentry.file.checksum = chksum;
+
+    /* Step 6: write back the full set. */
+    rc = exfat_set_dentry_set(sbi, &parent_ei->dir, parent_ei->entry,
+                              set, num_entries);
+    if (rc != 0) {
+        PRINT_ERR("[%s] set_dentry_set failed (%d) — partial parent "
+                  "metadata may persist on disk; fsck will reconcile\n",
+                  __func__, rc);
+        return rc;   /* Case 4 */
+    }
+
+    return 0;   /* Case 1 */
 }
