@@ -80,7 +80,8 @@ HARNESS_SRCS := \
     test_mkdir.c          \
     test_inode_metadata_model.c \
     test_unlink.c          \
-    test_rmdir.c
+    test_rmdir.c           \
+    test_rename.c
 
 OBJS := $(PROD_SRCS:.c=.o) $(HARNESS_SRCS:.c=.o)
 TARGET := exfat_tests

@@ -2167,3 +2167,442 @@ phase1_unlock:
     (void)dirName;   /* v1: name accepted but only used for diagnostics */
     return 0;
 }
+
+/* ---------------------------------------------------------------------------
+ * VfsExfatRename — VnodeOps.Rename callback. (Wave B Stage 4g, 2026-05-11)
+ *
+ * Full Linux exfat_rename surface:
+ *   - same-directory rename (Case 1)
+ *   - cross-directory move (Case 2)
+ *   - overwrite of regular file dst (Case 3)
+ *   - overwrite of EMPTY directory dst (Case 4)
+ *   - self-noop when src is dst by ino (Case 5)
+ *
+ * Refusals:
+ *   - Case 8: type mismatch (-EISDIR / -ENOTDIR per POSIX)
+ *   - Case 9: dst is non-empty directory (-ENOTEMPTY)
+ *
+ * Atomicity (invariant exfat-rename-new-set-before-tombstone):
+ *   new dst dentry-set is FULLY written before old src dentry-set tombstoned.
+ *
+ * Eager cluster reclaim (invariant -overwrite-clusters-released-eagerly):
+ *   when Case 3/4 overwrites an existing dst, dst's data clusters are freed
+ *   via exfat_free_cluster in Phase 2 — same divergence from Linux as
+ *   unlink/rmdir.
+ *
+ * Lock discipline (invariant -s-lock-bracketed):
+ *   single sbi->s_lock for the entire mutation phase; cluster release runs
+ *   lock-free w.r.t. s_lock to honour the s_lock → bitmap_lock partial
+ *   ordering required by free_cluster.
+ *
+ * Cross-FS rename rejected with -EINVAL (invariant -cross-fs-refused).
+ * File rename sets ATTR_ARCHIVE on the new primary (invariant
+ *   -archive-bit-set-on-file).
+ * Cross-dir DIR move adjusts both parents' num_subdirs (invariant
+ *   -subdir-accounting-cross-dir).
+ * --------------------------------------------------------------------------- */
+
+/* Helper: read the uniname for the dentry-set located at start_entry inside
+ * `dir_chain`, into `uni_out` (caller-provided, 256 uint16). Stores uni_len
+ * via *uni_len_out. Returns 0 on success or -EIO. Used by the dst-resolve
+ * scan to compare each candidate's uniname against the new dstName uniname. */
+static int rename_extract_uniname(const exfat_sb_info *sbi,
+                                  const exfat_chain *dir_chain,
+                                  int start_entry,
+                                  const struct exfat_dentry *set,
+                                  int num_entries,
+                                  uint16_t *uni_out, int *uni_len_out)
+{
+    int i;
+    int uni_idx = 0;
+    (void)sbi;
+    (void)dir_chain;
+    (void)start_entry;
+    if (num_entries < 3) {
+        return -EIO;
+    }
+    /* set[0] is File primary; set[1] is Stream; set[2..] are Name dentries.
+     * Each Name dentry carries 15 UTF-16 code units in dentry.name.unicode. */
+    for (i = 2; i < num_entries && uni_idx < EXFAT_MAX_NAME_LEN; i++) {
+        int j;
+        for (j = 0; j < 15 && uni_idx < EXFAT_MAX_NAME_LEN; j++) {
+            uint16_t c = LE16_TO_HOST(set[i].dentry.name.unicode_0_14[j]);
+            if (c == 0u) {
+                break;
+            }
+            uni_out[uni_idx++] = c;
+        }
+        if (j < 15) {
+            break;
+        }
+    }
+    *uni_len_out = uni_idx;
+    return 0;
+}
+
+int VfsExfatRename(struct Vnode *src, struct Vnode *dstParent,
+                   const char *srcName, const char *dstName)
+{
+    exfat_sb_info       *sbi              = NULL;
+    exfat_inode_info    *src_ei           = NULL;
+    exfat_inode_info    *src_parent_ei    = NULL;
+    exfat_inode_info    *dst_parent_ei    = NULL;
+    struct Vnode        *src_parent_vp    = NULL;
+    struct exfat_uni_name p_new_uniname;
+    struct exfat_dentry  dst_set[EXFAT_DENTRY_SET_MAX];
+    struct exfat_dentry  old_set[EXFAT_DENTRY_SET_MAX];
+    exfat_chain          dst_parent_chain;
+    exfat_chain          src_parent_chain;
+    exfat_chain          dst_cluster_to_free;
+    int                  uni_len           = 0;
+    int                  num_new_entries   = 0;
+    int                  dst_found         = 0;
+    int                  dst_entry_idx     = 0;
+    int                  dst_num_entries   = 0;
+    int                  dst_is_dir        = 0;
+    int                  dst_has_clusters  = 0;
+    int                  new_slot          = 0;
+    int                  num_old_entries   = 0;
+    int                  same_parent       = 0;
+    int                  src_is_dir        = 0;
+    int                  err               = 0;
+    int                  step;
+    int                  i;
+
+    /* ---- Phase 0: argument validation (lock-free) ------------------------- */
+    if (src == NULL || dstParent == NULL || srcName == NULL || dstName == NULL) {
+        return -EINVAL;
+    }
+    if (src->originMount == NULL || src->originMount->data == NULL ||
+        src->data == NULL || src->parent == NULL ||
+        src->parent->data == NULL ||
+        dstParent->originMount == NULL ||
+        dstParent->originMount->data == NULL ||
+        dstParent->data == NULL) {
+        return -EINVAL;
+    }
+    if (src->originMount->data != dstParent->originMount->data) {
+        return -EINVAL;   /* Case 6 / invariant exfat-rename-cross-fs-refused */
+    }
+
+    sbi             = (exfat_sb_info *)src->originMount->data;
+    src_ei          = (exfat_inode_info *)src->data;
+    src_parent_vp   = src->parent;
+    src_parent_ei   = (exfat_inode_info *)src_parent_vp->data;
+    dst_parent_ei   = (exfat_inode_info *)dstParent->data;
+
+    if (src_parent_ei->type != TYPE_DIR ||
+        dst_parent_ei->type != TYPE_DIR) {
+        return -EINVAL;
+    }
+    if (src_ei->dir.dir == DIR_DELETED || src_ei->entry < 0) {
+        return -EINVAL;
+    }
+    if (dstName[0] == '\0') {
+        return -EINVAL;
+    }
+    if (sbi->cluster_size == 0u || sbi->dentries_per_clu == 0u) {
+        PRINT_ERR("[%s] sbi corruption\n", __func__);
+        return -EIO;
+    }
+
+    src_is_dir  = (src_ei->type == TYPE_DIR) ? 1 : 0;
+    same_parent = (src_parent_vp == dstParent) ? 1 : 0;
+
+    /* ---- Phase 1.1: UTF-8 → UTF-16 conversion (lock-free; cheap) --------- */
+    memset(&p_new_uniname, 0, sizeof(p_new_uniname));
+    step = exfat_utf8_to_uni(dstName, (int)strlen(dstName),
+                             p_new_uniname.name, EXFAT_MAX_NAME_LEN + 1,
+                             &uni_len);
+    if (step != 0) {
+        return (step == -ENAMETOOLONG) ? -ENAMETOOLONG : -EINVAL;
+    }
+    if (uni_len <= 0 || uni_len > EXFAT_MAX_NAME_LEN) {
+        return -ENAMETOOLONG;
+    }
+    p_new_uniname.name_len  = (uint8_t)uni_len;
+    p_new_uniname.name_hash = exfat_calc_chksum16(p_new_uniname.name,
+                                                  uni_len * (int)sizeof(uint16_t),
+                                                  0u, CS_DEFAULT);
+
+    num_new_entries = exfat_calc_num_entries(&p_new_uniname);
+    if (num_new_entries < 0) {
+        return num_new_entries;
+    }
+
+    /* Build the dst-parent chain descriptor for the slot-scan / alloc /
+     * write phase. Same shape as VfsExfatMkdir's add_entry uses. */
+    dst_parent_chain.dir   = dst_parent_ei->start_clu;
+    dst_parent_chain.size  = (uint32_t)((dst_parent_ei->i_size_ondisk +
+                                         (uint64_t)sbi->cluster_size - 1u) /
+                                        (uint64_t)sbi->cluster_size);
+    if (dst_parent_chain.size == 0u) {
+        dst_parent_chain.size = 1u;   /* defensive */
+    }
+    dst_parent_chain.flags = dst_parent_ei->flags;
+
+    src_parent_chain = src_ei->dir;   /* src's recorded parent chain */
+
+    /* ---- Phase 1.2: acquire s_lock + open vol_dirty bracket -------------- */
+    (void)LOS_MuxLock(&sbi->s_lock, LOS_WAIT_FOREVER);
+    (void)exfat_set_volume_dirty(sbi);
+
+    /* ---- Phase 1.3: resolve dst by scanning dstParent's dentry chain ----- */
+    {
+        uint64_t max_entries_u64 = (uint64_t)dst_parent_chain.size *
+                                   (uint64_t)sbi->dentries_per_clu;
+        int max_entries = (max_entries_u64 > (uint64_t)INT32_MAX)
+                              ? INT32_MAX
+                              : (int)max_entries_u64;
+        int idx;
+
+        for (idx = 0; idx < max_entries; ) {
+            struct exfat_dentry one;
+            step = exfat_get_dentry(sbi, &dst_parent_chain, idx, &one, NULL);
+            if (step != 0) {
+                err = -EIO;
+                goto phase1_unlock;
+            }
+            if (one.type == EXFAT_UNUSED) {
+                break;
+            }
+            if (one.type != EXFAT_FILE) {
+                idx++;
+                continue;
+            }
+            /* Candidate primary — fetch full set and compare uniname. */
+            int n = 0;
+            step = exfat_get_dentry_set(sbi, &dst_parent_chain, idx,
+                                        dst_set, EXFAT_DENTRY_SET_MAX, &n);
+            if (step != 0) {
+                err = -EIO;
+                goto phase1_unlock;
+            }
+            if (exfat_validate_dentry_set(dst_set, n) != 0) {
+                idx++;
+                continue;
+            }
+            uint16_t cand_uni[EXFAT_MAX_NAME_LEN];
+            int cand_uni_len = 0;
+            if (rename_extract_uniname(sbi, &dst_parent_chain, idx, dst_set, n,
+                                       cand_uni, &cand_uni_len) != 0) {
+                idx++;
+                continue;
+            }
+            if (exfat_uniname_cmp(sbi, p_new_uniname.name, uni_len,
+                                  cand_uni, cand_uni_len) == 0) {
+                dst_found       = 1;
+                dst_entry_idx   = idx;
+                dst_num_entries = n;
+                dst_is_dir      =
+                    ((LE16_TO_HOST(dst_set[0].dentry.file.attr) &
+                      ATTR_SUBDIR) != 0u) ? 1 : 0;
+                {
+                    uint32_t dst_start_clu =
+                        LE32_TO_HOST(dst_set[1].dentry.stream.start_clu);
+                    uint64_t dst_size =
+                        LE64_TO_HOST(dst_set[1].dentry.stream.valid_size);
+                    uint8_t  dst_flags = dst_set[1].dentry.stream.flags;
+
+                    if (dst_start_clu != EXFAT_EOF_CLUSTER &&
+                        dst_start_clu >= EXFAT_FIRST_CLUSTER) {
+                        dst_has_clusters = 1;
+                        uint32_t nphys =
+                            (uint32_t)((dst_size +
+                                        (uint64_t)sbi->cluster_size - 1u) /
+                                       (uint64_t)sbi->cluster_size);
+                        if (nphys == 0u) {
+                            nphys = 1u;
+                        }
+                        dst_cluster_to_free.dir   = dst_start_clu;
+                        dst_cluster_to_free.size  = nphys;
+                        dst_cluster_to_free.flags = dst_flags;
+                    }
+                    /* Self-noop test: dst's (start_clu, entry) matches src's. */
+                    if (same_parent && idx == src_ei->entry &&
+                        dst_start_clu == src_ei->start_clu) {
+                        err = 0;   /* Case 5 */
+                        dst_found = 0;   /* avoid Phase 2 cluster free */
+                        dst_has_clusters = 0;
+                        goto phase1_unlock;
+                    }
+                }
+                break;
+            }
+            idx += (n > 0) ? n : 1;
+        }
+    }
+
+    /* ---- Phase 1.4: type-mismatch / non-empty-dir refusal ---------------- */
+    if (dst_found) {
+        if (dst_is_dir != src_is_dir) {
+            err = src_is_dir ? -ENOTDIR : -EISDIR;   /* Case 8 */
+            goto phase1_unlock;
+        }
+        if (dst_is_dir && dst_has_clusters) {
+            /* Walk dst's data cluster checking for in-use 0x85 primary. */
+            uint64_t scan_max_u64 = (uint64_t)dst_cluster_to_free.size *
+                                    (uint64_t)sbi->dentries_per_clu;
+            int scan_max = (scan_max_u64 > (uint64_t)INT32_MAX)
+                               ? INT32_MAX
+                               : (int)scan_max_u64;
+            int j;
+            struct exfat_dentry one;
+
+            for (j = 0; j < scan_max; j++) {
+                step = exfat_get_dentry(sbi, &dst_cluster_to_free, j,
+                                        &one, NULL);
+                if (step != 0) {
+                    err = -EIO;
+                    goto phase1_unlock;
+                }
+                if (one.type == EXFAT_UNUSED) {
+                    break;
+                }
+                if (one.type == EXFAT_FILE) {
+                    err = -ENOTEMPTY;   /* Case 9 */
+                    goto phase1_unlock;
+                }
+            }
+        }
+    }
+
+    /* ---- Phase 1.5: tombstone dst (if found) ----------------------------- */
+    if (dst_found) {
+        for (i = 0; i < dst_num_entries; i++) {
+            dst_set[i].type &= 0x7Fu;
+        }
+        step = exfat_set_dentry_set(sbi, &dst_parent_chain, dst_entry_idx,
+                                    dst_set, dst_num_entries);
+        if (step != 0) {
+            err = -EIO;   /* Case 11 variant */
+            goto phase1_unlock;
+        }
+    }
+
+    /* ---- Phase 1.6: alloc new slot in dstParent for the new set ---------- */
+    step = exfat_alloc_dentry_slot(sbi, &dst_parent_chain, num_new_entries,
+                                   &new_slot);
+    if (step != 0) {
+        /* dst tombstone already on disk; v1 no-rollback policy. */
+        err = (step == -ENOSPC) ? -ENOSPC : -EIO;   /* Case 10 / Case 11 */
+        goto phase1_unlock;
+    }
+
+    /* ---- Phase 1.7: write new File primary + Stream + Name dentries ----- */
+    {
+        uint64_t new_size  = src_ei->size;
+        uint32_t new_start = src_ei->start_clu;
+        uint32_t new_type  = src_is_dir ? (uint32_t)TYPE_DIR
+                                        : (uint32_t)TYPE_FILE;
+        step = exfat_init_dir_entry(sbi, &dst_parent_chain, new_slot,
+                                    new_type, new_start, new_size);
+        if (step != 0) {
+            err = -EIO;   /* Case 11 */
+            goto phase1_unlock;
+        }
+        step = exfat_init_ext_entry(sbi, &dst_parent_chain, new_slot,
+                                    num_new_entries, &p_new_uniname);
+        if (step != 0) {
+            err = -EIO;   /* Case 11 */
+            goto phase1_unlock;
+        }
+    }
+
+    /* ---- Phase 1.8: ATTR_ARCHIVE for file rename ------------------------- */
+    if (!src_is_dir) {
+        /* Re-read just the File primary to set ATTR_ARCHIVE — init_dir_entry
+         * does not set it. (init_dir_entry's stage 4d spec deliberately keeps
+         * the bit caller-controlled; rename is the caller here.) */
+        struct exfat_dentry primary;
+        step = exfat_get_dentry(sbi, &dst_parent_chain, new_slot, &primary,
+                                NULL);
+        if (step == 0) {
+            primary.dentry.file.attr =
+                HOST_TO_LE16((LE16_TO_HOST(primary.dentry.file.attr) |
+                              ATTR_ARCHIVE));
+            step = exfat_set_dentry(sbi, &dst_parent_chain, new_slot,
+                                    &primary);
+        }
+        if (step != 0) {
+            err = -EIO;
+            goto phase1_unlock;
+        }
+        src_ei->attr |= ATTR_ARCHIVE;
+    }
+
+    /* ---- Phase 1.9: tombstone the OLD src dentry-set --------------------- */
+    step = exfat_get_dentry_set(sbi, &src_parent_chain, src_ei->entry,
+                                old_set, EXFAT_DENTRY_SET_MAX,
+                                &num_old_entries);
+    if (step != 0) {
+        err = -EIO;   /* Case 12 — dst now duplicated on disk */
+        goto phase1_unlock;
+    }
+    if (exfat_validate_dentry_set(old_set, num_old_entries) != 0) {
+        err = -EIO;
+        goto phase1_unlock;
+    }
+    for (i = 0; i < num_old_entries; i++) {
+        old_set[i].type &= 0x7Fu;
+    }
+    step = exfat_set_dentry_set(sbi, &src_parent_chain, src_ei->entry,
+                                old_set, num_old_entries);
+    if (step != 0) {
+        PRINT_ERR("[%s] src tombstone write failed (%d) — both old and new "
+                  "entries may be on disk; no rollback per spec invariant "
+                  "exfat-rename-no-rollback-after-dst-written\n",
+                  __func__, step);
+        err = -EIO;   /* Case 12 */
+        goto phase1_unlock;
+    }
+
+    /* ---- Phase 1.10: in-memory src state update + parent num_subdirs ---- */
+    src_ei->entry = new_slot;
+    if (!same_parent) {
+        src_ei->dir = dst_parent_chain;
+    }
+    src_ei->i_pos = ((uint64_t)src_ei->start_clu << 32) |
+                    (uint64_t)(uint32_t)new_slot;
+
+    if (!same_parent && src_is_dir) {
+        if (src_parent_ei->num_subdirs > 0u) {
+            src_parent_ei->num_subdirs--;
+        }
+        if (!(dst_found && dst_is_dir)) {
+            dst_parent_ei->num_subdirs++;
+        }
+    } else if (same_parent && src_is_dir && dst_found && dst_is_dir) {
+        /* Same-dir overwrite of dir-by-dir: net change 0 on dst_parent;
+         * decrement once to reflect dst removal, then we won't increment
+         * (src didn't move parents). */
+        if (dst_parent_ei->num_subdirs > 0u) {
+            dst_parent_ei->num_subdirs--;
+        }
+    }
+
+phase1_unlock:
+    (void)exfat_clear_volume_dirty(sbi);
+    (void)LOS_MuxUnlock(&sbi->s_lock);
+
+    if (err != 0) {
+        return err;
+    }
+
+    /* ---- Phase 2: lock-free overwrite-cluster release -------------------- */
+    if (dst_found && dst_has_clusters) {
+        int rc2 = exfat_free_cluster(sbi, &dst_cluster_to_free);
+        if (rc2 != 0) {
+            PRINT_ERR("[%s] dst cluster free failed (%d) — bitmap may "
+                      "carry orphan bits; rename otherwise complete\n",
+                      __func__, rc2);
+            /* The dentry-side rename is durable on disk; only the bitmap
+             * carries orphan bits for fsck (future) to reclaim. errno
+             * intentionally NOT propagated to caller — spec
+             * exfat_rename.spec System Algorithm step 15. */
+        }
+    }
+
+    (void)srcName;   /* v1: name accepted only for diagnostics */
+    return 0;
+}

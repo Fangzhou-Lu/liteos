@@ -508,6 +508,8 @@ int  VfsExfatUnlink(struct Vnode *parent_vp, struct Vnode *target_vp,
                     const char *fileName);
 int  VfsExfatRmdir(struct Vnode *parent_vp, struct Vnode *target_vp,
                    const char *dirName);
+int  VfsExfatRename(struct Vnode *src, struct Vnode *dstParent,
+                    const char *srcName, const char *dstName);
 
 /* ---- inode_metadata_model — fs/exfat/exfat_inode.c (Wave B Stage 5)
  * Pure / lock-free / IO-free metadata helpers. Caller holds ei->inode_lock
