@@ -416,7 +416,18 @@
           "symbol": "g_exfatFops",
           "kind": "var"
         }
-      ]
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_vfs_ops_stub.c"
+        ],
+        "git_sha": "7a66b7c55bfdeef4a6c86016e8b855ecd0af3032",
+        "approved_at": "2026-05-11T07:51:36Z",
+        "approval_iterations": 0,
+        "testpoints": 8,
+        "test_array_name": "test_vfs_ops_stub_tests",
+        "dirty": false
+      }
     },
     {
       "id": "fat_chain",

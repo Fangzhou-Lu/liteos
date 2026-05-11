@@ -82,7 +82,8 @@ HARNESS_SRCS := \
     test_unlink.c          \
     test_rmdir.c           \
     test_rename.c          \
-    test_mount_ops_rest.c
+    test_mount_ops_rest.c  \
+    test_vfs_ops_stub.c
 
 OBJS := $(PROD_SRCS:.c=.o) $(HARNESS_SRCS:.c=.o)
 TARGET := exfat_tests
