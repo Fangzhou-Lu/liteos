@@ -1961,3 +1961,209 @@ uint32_t exfat_inode_get_nlink(const exfat_inode_info *ei)
     }
     return 1u;
 }
+
+/* ---------------------------------------------------------------------------
+ * VfsExfatRmdir — VnodeOps.Rmdir callback. (Wave B Stage 4f, 2026-05-11)
+ *
+ * Directory analogue of VfsExfatUnlink with one extra precondition: the
+ * target directory must be empty (no in-use primary FILE/DIR dentry inside
+ * its data cluster chain).
+ *
+ * Phase 1 (s_lock held):
+ *   - vol_dirty bracket open
+ *   - emptiness walk over target dir's cluster chain (refuse on 0x85 primary)
+ *   - fetch + validate + tombstone (top-bit clear) target's own dentry-set
+ *   - write-back tombstone
+ *   - in-memory: target_ei->dir.dir = DIR_DELETED; parent_ei->num_subdirs--
+ *   - vol_dirty bracket close
+ * Phase 2 (lock-free):
+ *   - release target's data cluster chain via exfat_free_cluster
+ *
+ * Invariants enforced (8 IDs; see spec/exfat/inode/exfat_rmdir.spec):
+ *   exfat-rmdir-must-be-empty
+ *   exfat-rmdir-dentry-type-top-bit-cleared
+ *   exfat-rmdir-parent-subdir-decrement
+ *   exfat-rmdir-cluster-released-eagerly
+ *   exfat-rmdir-phase2-size-nonzero
+ *   exfat-rmdir-phase2-skipped-on-eof-start
+ *   exfat-rmdir-no-vnode-free
+ *   exfat-rmdir-s-lock-bracketed
+ * --------------------------------------------------------------------------- */
+int VfsExfatRmdir(struct Vnode *parent_vp, struct Vnode *target_vp,
+                  const char *dirName)
+{
+    exfat_sb_info       *sbi       = NULL;
+    exfat_inode_info    *parent_ei = NULL;
+    exfat_inode_info    *target_ei = NULL;
+    struct exfat_dentry  one;
+    struct exfat_dentry  set[EXFAT_DENTRY_SET_MAX];
+    exfat_chain          scan_dir;
+    exfat_chain          chain;
+    uint32_t             dentries_per_clu;
+    int                  num_entries = 0;
+    int                  i;
+    int                  step;
+    int                  err = 0;
+
+    /* ---- Phase 0: argument validation (lock-free) ------------------------- */
+    if (parent_vp == NULL || target_vp == NULL || dirName == NULL) {
+        return -EINVAL;
+    }
+    if (parent_vp->originMount == NULL ||
+        parent_vp->originMount->data == NULL ||
+        parent_vp->data == NULL ||
+        target_vp->data == NULL) {
+        return -EINVAL;
+    }
+
+    sbi       = (exfat_sb_info *)parent_vp->originMount->data;
+    parent_ei = (exfat_inode_info *)parent_vp->data;
+    target_ei = (exfat_inode_info *)target_vp->data;
+
+    if (parent_ei->type != TYPE_DIR || target_ei->type != TYPE_DIR) {
+        return -EINVAL;   /* Case 2: wrong type — files use Unlink */
+    }
+    if (target_ei->dir.dir == DIR_DELETED || target_ei->entry < 0) {
+        return -ENOENT;   /* Case 2: already tombstoned */
+    }
+
+    if (sbi->cluster_size == 0u || sbi->dentries_per_clu == 0u) {
+        PRINT_ERR("[%s] sbi corruption (cluster_size or dentries_per_clu == 0)\n",
+                  __func__);
+        return -EIO;
+    }
+    dentries_per_clu  = sbi->dentries_per_clu;
+
+    /* ---- Phase 1: emptiness scan + dentry-set tombstone (s_lock held) ----- */
+    (void)LOS_MuxLock(&sbi->s_lock, LOS_WAIT_FOREVER);
+    (void)exfat_set_volume_dirty(sbi);
+
+    /* Emptiness scan defensively guards a corrupt-empty directory: if start_clu
+     * is EOF (no data cluster ever allocated), there are no dentries inside,
+     * so the directory is trivially empty — skip the walk. Phase 2 will then
+     * also skip via the same start_clu check. */
+    if (target_ei->start_clu != EXFAT_EOF_CLUSTER) {
+        scan_dir.dir   = target_ei->start_clu;
+        scan_dir.size  = (uint32_t)((target_ei->i_size_ondisk +
+                                     (uint64_t)sbi->cluster_size - 1u) /
+                                    (uint64_t)sbi->cluster_size);
+        if (scan_dir.size == 0u) {
+            scan_dir.size = 1u;   /* defensive: at least one allocated cluster */
+        }
+        scan_dir.flags = target_ei->flags;
+
+        /* Linear dentry index walk. exfat_get_dentry already handles
+         * intra-chain cluster crossings; we bound the loop by
+         * scan_dir.size * dentries_per_clu so a corrupt FAT chain can't
+         * spin forever. */
+        {
+            uint64_t max_entries_u64 =
+                (uint64_t)scan_dir.size * (uint64_t)dentries_per_clu;
+            int max_entries =
+                (max_entries_u64 > (uint64_t)INT32_MAX)
+                    ? INT32_MAX
+                    : (int)max_entries_u64;
+            int entry_idx;
+
+            for (entry_idx = 0; entry_idx < max_entries; entry_idx++) {
+                step = exfat_get_dentry(sbi, &scan_dir, entry_idx, &one, NULL);
+                if (step != 0) {
+                    err = -EIO;   /* Case 4 */
+                    goto phase1_unlock;
+                }
+
+                /* exFAT terminator: bit pattern 0x00 means "all subsequent
+                 * dentries are free" — directory is empty for our purposes. */
+                if (one.type == EXFAT_UNUSED) {
+                    break;
+                }
+
+                /* In-use FILE/DIR primary (0x85) — directory NOT empty. */
+                if (one.type == EXFAT_FILE) {
+                    err = -ENOTEMPTY;   /* Case 3 */
+                    goto phase1_unlock;
+                }
+
+                /* Top bit clear → deleted entry; skip it.
+                 * Other in-use bytes (stream 0xC0 / name 0xC1 secondaries
+                 * inside an active set) are allowed — only the primary
+                 * 0x85 is the gatekeeper, matching Linux
+                 * exfat_check_dir_empty. */
+            }
+        }
+    }
+
+    /* Emptiness check passed. Fetch the target's own dentry-set. */
+    step = exfat_get_dentry_set(sbi, &target_ei->dir, target_ei->entry,
+                                set, EXFAT_DENTRY_SET_MAX, &num_entries);
+    if (step != 0) {
+        err = -EIO;   /* Case 5 */
+        goto phase1_unlock;
+    }
+    if (exfat_validate_dentry_set(set, num_entries) != 0) {
+        err = -EIO;   /* Case 5 */
+        goto phase1_unlock;
+    }
+
+    /* Clear top bit of every dentry's type byte. */
+    for (i = 0; i < num_entries; i++) {
+        set[i].type &= 0x7Fu;
+    }
+
+    step = exfat_set_dentry_set(sbi, &target_ei->dir, target_ei->entry,
+                                set, num_entries);
+    if (step != 0) {
+        err = -EIO;   /* Case 5 — partial write may have hit disk */
+        goto phase1_unlock;
+    }
+
+    /* In-memory tombstone + parent decrement (only on success path). */
+    target_ei->dir.dir = DIR_DELETED;
+    if (parent_ei->num_subdirs > 0u) {
+        parent_ei->num_subdirs--;   /* in-memory only; on-disk sync deferred */
+    }
+
+phase1_unlock:
+    (void)exfat_clear_volume_dirty(sbi);
+    (void)LOS_MuxUnlock(&sbi->s_lock);
+
+    if (err != 0) {
+        return err;   /* Case 3 / Case 4 / Case 5 */
+    }
+
+    /* ---- Phase 2: cluster release (lock-free w.r.t. s_lock) --------------- */
+    if (target_ei->start_clu == EXFAT_EOF_CLUSTER) {
+        return 0;   /* Case 1b: corrupt-empty fast path */
+    }
+
+    {
+        uint32_t cluster_size = sbi->cluster_size;
+        uint64_t bytes        = target_ei->i_size_ondisk;
+        uint32_t num_phys_clu;
+
+        if (cluster_size == 0u) {
+            PRINT_ERR("[%s] sbi->cluster_size == 0 (sbi corruption)\n", __func__);
+            return -EIO;
+        }
+
+        num_phys_clu = (uint32_t)((bytes + (uint64_t)cluster_size - 1u) /
+                                  (uint64_t)cluster_size);
+        if (num_phys_clu == 0u) {
+            num_phys_clu = 1u;   /* clamp per exfat-rmdir-phase2-size-nonzero */
+        }
+
+        chain.dir   = target_ei->start_clu;
+        chain.size  = num_phys_clu;
+        chain.flags = target_ei->flags;
+    }
+
+    err = exfat_free_cluster(sbi, &chain);
+    if (err != 0) {
+        PRINT_ERR("[%s] free_cluster failed (%d) — bitmap may carry orphans\n",
+                  __func__, err);
+        return err;   /* Case 6: tombstone already persisted */
+    }
+
+    (void)dirName;   /* v1: name accepted but only used for diagnostics */
+    return 0;
+}

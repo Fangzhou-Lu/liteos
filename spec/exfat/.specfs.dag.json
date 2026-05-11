@@ -5035,6 +5035,622 @@
         "test_array_name": "test_unlink_tests",
         "dirty": false
       }
+    },
+    {
+      "id": "rmdir",
+      "stage_name": "rmdir",
+      "depends_on": [
+        "lookup"
+      ],
+      "code": {
+        "files": [
+          "fs/exfat/exfat_inode.c"
+        ],
+        "git_sha": "0fd6b6ed8ee7cc2baefba2bbe572b15b61eaca7f",
+        "approved_at": "2026-05-11T05:03:32Z",
+        "approval_iterations": 0,
+        "validations_passed": {
+          "compile": true,
+          "style": true,
+          "build": true,
+          "qemu": true,
+          "speceval": true
+        },
+        "dirty": false
+      },
+      "spec": {
+        "files": [
+          "spec/exfat/inode/exfat_rmdir.spec"
+        ],
+        "git_sha": "a6bd265ea4d92cd1e1b757ebd35f22bc80239c7a",
+        "linux_source_ref": "/Users/kissa/Codebase/linux/fs/exfat/namei.c",
+        "approved_at": "2026-05-11T04:58:59Z",
+        "approval_iterations": 0,
+        "user_clarifications": [],
+        "dirty": false
+      },
+      "invariants": [
+        {
+          "id": "exfat-rmdir-must-be-empty",
+          "text": "Phase 1 step 4 (emptiness walk) MUST refuse rmdir whenever the target directory's data cluster chain contains any byte at offset 0 of any 32-byte dentry with bit7 set AND lower 7 bits equal to 0x05 (i.e. raw type byte == 0x85, in-use primary FILE/DIR). This is the EXACT bit pattern Linux's exfat_check_dir_empty refuses. Secondary in-use dentries (Stream 0xC0, Name 0xC1) inside an in-use set are not individually scanned-for; the primary 0x85 is the gatekeeper. Deleted (top-bit-cleared) entries and the EXFAT_UNUSED 0x00 terminator are allowed."
+        },
+        {
+          "id": "exfat-rmdir-dentry-type-top-bit-cleared",
+          "text": "In Case 1 / Case 1b, every dentry in the target directory's dentry-set on disk has bit7 (0x80) of its first byte (the type byte) cleared after the operation completes. Lower 7 bits are preserved. Identical encoding to unlink's tombstone."
+        },
+        {
+          "id": "exfat-rmdir-parent-subdir-decrement",
+          "text": "In Case 1 / Case 1b, `parent_ei->num_subdirs` is decremented by exactly 1 in memory. The parent's on-disk dentry is NOT written to (consistent with mkdir's `exfat-mkdir-no-parent-dentry-write` deferred-sync policy). Future \"parent metadata sync\" stage will reconcile on-disk num_subdirs. The decrement happens immediately after the in-memory tombstone and before Phase 2 cluster release."
+        },
+        {
+          "id": "exfat-rmdir-cluster-released-eagerly",
+          "text": "Unlike Linux exfat_rmdir which leaves the directory's data cluster on disk (relying on fsck or inode eviction), v1 immediately calls `exfat_free_cluster` in Phase 2 because LiteOS-A has no fsck and no eviction queue. Recorded so reviewers see the intentional divergence. Sibling invariant of `exfat-unlink-clusters-released-eagerly`."
+        },
+        {
+          "id": "exfat-rmdir-phase2-size-nonzero",
+          "text": "Phase 2's `num_phys_clu` is computed as `ceil(i_size_ondisk / cluster_size)` and clamped to >= 1u defensively. This dodges `exfat_free_cluster.spec` Case 4's `p_chain->size == 0` no-op short-circuit, which would otherwise leak the directory's allocated cluster forever. Identical guard to `exfat-unlink-phase2-size-nonzero`."
+        },
+        {
+          "id": "exfat-rmdir-phase2-skipped-on-eof-start",
+          "text": "When `target_ei->start_clu == EXFAT_EOF_CLUSTER` (Case 1b — defensive branch for an abnormal but recoverable state), Phase 2 is skipped entirely: `exfat_free_cluster` is NOT called and the bitmap is unchanged. Phase 1 (tombstone + parent decrement) still completes."
+        },
+        {
+          "id": "exfat-rmdir-no-vnode-free",
+          "text": "VfsExfatRmdir never calls `VnodeFree(target_vp)` and never modifies `target_vp->v_data`. VFS Reclaim is the owner of vnode-lifecycle cleanup. target_ei state changes are confined to `dir.dir` (set to DIR_DELETED). Sibling invariant of `exfat-unlink-no-vnode-free`."
+        },
+        {
+          "id": "exfat-rmdir-s-lock-bracketed",
+          "text": "After Pre-Condition validation succeeds, `LOS_MuxLock(&sbi->s_lock, LOS_WAIT_FOREVER)` is acquired exactly once. All Phase 1 paths (success, Case 3 not-empty, Case 4 scan-EIO, Case 5 fetch/write-EIO) release it via a single shared `phase1_unlock:` label that also runs `exfat_clear_volume_dirty`. Phase 2 runs lock-free w.r.t. s_lock to avoid the s_lock → bitmap_lock partial ordering (matches unlink)."
+        }
+      ],
+      "exports": [
+        {
+          "symbol": "exfat_get_next_cluster",
+          "signature": "int exfat_get_next_cluster(const exfat_sb_info *sbi, uint32_t cur_clu, uint32_t *next_clu)",
+          "src": "fs/exfat/exfat_cluster.c"
+        },
+        {
+          "symbol": "exfat_chain_walk",
+          "signature": "int exfat_chain_walk(const exfat_sb_info *sbi, uint32_t start_clu, exfat_chain_visitor_t visitor, void *ctx)",
+          "src": "fs/exfat/exfat_cluster.c"
+        },
+        {
+          "symbol": "exfat_ent_set",
+          "signature": "int exfat_ent_set(const exfat_sb_info *sbi, uint32_t loc, uint32_t value)",
+          "src": "fs/exfat/exfat_cluster.c"
+        },
+        {
+          "symbol": "exfat_load_bitmap",
+          "signature": "int exfat_load_bitmap(exfat_sb_info *sbi)",
+          "src": "fs/exfat/exfat_cluster.c"
+        },
+        {
+          "symbol": "exfat_free_bitmap",
+          "signature": "void exfat_free_bitmap(exfat_sb_info *sbi)",
+          "src": "fs/exfat/exfat_cluster.c"
+        },
+        {
+          "symbol": "exfat_count_used_clusters",
+          "signature": "int exfat_count_used_clusters(const exfat_sb_info *sbi, uint32_t *out)",
+          "src": "fs/exfat/exfat_cluster.c"
+        },
+        {
+          "symbol": "exfat_clear_bitmap",
+          "signature": "int exfat_clear_bitmap(exfat_sb_info *sbi, uint32_t clu)",
+          "src": "fs/exfat/exfat_cluster.c"
+        },
+        {
+          "symbol": "exfat_free_cluster",
+          "signature": "int exfat_free_cluster(exfat_sb_info *sbi, const exfat_chain *p_chain)",
+          "src": "fs/exfat/exfat_cluster.c"
+        },
+        {
+          "symbol": "exfat_set_bitmap",
+          "signature": "int exfat_set_bitmap(exfat_sb_info *sbi, uint32_t clu)",
+          "src": "fs/exfat/exfat_cluster.c"
+        },
+        {
+          "symbol": "exfat_find_free_bitmap",
+          "signature": "int exfat_find_free_bitmap(const exfat_sb_info *sbi, uint32_t hint_clu, uint32_t *out_clu)",
+          "src": "fs/exfat/exfat_cluster.c"
+        },
+        {
+          "symbol": "exfat_alloc_cluster",
+          "signature": "int exfat_alloc_cluster(exfat_sb_info *sbi, uint32_t num_alloc, exfat_chain *p_chain)",
+          "src": "fs/exfat/exfat_cluster.c"
+        },
+        {
+          "symbol": "exfat_get_dentry",
+          "signature": "int exfat_get_dentry(const exfat_sb_info *sbi, const exfat_chain *dir, int entry_idx, struct exfat_dentry *out, uint64_t *out_sector)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "exfat_get_dentry_set",
+          "signature": "int exfat_get_dentry_set(const exfat_sb_info *sbi, const exfat_chain *dir, int start_entry, struct exfat_dentry *set, int max_entries, int *num_entries)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "exfat_validate_dentry_set",
+          "signature": "int exfat_validate_dentry_set(const struct exfat_dentry *set, int num_entries)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "exfat_set_dentry",
+          "signature": "int exfat_set_dentry(const exfat_sb_info *sbi, const exfat_chain *dir, int entry_idx, const struct exfat_dentry *in)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "exfat_set_dentry_set",
+          "signature": "int exfat_set_dentry_set(const exfat_sb_info *sbi, const exfat_chain *dir, int start_entry, const struct exfat_dentry *set, int num_entries)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "exfat_alloc_dentry_slot",
+          "signature": "int exfat_alloc_dentry_slot(const exfat_sb_info *sbi, const exfat_chain *dir, int n_entries, int *slot_idx_out)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "VfsExfatOpendir",
+          "signature": "int VfsExfatOpendir(struct Vnode *vp, struct fs_dirent_s *idir)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "VfsExfatReaddir",
+          "signature": "int VfsExfatReaddir(struct Vnode *vp, struct fs_dirent_s *idir)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "VfsExfatClosedir",
+          "signature": "int VfsExfatClosedir(struct Vnode *vp, struct fs_dirent_s *idir)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "VfsExfatRewinddir",
+          "signature": "int VfsExfatRewinddir(struct Vnode *vp, struct fs_dirent_s *idir)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "VfsExfatRead",
+          "signature": "ssize_t VfsExfatRead(struct file *filep, char *buf, size_t len)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "VfsExfatWrite",
+          "signature": "ssize_t VfsExfatWrite(struct file *filep, const char *buf, size_t len)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "exfat_truncate_extend",
+          "signature": "int exfat_truncate_extend(exfat_sb_info *sbi, exfat_inode_info *ei, uint64_t new_size)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "exfat_truncate_shrink",
+          "signature": "int exfat_truncate_shrink(exfat_sb_info *sbi, exfat_inode_info *ei, uint64_t new_size)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "VfsExfatTruncate64",
+          "signature": "int VfsExfatTruncate64(struct Vnode *vp, off64_t len)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "VfsExfatTruncate",
+          "signature": "int VfsExfatTruncate(struct Vnode *vp, off_t len)",
+          "src": "fs/exfat/exfat_file.c"
+        },
+        {
+          "symbol": "exfat_inode_alloc",
+          "signature": "int exfat_inode_alloc(exfat_inode_info **out)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_inode_free",
+          "signature": "void exfat_inode_free(exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_inode_init_dir_chain",
+          "signature": "void exfat_inode_init_dir_chain(exfat_inode_info *ei, uint32_t start_clu)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "VfsExfatLookup",
+          "signature": "int VfsExfatLookup(struct Vnode *parent, const char *name, int len, struct Vnode **vpp)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "VfsExfatOpen",
+          "signature": "int VfsExfatOpen(struct file *filep)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "VfsExfatClose",
+          "signature": "int VfsExfatClose(struct file *filep)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "VfsExfatGetattr",
+          "signature": "int VfsExfatGetattr(struct Vnode *vp, struct stat *st)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "VfsExfatSeek",
+          "signature": "off_t VfsExfatSeek(struct file *filep, off_t offset, int whence)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_calc_num_entries",
+          "signature": "int exfat_calc_num_entries(const struct exfat_uni_name *p_uniname)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_zeroed_cluster",
+          "signature": "int exfat_zeroed_cluster(exfat_sb_info *sbi, uint32_t clu)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_alloc_new_dir",
+          "signature": "int exfat_alloc_new_dir(exfat_sb_info *sbi, exfat_chain *clu_out)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_init_dir_entry",
+          "signature": "int exfat_init_dir_entry(exfat_sb_info *sbi, const exfat_chain *p_dir, int entry, uint32_t type, uint32_t start_clu, uint64_t size)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_init_ext_entry",
+          "signature": "int exfat_init_ext_entry(exfat_sb_info *sbi, const exfat_chain *p_dir, int entry, int num_entries, const struct exfat_uni_name *p_uniname)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_add_entry",
+          "signature": "int exfat_add_entry(exfat_sb_info *sbi, struct Vnode *parent_vp, const char *name, uint32_t type, struct exfat_dir_entry *info)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "VfsExfatMkdir",
+          "signature": "int VfsExfatMkdir(struct Vnode *parent_vp, const char *name, mode_t mode, struct Vnode **vpp)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "VfsExfatCreate",
+          "signature": "int VfsExfatCreate(struct Vnode *parent_vp, const char *name, int mode, struct Vnode **vpp)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "VfsExfatUnlink",
+          "signature": "int VfsExfatUnlink(struct Vnode *parent_vp, struct Vnode *target_vp, const char *fileName)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_truncate_atime_seconds",
+          "signature": "uint64_t exfat_truncate_atime_seconds(uint64_t epoch_sec)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_now_seconds",
+          "signature": "uint64_t exfat_now_seconds(void)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_encode_atime",
+          "signature": "void exfat_encode_atime(const exfat_sb_info *sbi, uint64_t epoch_sec, uint16_t *time_out, uint16_t *date_out, uint8_t *tz_out)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_encode_mtime",
+          "signature": "void exfat_encode_mtime(const exfat_sb_info *sbi, uint64_t epoch_sec, uint16_t *time_out, uint16_t *date_out, uint8_t *cs_out, uint8_t *tz_out)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_encode_ctime",
+          "signature": "void exfat_encode_ctime(const exfat_sb_info *sbi, uint64_t epoch_sec, uint16_t *time_out, uint16_t *date_out, uint8_t *cs_out, uint8_t *tz_out)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_decode_entry_time",
+          "signature": "uint64_t exfat_decode_entry_time(const exfat_sb_info *sbi, uint16_t time_le, uint16_t date_le, uint8_t cs, uint8_t tz)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_inode_touch_atime",
+          "signature": "void exfat_inode_touch_atime(exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_inode_touch_mtime",
+          "signature": "void exfat_inode_touch_mtime(exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_inode_touch_ctime",
+          "signature": "void exfat_inode_touch_ctime(exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_inode_touch_atime_mtime",
+          "signature": "void exfat_inode_touch_atime_mtime(exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_inode_touch_mtime_ctime",
+          "signature": "void exfat_inode_touch_mtime_ctime(exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_inode_touch_now",
+          "signature": "void exfat_inode_touch_now(exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_inode_bump_version",
+          "signature": "void exfat_inode_bump_version(exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_inode_load_metadata",
+          "signature": "int exfat_inode_load_metadata(const exfat_sb_info *sbi, exfat_inode_info *ei, const struct exfat_dentry *file_dentry)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_inode_store_metadata",
+          "signature": "int exfat_inode_store_metadata(const exfat_sb_info *sbi, const exfat_inode_info *ei, struct exfat_dentry *file_dentry)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_inode_get_nlink",
+          "signature": "uint32_t exfat_inode_get_nlink(const exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "VfsExfatRmdir",
+          "signature": "int VfsExfatRmdir(struct Vnode *parent_vp, struct Vnode *target_vp, const char *dirName)",
+          "src": "fs/exfat/exfat_inode.c"
+        },
+        {
+          "symbol": "exfat_inode_alloc",
+          "signature": "int exfat_inode_alloc(exfat_inode_info **out)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_inode_free",
+          "signature": "void exfat_inode_free(exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_inode_init_dir_chain",
+          "signature": "void exfat_inode_init_dir_chain(exfat_inode_info *ei, uint32_t start_clu)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "VfsExfatLookup",
+          "signature": "int VfsExfatLookup(struct Vnode *parent, const char *name, int len, struct Vnode **vpp)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "VfsExfatOpen",
+          "signature": "int VfsExfatOpen(struct file *filep)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "VfsExfatClose",
+          "signature": "int VfsExfatClose(struct file *filep)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "VfsExfatGetattr",
+          "signature": "int VfsExfatGetattr(struct Vnode *vp, struct stat *st)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "VfsExfatSeek",
+          "signature": "off_t VfsExfatSeek(struct file *filep, off_t offset, int whence)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_calc_num_entries",
+          "signature": "int exfat_calc_num_entries(const struct exfat_uni_name *p_uniname)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_zeroed_cluster",
+          "signature": "int exfat_zeroed_cluster(exfat_sb_info *sbi, uint32_t clu)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_alloc_new_dir",
+          "signature": "int exfat_alloc_new_dir(exfat_sb_info *sbi, exfat_chain *clu_out)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_init_dir_entry",
+          "signature": "int exfat_init_dir_entry(exfat_sb_info *sbi, const exfat_chain *p_dir, int entry, uint32_t type, uint32_t start_clu, uint64_t size)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_init_ext_entry",
+          "signature": "int exfat_init_ext_entry(exfat_sb_info *sbi, const exfat_chain *p_dir, int entry, int num_entries, const struct exfat_uni_name *p_uniname)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_add_entry",
+          "signature": "int exfat_add_entry(exfat_sb_info *sbi, struct Vnode *parent_vp, const char *name, uint32_t type, struct exfat_dir_entry *info)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "VfsExfatMkdir",
+          "signature": "int VfsExfatMkdir(struct Vnode *parent_vp, const char *name, mode_t mode, struct Vnode **vpp)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "VfsExfatCreate",
+          "signature": "int VfsExfatCreate(struct Vnode *parent_vp, const char *name, int mode, struct Vnode **vpp)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "VfsExfatUnlink",
+          "signature": "int VfsExfatUnlink(struct Vnode *parent_vp, struct Vnode *target_vp, const char *fileName)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_truncate_atime_seconds",
+          "signature": "uint64_t exfat_truncate_atime_seconds(uint64_t epoch_sec)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_now_seconds",
+          "signature": "uint64_t exfat_now_seconds(void)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_encode_atime",
+          "signature": "void exfat_encode_atime(const exfat_sb_info *sbi, uint64_t epoch_sec, uint16_t *time_out, uint16_t *date_out, uint8_t *tz_out)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_encode_mtime",
+          "signature": "void exfat_encode_mtime(const exfat_sb_info *sbi, uint64_t epoch_sec, uint16_t *time_out, uint16_t *date_out, uint8_t *cs_out, uint8_t *tz_out)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_encode_ctime",
+          "signature": "void exfat_encode_ctime(const exfat_sb_info *sbi, uint64_t epoch_sec, uint16_t *time_out, uint16_t *date_out, uint8_t *cs_out, uint8_t *tz_out)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_decode_entry_time",
+          "signature": "uint64_t exfat_decode_entry_time(const exfat_sb_info *sbi, uint16_t time_le, uint16_t date_le, uint8_t cs, uint8_t tz)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_inode_touch_atime",
+          "signature": "void exfat_inode_touch_atime(exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_inode_touch_mtime",
+          "signature": "void exfat_inode_touch_mtime(exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_inode_touch_ctime",
+          "signature": "void exfat_inode_touch_ctime(exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_inode_touch_atime_mtime",
+          "signature": "void exfat_inode_touch_atime_mtime(exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_inode_touch_mtime_ctime",
+          "signature": "void exfat_inode_touch_mtime_ctime(exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_inode_touch_now",
+          "signature": "void exfat_inode_touch_now(exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_inode_bump_version",
+          "signature": "void exfat_inode_bump_version(exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_inode_load_metadata",
+          "signature": "int exfat_inode_load_metadata(const exfat_sb_info *sbi, exfat_inode_info *ei, const struct exfat_dentry *file_dentry)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_inode_store_metadata",
+          "signature": "int exfat_inode_store_metadata(const exfat_sb_info *sbi, const exfat_inode_info *ei, struct exfat_dentry *file_dentry)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_inode_get_nlink",
+          "signature": "uint32_t exfat_inode_get_nlink(const exfat_inode_info *ei)",
+          "src": "fs/exfat/exfat_inode_metadata_model.c"
+        },
+        {
+          "symbol": "exfat_calc_chksum32",
+          "signature": "uint32_t exfat_calc_chksum32(const void *data, uint32_t len, uint32_t chksum, int type)",
+          "src": "fs/exfat/exfat_module.c"
+        },
+        {
+          "symbol": "exfat_calc_chksum16",
+          "signature": "uint16_t exfat_calc_chksum16(const void *data, int len, uint16_t chksum, int type)",
+          "src": "fs/exfat/exfat_module.c"
+        },
+        {
+          "symbol": "exfat_parse_options",
+          "signature": "int exfat_parse_options(const char *data, exfat_mount_options *opts)",
+          "src": "fs/exfat/exfat_module.c"
+        },
+        {
+          "symbol": "exfat_create_upcase_table",
+          "signature": "int exfat_create_upcase_table(exfat_sb_info *sbi)",
+          "src": "fs/exfat/exfat_module.c"
+        },
+        {
+          "symbol": "exfat_free_upcase_table",
+          "signature": "void exfat_free_upcase_table(exfat_sb_info *sbi)",
+          "src": "fs/exfat/exfat_module.c"
+        },
+        {
+          "symbol": "exfat_set_volume_dirty",
+          "signature": "int exfat_set_volume_dirty(exfat_sb_info *sbi)",
+          "src": "fs/exfat/exfat_module.c"
+        },
+        {
+          "symbol": "exfat_clear_volume_dirty",
+          "signature": "int exfat_clear_volume_dirty(exfat_sb_info *sbi)",
+          "src": "fs/exfat/exfat_module.c"
+        },
+        {
+          "symbol": "exfat_parse_boot_sector",
+          "signature": "int exfat_parse_boot_sector(exfat_sb_info *sbi, const struct exfat_boot_sector *bs, uint32_t logical_sector_size)",
+          "src": "fs/exfat/exfat_module.c"
+        },
+        {
+          "symbol": "exfat_find_root_dentry",
+          "signature": "int exfat_find_root_dentry(const exfat_sb_info *sbi, uint8_t type, struct exfat_dentry *out)",
+          "src": "fs/exfat/exfat_module.c"
+        },
+        {
+          "symbol": "exfat_uni_to_utf8",
+          "signature": "int exfat_uni_to_utf8(const uint16_t *uni, int uni_len, char *out, int out_max)",
+          "src": "fs/exfat/exfat_nls.c"
+        },
+        {
+          "symbol": "exfat_utf8_to_uni",
+          "signature": "int exfat_utf8_to_uni(const char *utf8, int utf8_len, uint16_t *uni, int uni_max, int *uni_len_out)",
+          "src": "fs/exfat/exfat_nls.c"
+        },
+        {
+          "symbol": "exfat_uniname_cmp",
+          "signature": "int exfat_uniname_cmp(const exfat_sb_info *sbi, const uint16_t *a, int a_len, const uint16_t *b, int b_len)",
+          "src": "fs/exfat/exfat_nls.c"
+        },
+        {
+          "symbol": "VfsExfatReclaim",
+          "signature": "int VfsExfatReclaim(struct Vnode *vnode)",
+          "src": "fs/exfat/exfat_super.c"
+        }
+      ],
+      "tests": {
+        "files": [
+          "testsuites/unittest/exfat/test_rmdir.c"
+        ],
+        "git_sha": "b6e246495bd9de89e334f437f380aa0476ea2a8e",
+        "approved_at": "2026-05-11T05:07:21Z",
+        "approval_iterations": 0,
+        "testpoints": 22,
+        "test_array_name": "test_rmdir_tests",
+        "dirty": false
+      }
     }
   ]
 }

@@ -267,6 +267,7 @@ extern int  VfsExfatMkdir(struct Vnode *parent_vp, const char *name,
 
 
 /* auto-synced exports — appended by specfs-port code_gen_approve */
+extern int VfsExfatRmdir(struct Vnode *parent_vp, struct Vnode *target_vp, const char *dirName);
 extern uint64_t exfat_truncate_atime_seconds(uint64_t epoch_sec);
 extern uint64_t exfat_now_seconds(void);
 extern void exfat_encode_atime(const exfat_sb_info *sbi, uint64_t epoch_sec, uint16_t *time_out, uint16_t *date_out, uint8_t *tz_out);
