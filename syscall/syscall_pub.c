@@ -77,11 +77,15 @@ int GetFullpath(int fd, const char *path, char **fullpath)
     if ((pathRet != NULL) && (*pathRet == '/')) {
         *fullpath = pathRet;
         pathRet = NULL;
+    } else if (fd == AT_FDCWD) {
+        /* AT_FDCWD + relative path: resolve via current workdir.
+         * fs_getfilep(AT_FDCWD) is meaningless and was incorrectly
+         * fast-pathed to -EPERM, breaking utimensat/fchownat/faccessat
+         * for every relative path supplied with AT_FDCWD. */
+        ret = vfs_normalize_pathat(fd, pathRet, fullpath);
     } else {
-        if (fd != AT_FDCWD) {
-            /* Process fd convert to system global fd */
-            fd = GetAssociatedSystemFd(fd);
-        }
+        /* Process fd convert to system global fd */
+        fd = GetAssociatedSystemFd(fd);
         ret = fs_getfilep(fd, &file);
         if (ret < 0) {
             ret = -EPERM;
