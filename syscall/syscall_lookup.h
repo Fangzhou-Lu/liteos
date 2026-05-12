@@ -168,6 +168,7 @@ SYSCALL_HAND_DEF(__NR_uname, SysUname, int, ARG_NUM_1)
 SYSCALL_HAND_DEF(__NR_sethostname, SysSetHostName, int, ARG_NUM_2)
 #endif
 SYSCALL_HAND_DEF(__NR_mprotect, SysMprotect, int, ARG_NUM_3)
+SYSCALL_HAND_DEF(__NR_msync, SysMsync, int, ARG_NUM_3)
 SYSCALL_HAND_DEF(__NR_getpgid, SysGetProcessGroupID, int, ARG_NUM_1)
 SYSCALL_HAND_DEF(__NR_sched_setparam, SysSchedSetParam, int, ARG_NUM_3)
 SYSCALL_HAND_DEF(__NR_sched_getparam, SysSchedGetParam, int, ARG_NUM_3)

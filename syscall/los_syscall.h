@@ -172,6 +172,7 @@ extern ssize_t SysRecvMsg(int s, struct msghdr *message, int flags);
 extern void *SysMmap(void *addr, size_t size, int prot, int flags, int fd, size_t offset);
 extern int SysMunmap(void *addr, size_t size);
 extern int SysMprotect(void *vaddr, size_t len, int prot);
+extern int SysMsync(void *addr, size_t length, int flags);
 extern void *SysMremap(void *oldAddr, size_t oldLen, size_t newLen, int flags, void *newAddr);
 extern void *SysBrk(void *addr);
 extern int SysShmGet(key_t key, size_t size, int shmflg);

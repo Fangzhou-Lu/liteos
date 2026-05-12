@@ -60,6 +60,26 @@ int SysMprotect(void *vaddr, size_t len, int prot)
     return LOS_DoMprotect((uintptr_t)vaddr, len, (unsigned long)prot);
 }
 
+/*
+ * SysMsync — POSIX msync(2) 最小桩。
+ *
+ * LiteOS-A mmap 写回不走独立 dirty page → backing-store async 通路:
+ * 用户态写直接经 VFS write_page 走到 bcache，sync()/fsync() 已能
+ * 落盘。msync 在该模型下没有独立语义；本桩仅满足 LTP
+ * tst_buffers guarded-buffer cleanup 的"已注册即可"约束，返回 0。
+ *
+ * 未做严格 flags 校验 (MS_ASYNC/MS_SYNC/MS_INVALIDATE) —— 这些常量
+ * 当前内核侧无 header 定义且 LTP 不依赖返回值；如需真实回写语义可在
+ * Roadmap 中升级为遍历 region 调用 bcache flush。
+ */
+int SysMsync(void *addr, size_t length, int flags)
+{
+    (void)addr;
+    (void)length;
+    (void)flags;
+    return 0;
+}
+
 void *SysBrk(void *addr)
 {
     return LOS_DoBrk(addr);
