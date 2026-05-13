@@ -60,8 +60,7 @@ SECTIONS
     .ARM.extab ALIGN(0x4) : { *(.ARM.extab* .gnu.linkonce.armextab.*) } > ram
 
     /* .ARM.exidx is sorted, so has to go in its own output section.  */
-    /*.ARM.exidx ALIGN(0x8) : { __exidx_start = .; *(.ARM.exidx* .gnu.linkonce.armexidx.*) ;__exidx_end = .;} > ram*/
-    .ARM.exidx ALIGN(0x8) : { __exidx_start = .; __exidx_end = .;} > ram
+    .ARM.exidx ALIGN(0x8) : { __exidx_start = .; *(.ARM.exidx* .gnu.linkonce.armexidx.*) ; __exidx_end = .;} > ram
 
      .eh_frame ALIGN (0x8) : { KEEP (*(.eh_frame)) *(.eh_frame.*);  } > ram
 
@@ -203,5 +202,5 @@ SECTIONS
     __mmu_ttlb_begin = .;
 
     /* Strip unnecessary stuff */
-    /DISCARD/ 0 : { *(.comment .note .ARM.exidx* .gnu.linkonce.armexidx.*) } > ram
+    /DISCARD/ 0 : { *(.comment .note) } > ram
 }

@@ -49,6 +49,7 @@ kernel_module(module_name) {
     "src/smp.c",
     "src/strncpy_from_user.c",
     "src/strnlen_user.c",
+    "src/unwind_personality.c",
     "src/user_copy.c",
   ]
 

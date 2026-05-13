@@ -566,7 +566,12 @@ LITEOS_SECURITY_INCLUDE    := $(LITEOS_SECURITY_CAP_INC) $(LITEOS_SECURITY_VID_I
 LITEOS_TOOLS_DEBUG_INCLUDE := $(LITEOS_SHELL_INCLUDE)  $(LITEOS_UART_INCLUDE) \
                               $(LITEOS_TELNET_INCLUDE)
 
-LITEOS_COMMON_OPTS  := -fno-pic -fno-builtin -nostdinc -nostdlib -Wall -Werror -fms-extensions -fno-omit-frame-pointer -Wno-address-of-packed-member -Winvalid-pch
+# -funwind-tables: keep ARM EHABI .ARM.exidx index so GDB can backtrace
+# through ordinary C frames even when the syscall entry asm has no .cfi
+# annotations. Do NOT add -fasynchronous-unwind-tables here: the async
+# variant pulls in __aeabi_unwind_cpp_pr0/pr1 personality routines which
+# are not available in the freestanding -nostdlib kernel link.
+LITEOS_COMMON_OPTS  := -fno-pic -fno-builtin -nostdinc -nostdlib -Wall -Werror -fms-extensions -fno-omit-frame-pointer -funwind-tables -Wno-address-of-packed-member -Winvalid-pch
 
 LITEOS_CXXOPTS_BASE += $(LITEOS_COMMON_OPTS) -std=c++11 -nostdinc++ -fexceptions -fpermissive -fno-use-cxa-atexit -frtti
 
