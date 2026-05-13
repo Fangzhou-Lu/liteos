@@ -1,0 +1,9 @@
+# LTP fsfull cases skipped for LiteOS local QEMU runs.
+# Format: <subdir>/<case>\t<reason>
+# Keep this list evidence-based: only add cases with confirmed fork/process pressure,
+# unsupported LiteOS environment dependencies, or deterministic kernel-level blockers.
+# IMPORTANT: the current fsfull pack is generated from testcases/kernel/syscalls/*
+# (see tools/regress/linux_native_baseline_fsfull.sh), so do not add runtest/fs-only
+# cases here unless they first appear in out/linux_native_ltp_fsfull.json.
+
+access/access01	fork-heavy permission matrix in current syscalls-based fsfull pack: upstream test forks per nobody-case and triggers LiteOS PCB exhaustion (fork() -> EAGAIN / 'No idle PCB in the system!').

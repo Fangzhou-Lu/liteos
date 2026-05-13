@@ -74,9 +74,15 @@ else
     if grep -qE 'LTP_PASS=[0-9]+' "${QEMU_LOG}"; then
         ltp_pass_count="$(grep -oE 'LTP_PASS=([0-9]+)' "${QEMU_LOG}" \
             | tail -1 | grep -oE '[0-9]+$')"
+    elif grep -qE 'RESULTS: PASS=[0-9]+' "${QEMU_LOG}"; then
+        ltp_pass_count="$(grep -oE 'RESULTS: PASS=[0-9]+' "${QEMU_LOG}" \
+            | tail -1 | grep -oE 'PASS=[0-9]+' | grep -oE '[0-9]+$')"
     fi
     if grep -qE 'LTP_FAIL=[0-9]+' "${QEMU_LOG}"; then
         ltp_fail_count="$(grep -oE 'LTP_FAIL=([0-9]+)' "${QEMU_LOG}" \
+            | tail -1 | grep -oE '[0-9]+$')"
+    elif grep -qE 'RESULTS: PASS=[0-9]+[[:space:]]+FAIL=[0-9]+' "${QEMU_LOG}"; then
+        ltp_fail_count="$(grep -oE 'FAIL=[0-9]+' "${QEMU_LOG}" \
             | tail -1 | grep -oE '[0-9]+$')"
     fi
 

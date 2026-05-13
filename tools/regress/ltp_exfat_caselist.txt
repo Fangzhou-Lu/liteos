@@ -1,0 +1,29 @@
+# LTP exFAT smoke testcase list — authoritative source.
+#
+# Mirrors out/.../ltp_pack/run_exfat.sh order. Used by:
+#   * QEMU LiteOS-A lane: out/.../ltp_pack/run_exfat.sh (frozen, do NOT edit there)
+#   * Ubuntu baseline lane: tools/regress/ubuntu_ltp_baseline.py
+#
+# Format: one testcase name per line; blank lines + leading '#' comments ignored.
+# Order MUST match run_exfat.sh so RC tables align row-by-row.
+
+creat01
+open01
+read01
+write01
+unlink05
+stat01
+access01
+chmod01
+mkdir02
+rmdir01
+rename01
+truncate02
+lseek01
+fstat02
+getcwd01
+readdir01
+fcntl01
+close01
+dup01
+dup02
