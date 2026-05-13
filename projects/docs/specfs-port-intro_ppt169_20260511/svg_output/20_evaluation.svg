@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#F7FAFC"/>
+    <rect x="0" y="0" width="1280" height="4" fill="#1A365D"/>
+  </g>
+  <g id="header">
+    <text x="60" y="62" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="32" font-weight="bold" fill="#1A365D">评估 · 生产力 / 测试 / Loop C 反馈</text>
+    <line x1="60" y1="86" x2="1220" y2="86" stroke="#CBD5E0" stroke-width="1"/>
+  </g>
+  <g id="takeaway">
+    <rect x="60" y="100" width="1160" height="56" rx="8" fill="#EDF2F7"/>
+    <text x="84" y="135" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">三个角度自检 · 数据来自 .specfs-metrics.jsonl 与 .specfs.dag.json (DAG state)。</text>
+  </g>
+  <g id="card-1">
+    <rect x="60" y="190" width="380" height="440" rx="12" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <rect x="60" y="190" width="380" height="50" rx="12" fill="#1A365D"/>
+    <rect x="60" y="216" width="380" height="24" fill="#1A365D"/>
+    <text x="84" y="222" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F7FAFC">① 生产力</text>
+    <text x="84" y="282" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096">spec / code LOC ratio</text>
+    <text x="84" y="346" font-family="Georgia, &quot;Microsoft YaHei&quot;, serif" font-size="64" font-weight="bold" fill="#1A365D">1.64</text>
+    <text x="200" y="346" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#4A5568">9 stage 合计</text>
+    <text x="200" y="368" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#4A5568">spec 2114 / code 1290</text>
+    <line x1="84" y1="392" x2="416" y2="392" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="84" y="422" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096">论文基线 (AtomFS)</text>
+    <text x="84" y="450" font-family="Georgia, &quot;Microsoft YaHei&quot;, serif" font-size="28" font-weight="bold" fill="#2C7A7B">~1.2</text>
+    <text x="200" y="450" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">FAST'26 SYSSPEC</text>
+    <text x="84" y="500" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">本项目稍高的原因：</text>
+    <text x="84" y="524" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">• Invariants 多（含跨 stage 继承）</text>
+    <text x="84" y="548" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">• Refine Prompt 二阶段锁状态契约</text>
+    <text x="84" y="572" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">• System Algorithm 项目级强制</text>
+    <text x="84" y="608" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">命题成立 — 但更"重 spec"</text>
+  </g>
+  <g id="card-2">
+    <rect x="450" y="190" width="380" height="440" rx="12" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <rect x="450" y="190" width="380" height="50" rx="12" fill="#1A365D"/>
+    <rect x="450" y="216" width="380" height="24" fill="#1A365D"/>
+    <text x="474" y="222" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F7FAFC">② 测试</text>
+    <text x="474" y="282" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096">Wave A · cmocka host</text>
+    <text x="474" y="346" font-family="Georgia, &quot;Microsoft YaHei&quot;, serif" font-size="64" font-weight="bold" fill="#2C7A7B">49</text>
+    <text x="600" y="320" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#4A5568">testpoint</text>
+    <text x="600" y="346" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#4A5568">5 helper TU 覆盖</text>
+    <text x="600" y="370" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096">~2 s 远端跑完</text>
+    <line x1="474" y1="392" x2="806" y2="392" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="474" y="422" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096">Wave B · QEMU LTP</text>
+    <text x="474" y="464" font-family="Georgia, &quot;Microsoft YaHei&quot;, serif" font-size="40" font-weight="bold" fill="#2C7A7B">6</text>
+    <text x="540" y="450" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">LTP case (smoke)</text>
+    <text x="540" y="472" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">creat / open / read /</text>
+    <text x="540" y="494" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">write / unlink / stat</text>
+    <text x="474" y="538" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">Plugin server 测试</text>
+    <text x="474" y="572" font-family="Georgia, &quot;Microsoft YaHei&quot;, serif" font-size="32" font-weight="bold" fill="#2C7A7B">194</text>
+    <text x="556" y="568" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">/ 194 全过</text>
+    <text x="474" y="608" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">covers prompt assembly + MCP + .first + fast_eval</text>
+  </g>
+  <g id="card-3">
+    <rect x="840" y="190" width="380" height="440" rx="12" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <rect x="840" y="190" width="380" height="50" rx="12" fill="#1A365D"/>
+    <rect x="840" y="216" width="380" height="24" fill="#1A365D"/>
+    <text x="864" y="222" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F7FAFC">③ Loop C 反馈 (v0.5.6)</text>
+    <text x="864" y="282" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096">unlink baseline gaps</text>
+    <text x="864" y="346" font-family="Georgia, &quot;Microsoft YaHei&quot;, serif" font-size="64" font-weight="bold" fill="#C53030">8</text>
+    <text x="950" y="320" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#4A5568">总 gap (5 spec + 3 code)</text>
+    <text x="950" y="346" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#4A5568">4 高严重</text>
+    <line x1="864" y1="392" x2="1196" y2="392" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="864" y="422" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096">累积推荐</text>
+    <text x="864" y="450" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">spec-side 3 条 · codegen-side 3 条</text>
+    <text x="864" y="478" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">apply 后两 prompt 模板 +50% / +66%</text>
+    <line x1="864" y1="500" x2="1196" y2="500" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="864" y="530" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096">主要 gap 类</text>
+    <text x="864" y="554" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#2D3748">• name-cache eviction 缺失 (high)</text>
+    <text x="864" y="572" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#2D3748">• parent mtime 刷新缺失 (high)</text>
+    <text x="864" y="590" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#2D3748">• post-tombstone chain reset (med)</text>
+    <text x="864" y="608" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">2 条 low 不入 sess.failures</text>
+  </g>
+  <g id="footer">
+    <line x1="60" y1="670" x2="1220" y2="670" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="60" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096">Evaluation</text>
+    <text x="1220" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096" text-anchor="end">20 / 22</text>
+  </g>
+</svg>

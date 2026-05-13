@@ -1,0 +1,1 @@
+先说为什么要做这件事。直觉上文件系统移植无非就是把代码搬过来重新编译，但真实代价完全不在编译。Linux 文件系统沉淀了十几年的 Linux 特有假设，page cache、buffer head、RCU、kmem cache、bio、dcache 这一整套，移到 LiteOS-A 之后 90% 不能用。逐行翻译几乎一定得到一个能编译、会泄漏、行为微妙错乱的产物。我们曾经亲历过七类编译器抓不到的隐性 bug，包括 libsec 没换、Mux 和 Spin 误用、错误码符号、g_fsVops 全 NULL 触发 umount 时空指针。所以问题不是缺一个翻译器，而是缺一种切割方式。我们选择的切割方式，是先用 spec 把"做什么"从"怎么做"里剥出来，再围绕 LiteOS-A 原语落实施。

@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#F7FAFC" />
+    <rect x="0" y="0" width="1280" height="4" fill="#1A365D" />
+  </g>
+  <g id="header">
+    <text x="60" y="62" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="32" font-weight="bold" fill="#1A365D">Challenge IV · spec ↔ code drift</text>
+    <line x1="60" y1="86" x2="1220" y2="86" stroke="#CBD5E0" stroke-width="1" />
+  </g>
+  <g id="takeaway">
+    <path fill="#EDF2F7" d="M68,100 H1212 A8,8 0 0 1 1220,108 V148 A8,8 0 0 1 1212,156 H68 A8,8 0 0 1 60,148 V108 A8,8 0 0 1 68,100 Z" />
+    <text x="84" y="135" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">单次生成无法保证 spec 真的指导了 code — 论文 SpecEval 检 spec↔code 一致性；本项目新增 Loop C 检 spec/code↔Linux 等价性。</text>
+  </g>
+  <g id="diagram">
+    <path fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1" d="M72,200 H428 A12,12 0 0 1 440,212 V388 A12,12 0 0 1 428,400 H72 A12,12 0 0 1 60,388 V212 A12,12 0 0 1 72,200 Z" />
+    <text x="250" y="234" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#1A365D" text-anchor="middle">Linux 原始</text>
+    <text x="250" y="262" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="14" fill="#4A5568" text-anchor="middle">fs/exfat/namei.c</text>
+    <text x="250" y="284" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="14" fill="#4A5568" text-anchor="middle">exfat_unlink(...)</text>
+    <text x="250" y="332" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096" text-anchor="middle">事实来源</text>
+    <text x="250" y="358" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096" text-anchor="middle">十几年沉淀</text>
+    <path fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1" d="M72,430 H428 A12,12 0 0 1 440,442 V618 A12,12 0 0 1 428,630 H72 A12,12 0 0 1 60,618 V442 A12,12 0 0 1 72,430 Z" />
+    <text x="250" y="464" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#1A365D" text-anchor="middle">生成 spec</text>
+    <text x="250" y="494" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#4A5568" text-anchor="middle">spec/exfat/inode/</text>
+    <text x="250" y="514" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#4A5568" text-anchor="middle">exfat_unlink.spec</text>
+    <text x="250" y="546" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096" text-anchor="middle">+</text>
+    <text x="250" y="572" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#4A5568" text-anchor="middle">fs/exfat/exfat_inode.c</text>
+    <text x="250" y="594" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#4A5568" text-anchor="middle">VfsExfatUnlink(...)</text>
+    <path d="M 460,300 L 540,300 L 540,530 L 460,530" stroke="#1A365D" stroke-width="2" fill="none" />
+    <text x="500" y="412" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#1A365D" text-anchor="middle">三种</text>
+    <text x="500" y="434" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#1A365D" text-anchor="middle">drift</text>
+    <polygon points="540,415 555,407 555,423" fill="#1A365D" />
+  </g>
+  <g id="drift-list">
+    <path fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1" d="M592,200 H1208 A12,12 0 0 1 1220,212 V618 A12,12 0 0 1 1208,630 H592 A12,12 0 0 1 580,618 V212 A12,12 0 0 1 592,200 Z" />
+    <text x="600" y="234" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#2D3748">三类 drift 与拦截层</text>
+    <path fill="#EDF2F7" d="M608,252 H1192 A8,8 0 0 1 1200,260 V354 A8,8 0 0 1 1192,362 H608 A8,8 0 0 1 600,354 V260 A8,8 0 0 1 608,252 Z" />
+    <text x="616" y="278" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" font-weight="bold" fill="#C53030">A. spec ↔ code 不一致</text>
+    <text x="616" y="302" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#2D3748">spec 声明 Pre-Cond 但 code 没实现；或 code 用了 spec 没说的辅助。</text>
+    <text x="616" y="326" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">拦截：Step 4 SpecEval (prompts/speceval.md) — 论文 §4.5</text>
+    <text x="616" y="352" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">→ codegen_drift 路由到 Step 1 重生 / spec_under_specified → SpecFine</text>
+    <path fill="#EDF2F7" d="M608,378 H1192 A8,8 0 0 1 1200,386 V480 A8,8 0 0 1 1192,488 H608 A8,8 0 0 1 600,480 V386 A8,8 0 0 1 608,378 Z" />
+    <text x="616" y="404" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" font-weight="bold" fill="#C53030">B. spec ↔ Linux 语义不等价</text>
+    <text x="616" y="428" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#2D3748">spec 描述的"做什么"与 Linux 实际行为有差距 (under-specified)。</text>
+    <text x="616" y="452" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">拦截：<tspan font-weight="bold" fill="#2C7A7B">Loop C linux_compare</tspan> (v0.5.6 新增)</text>
+    <text x="616" y="478" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">→ 写到 docs/&lt;m&gt;_prompt_feedback.md，累积后反向优化 prompt 模板</text>
+    <path fill="#EDF2F7" d="M608,504 H1192 A8,8 0 0 1 1200,512 V606 A8,8 0 0 1 1192,614 H608 A8,8 0 0 1 600,606 V512 A8,8 0 0 1 608,504 Z" />
+    <text x="616" y="530" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" font-weight="bold" fill="#C53030">C. code ↔ Linux 行为漂移</text>
+    <text x="616" y="554" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#2D3748">spec 说对了但 code 漏步骤 (e.g. name-cache 驱逐 / parent mtime 刷新)。</text>
+    <text x="616" y="578" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">拦截：<tspan font-weight="bold" fill="#2C7A7B">Loop C linux_compare</tspan> + Step 5.2 QEMU LTP smoke</text>
+    <text x="616" y="604" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">→ root_cause = codegen_drift 路由到 code_gen_refine</text>
+  </g>
+  <g id="footer">
+    <line x1="60" y1="670" x2="1220" y2="670" stroke="#CBD5E0" stroke-width="1" />
+    <text x="60" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096">Challenges</text>
+    <text x="1220" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096" text-anchor="end">07 / 22</text>
+  </g>
+</svg>

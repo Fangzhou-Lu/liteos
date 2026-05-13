@@ -1,0 +1,1 @@
+总结四句话。一句:SYSSPEC 四段加 Refine Prompt 把"做什么"和"怎么做"剥开来表达。二句:Loop spec 加 Loop code 双闭环加七层防御,按 cost fail-fast 约束 LLM 走对。三句:DAG 跨阶段 invariant 继承加 common.header 自动同步,不重复造轮子。四句:Loop C 是 v0.5.6 新增,用 Linux 比对反向优化 prompt 本身,把"提示工程"从零散调参变成系统化机制。Roadmap 短期是 rmdir rename write 路径补全,中期跑第二个 FS 验证迁移性比如 ext2 或 erofs,长期是语义近似去重、fast_eval batch harness、DAG dirty propagation 自动化。

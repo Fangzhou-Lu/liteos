@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#F7FAFC"/>
+    <rect x="0" y="0" width="1280" height="4" fill="#1A365D"/>
+  </g>
+  <g id="header">
+    <text x="60" y="62" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="32" font-weight="bold" fill="#1A365D">两层回归 · cmocka host (~2s) + QEMU LTP smoke (~5min)</text>
+    <line x1="60" y1="86" x2="1220" y2="86" stroke="#CBD5E0" stroke-width="1"/>
+  </g>
+  <g id="takeaway">
+    <rect x="60" y="100" width="1160" height="56" rx="8" fill="#EDF2F7"/>
+    <text x="84" y="135" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">两层 wave 不冗余：A 测纯逻辑 / 边界（主机），B 测真实挂载 + 系统调用（QEMU）。tools/regress/run_all.sh 串联，exit code 区分。</text>
+  </g>
+  <g id="wave-a">
+    <rect x="60" y="190" width="580" height="440" rx="12" fill="#FFFFFF" stroke="#1A365D" stroke-width="2"/>
+    <rect x="60" y="190" width="580" height="46" rx="12" fill="#1A365D"/>
+    <rect x="60" y="220" width="580" height="16" fill="#1A365D"/>
+    <text x="80" y="222" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="20" font-weight="bold" fill="#F7FAFC">Wave A · cmocka host</text>
+    <text x="80" y="270" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#2D3748">位置</text>
+    <text x="80" y="292" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#4A5568">testsuites/unittest/exfat/</text>
+    <text x="80" y="324" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#2D3748">运行环境</text>
+    <text x="80" y="346" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">主机 Linux x86_64 · gcc + cmocka</text>
+    <text x="80" y="368" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">不依赖 LiteOS-A 内核 (用 host_stubs/ 替换)</text>
+    <text x="80" y="400" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#2D3748">覆盖</text>
+    <text x="80" y="422" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#4A5568">test_chksum (8)  + test_options (18)</text>
+    <text x="80" y="442" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#4A5568">test_dentry (10) + test_balloc (8)</text>
+    <text x="80" y="462" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#4A5568">test_upcase (5)</text>
+    <text x="80" y="484" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#2C7A7B">合计 49 testpoint</text>
+    <text x="80" y="516" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#2D3748">关键设计</text>
+    <text x="80" y="538" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">• mock_disk RAM 镜像 → 可注入 -EIO</text>
+    <text x="80" y="558" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">• 6KB 手工 exFAT 镜像 (无需 mkfs.exfat)</text>
+    <text x="80" y="578" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">• mock_part_write 改 RAM 不回写磁盘</text>
+    <text x="80" y="612" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">运行时间 ~2 s · 远端 ssh make · 用作 PR gate</text>
+  </g>
+  <g id="wave-b">
+    <rect x="660" y="190" width="560" height="440" rx="12" fill="#FFFFFF" stroke="#1A365D" stroke-width="2"/>
+    <rect x="660" y="190" width="560" height="46" rx="12" fill="#1A365D"/>
+    <rect x="660" y="220" width="560" height="16" fill="#1A365D"/>
+    <text x="680" y="222" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="20" font-weight="bold" fill="#F7FAFC">Wave B · QEMU LTP smoke</text>
+    <text x="680" y="270" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#2D3748">位置</text>
+    <text x="680" y="292" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#4A5568">tools/regress/qemu_ltp_run.sh</text>
+    <text x="680" y="324" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#2D3748">运行环境</text>
+    <text x="680" y="346" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">QEMU virt + LiteOS-A 实镜像</text>
+    <text x="680" y="366" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">真实挂载 exFAT 分区 /dev/mmcblk0p3</text>
+    <text x="680" y="398" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#2D3748">覆盖 (LTP 6 case)</text>
+    <text x="680" y="420" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#4A5568">creat01 · open01 · read01</text>
+    <text x="680" y="440" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#4A5568">write01 · unlink05 · stat01</text>
+    <text x="680" y="472" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#2D3748">关键设计</text>
+    <text x="680" y="494" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">• OHOS clang 动态链接 (不能 -static)</text>
+    <text x="680" y="514" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">• 4 分区 smallmmc.img (rootfs/userfs/userdata/exfat)</text>
+    <text x="680" y="534" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">• 命名 fifo 驱动 QEMU stdin，pollLog</text>
+    <text x="680" y="554" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">• grep panic / Oops / BUG → exit 2 立即</text>
+    <text x="680" y="592" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#2C7A7B">run_all.sh 出口码: 0=pass / 1=test fail / 2=panic-hang</text>
+    <text x="680" y="618" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">报告：docs/test/exfat_regression_&lt;ts&gt;.md (gitignored)</text>
+  </g>
+  <g id="footer">
+    <line x1="60" y1="670" x2="1220" y2="670" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="60" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096">Case Study</text>
+    <text x="1220" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096" text-anchor="end">18 / 22</text>
+  </g>
+</svg>

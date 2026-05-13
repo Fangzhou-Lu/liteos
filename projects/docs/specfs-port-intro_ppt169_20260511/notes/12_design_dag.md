@@ -1,0 +1,1 @@
+DAG 节点的真实样例。这是 unlink-v1 的 DAG 记录,id stage_name spec 块 code 块 invariants 数组 depends_on 全部进 json,跟着代码一起入版本控制。右边三条 DAG 属性:拓扑序生成、invariant 自动继承、dirty 传播。最下方的 common.header 自动同步是关键工程化机制,code_gen_approve 触发自动 extract collect_exports 再追加到 spec exfat common.header,marker 块单例化,后代 stage 的 prompt 就立刻看到新符号,不用任何手工同步。

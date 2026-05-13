@@ -1,0 +1,1 @@
+各位好，今天介绍我们做了大半年的 specfs-port 项目。它是一个 Claude Code 插件，作用是把 Linux 内核的文件系统模块基于 SYSSPEC 方法论搬到 OpenHarmony LiteOS-A，整个流程由人工在环、分层防御、跨阶段 DAG 三道机制串起来，目前 v0.5.6 已经在 exFAT 上跑通九个 stage。

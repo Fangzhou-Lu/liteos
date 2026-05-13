@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#F7FAFC"/>
+    <rect x="0" y="0" width="1280" height="4" fill="#1A365D"/>
+  </g>
+  <g id="header">
+    <text x="60" y="62" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="32" font-weight="bold" fill="#1A365D">Challenge I · 语义鸿沟 (Semantic Gap)</text>
+    <line x1="60" y1="86" x2="1220" y2="86" stroke="#CBD5E0" stroke-width="1"/>
+  </g>
+  <g id="takeaway">
+    <rect x="60" y="100" width="1160" height="56" rx="8" fill="#EDF2F7"/>
+    <text x="84" y="135" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">Linux 假设 → LiteOS-A 原语：14 类映射要硬翻，其中 5 类在 LiteOS-A 没有对应 (RCU / jbd2 / fscrypt / dcache / NLS)。</text>
+  </g>
+  <g id="header-l">
+    <rect x="60" y="180" width="555" height="36" rx="6" fill="#C53030"/>
+    <text x="84" y="206" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F7FAFC">Linux 假设</text>
+  </g>
+  <g id="header-r">
+    <rect x="665" y="180" width="555" height="36" rx="6" fill="#2C7A7B"/>
+    <text x="689" y="206" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F7FAFC">LiteOS-A 等价或缺失</text>
+  </g>
+  <g id="row-1">
+    <rect x="60" y="230" width="555" height="42" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="84" y="258" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="15" fill="#2D3748">kmalloc / kmem_cache_alloc</text>
+    <rect x="665" y="230" width="555" height="42" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="689" y="258" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="15" fill="#2D3748">LOS_MemAlloc(m_aucSysMem0, sz)</text>
+  </g>
+  <g id="row-2">
+    <rect x="60" y="272" width="555" height="42" fill="#EDF2F7" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="84" y="300" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="15" fill="#2D3748">mutex_lock / spin_lock</text>
+    <rect x="665" y="272" width="555" height="42" fill="#EDF2F7" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="689" y="300" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="15" fill="#2D3748">LOS_MuxLock / LOS_SpinLock</text>
+  </g>
+  <g id="row-3">
+    <rect x="60" y="314" width="555" height="42" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="84" y="342" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="15" fill="#2D3748">struct super_block + ops</text>
+    <rect x="665" y="314" width="555" height="42" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="689" y="342" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="15" fill="#2D3748">struct Mount + MountOps</text>
+  </g>
+  <g id="row-4">
+    <rect x="60" y="356" width="555" height="42" fill="#EDF2F7" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="84" y="384" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="15" fill="#2D3748">struct inode + dentry</text>
+    <rect x="665" y="356" width="555" height="42" fill="#EDF2F7" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="689" y="384" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="15" fill="#2D3748">struct Vnode (合一; path_cache 维护名字)</text>
+  </g>
+  <g id="row-5">
+    <rect x="60" y="398" width="555" height="42" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="84" y="426" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="15" fill="#2D3748">submit_bio / bread</text>
+    <rect x="665" y="398" width="555" height="42" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="689" y="426" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="15" fill="#2D3748">los_disk_read / <tspan fill="#C53030" font-weight="bold">los_part_read</tspan> (注意命名空间)</text>
+  </g>
+  <g id="row-6">
+    <rect x="60" y="440" width="555" height="42" fill="#EDF2F7" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="84" y="468" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="15" fill="#2D3748">strncpy / memcpy / sprintf</text>
+    <rect x="665" y="440" width="555" height="42" fill="#EDF2F7" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="689" y="468" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="15" fill="#2D3748"><tspan fill="#C53030" font-weight="bold">libsec _s 变体</tspan> (华为安全编码硬约束)</text>
+  </g>
+  <g id="row-7">
+    <rect x="60" y="482" width="555" height="42" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="84" y="510" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="15" fill="#2D3748">printk / pr_err</text>
+    <rect x="665" y="482" width="555" height="42" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="689" y="510" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="15" fill="#2D3748">PRINT_ERR / PRINT_INFO / PRINTK</text>
+  </g>
+  <g id="row-8-gap">
+    <rect x="60" y="524" width="555" height="84" fill="#EDF2F7" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="84" y="552" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="15" fill="#C53030" font-weight="bold">RCU · jbd2 · fscrypt · dcache · NLS</text>
+    <text x="84" y="578" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">无 page cache · 无 ext attr · 无路径名 hash</text>
+    <text x="84" y="600" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">无字符编码表</text>
+    <rect x="665" y="524" width="555" height="84" fill="#EDF2F7" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="689" y="552" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" font-weight="bold" fill="#C53030">没有对应</text>
+    <text x="689" y="578" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">v1 默认删除 (spec 用 # OUT-OF-SCOPE 标注，</text>
+    <text x="689" y="600" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">不能假装在做但不做)</text>
+  </g>
+  <g id="footer">
+    <line x1="60" y1="670" x2="1220" y2="670" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="60" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096">Challenges</text>
+    <text x="1220" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096" text-anchor="end">04 / 22</text>
+  </g>
+</svg>

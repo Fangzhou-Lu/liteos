@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#F7FAFC" />
+    <rect x="0" y="0" width="1280" height="4" fill="#1A365D" />
+  </g>
+  <g id="header">
+    <text x="60" y="62" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="32" font-weight="bold" fill="#1A365D">Loop C unlink 基线 · prompt 反向优化端到端</text>
+    <line x1="60" y1="86" x2="1220" y2="86" stroke="#CBD5E0" stroke-width="1" />
+  </g>
+  <g id="takeaway">
+    <path fill="#EDF2F7" d="M68,100 H1212 A8,8 0 0 1 1220,108 V148 A8,8 0 0 1 1212,156 H68 A8,8 0 0 1 60,148 V108 A8,8 0 0 1 68,100 Z" />
+    <text x="84" y="135" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">主会话评测 + 隔离 fresh agent 改写 + dry_run 评审 + apply 备份 · 194/194 测试不变</text>
+  </g>
+  <g id="step-1">
+    <path fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1" d="M68,180 H1212 A8,8 0 0 1 1220,188 V252 A8,8 0 0 1 1212,260 H68 A8,8 0 0 1 60,252 V188 A8,8 0 0 1 68,180 Z" />
+    <rect x="60" y="180" width="8" height="80" fill="#1A365D" />
+    <text x="80" y="210" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#1A365D">① 固定 baseline</text>
+    <text x="80" y="234" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#4A5568">cp spec/exfat/inode/exfat_unlink.spec  .spec.first</text>
+    <text x="80" y="252" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#4A5568">cp fs/exfat/exfat_inode.c              .c.first</text>
+    <text x="680" y="222" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">v0.5.6 新增的 .first 机制</text>
+    <text x="680" y="244" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">unlink 是 v0.5.6 之前产物 → 手动 bootstrap 一份</text>
+  </g>
+  <g id="step-2">
+    <path fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1" d="M68,270 H1212 A8,8 0 0 1 1220,278 V342 A8,8 0 0 1 1212,350 H68 A8,8 0 0 1 60,342 V278 A8,8 0 0 1 68,270 Z" />
+    <rect x="60" y="270" width="8" height="80" fill="#1A365D" />
+    <text x="80" y="300" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#1A365D">② 主会话 linux_compare</text>
+    <text x="80" y="324" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#4A5568">linux_compare_start(linux: namei.c) → 主会话出 JSON → linux_compare_submit</text>
+    <text x="680" y="312" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#C53030" font-weight="bold">输出：5 spec_gap + 3 code_gap (4 高严重)</text>
+    <text x="680" y="334" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">→ docs/exfat_prompt_feedback.md</text>
+  </g>
+  <g id="step-3">
+    <path fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1" d="M68,360 H1212 A8,8 0 0 1 1220,368 V432 A8,8 0 0 1 1212,440 H68 A8,8 0 0 1 60,432 V368 A8,8 0 0 1 68,360 Z" />
+    <rect x="60" y="360" width="8" height="80" fill="#1A365D" />
+    <text x="80" y="390" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#1A365D">③ prompt_optimize_propose</text>
+    <text x="80" y="414" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#4A5568">propose("linux_to_spec") · propose("codegen") · 并行</text>
+    <text x="680" y="402" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">spec 推荐 3 条 · codegen 推荐 3 条</text>
+    <text x="680" y="424" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">元提示约束：加性 + 不删既有 sec + ≤30% 增长</text>
+  </g>
+  <g id="step-4">
+    <path fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1" d="M68,450 H1212 A8,8 0 0 1 1220,458 V522 A8,8 0 0 1 1212,530 H68 A8,8 0 0 1 60,522 V458 A8,8 0 0 1 68,450 Z" />
+    <rect x="60" y="450" width="8" height="80" fill="#1A365D" />
+    <text x="80" y="480" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#1A365D">④ Fresh agent 并行改写</text>
+    <text x="80" y="504" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#4A5568">Agent(executor, opus) × 2 · 隔离上下文 · 只读元提示文件</text>
+    <text x="680" y="492" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">输出：/tmp/revised_{linux_to_spec, codegen}.md</text>
+    <text x="680" y="514" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">两个 agent 间无通信 · 并行 ~2 min</text>
+  </g>
+  <g id="step-5">
+    <path fill="#2C7A7B" d="M68,540 H1212 A8,8 0 0 1 1220,548 V612 A8,8 0 0 1 1212,620 H68 A8,8 0 0 1 60,612 V548 A8,8 0 0 1 68,540 Z" />
+    <rect x="60" y="540" width="8" height="80" fill="#F7FAFC" />
+    <text x="80" y="570" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#F7FAFC">⑤ dry_run → apply</text>
+    <text x="80" y="594" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#CBD5E0">linux_to_spec.md   5,434 → 8,186 字节 (+50.6%)  备份 .bak.1778178417</text>
+    <text x="80" y="612" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#CBD5E0">codegen.md         2,785 → 4,627 字节 (+66.1%)  备份 .bak.1778178417</text>
+    <text x="700" y="582" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#F7FAFC">主要增量：</text>
+    <text x="700" y="600" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#CBD5E0">• [SCOPE GUARDRAILS] 强制枚举 parent/target/sibling 三组 inode 突变</text>
+    <text x="700" y="618" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#CBD5E0">• LITEOS_DIGEST tombstone 前 VfsHashRemove / parent mtime 刷新 / Phase 2 sample</text>
+  </g>
+  <g id="footer">
+    <line x1="60" y1="670" x2="1220" y2="670" stroke="#CBD5E0" stroke-width="1" />
+    <text x="60" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096">Case Study</text>
+    <text x="1220" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096" text-anchor="end">19 / 22</text>
+  </g>
+</svg>

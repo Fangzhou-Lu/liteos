@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#F7FAFC" />
+    <rect x="0" y="0" width="1280" height="4" fill="#1A365D" />
+  </g>
+  <g id="header">
+    <text x="60" y="62" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="32" font-weight="bold" fill="#1A365D">FS 移植成本不在编译，在<tspan fill="#C53030">假设错配</tspan></text>
+    <line x1="60" y1="86" x2="1220" y2="86" stroke="#CBD5E0" stroke-width="1" />
+  </g>
+  <g id="takeaway">
+    <path fill="#EDF2F7" d="M68,100 H1212 A8,8 0 0 1 1220,108 V148 A8,8 0 0 1 1212,156 H68 A8,8 0 0 1 60,148 V108 A8,8 0 0 1 68,100 Z" />
+    <text x="84" y="135" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">Linux FS 沉淀了十几年 Linux 假设。逐行搬到 LiteOS-A 几乎一定得到"能编译、会泄漏、行为微妙错乱"的产物。</text>
+  </g>
+  <g id="card-1">
+    <path fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1" d="M72,190 H418 A12,12 0 0 1 430,202 V528 A12,12 0 0 1 418,540 H72 A12,12 0 0 1 60,528 V202 A12,12 0 0 1 72,190 Z" />
+    <path fill="#1A365D" d="M72,190 H418 A12,12 0 0 1 430,202 V218 A12,12 0 0 1 418,230 H72 A12,12 0 0 1 60,218 V202 A12,12 0 0 1 72,190 Z" />
+    <rect x="60" y="216" width="370" height="14" fill="#1A365D" />
+    <text x="84" y="218" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="20" font-weight="bold" fill="#F7FAFC">① Linux 假设</text>
+    <text x="84" y="266" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">struct page · buffer_head</text>
+    <text x="84" y="294" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">kmem_cache · slab</text>
+    <text x="84" y="322" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">RCU · seqlock</text>
+    <text x="84" y="350" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">bio · submit_bio</text>
+    <text x="84" y="378" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">dcache · inode hash</text>
+    <text x="84" y="406" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">jbd2 · fscrypt · NLS</text>
+    <text x="84" y="444" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="14" fill="#4A5568">kmalloc / mutex_lock /</text>
+    <text x="84" y="466" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="14" fill="#4A5568">spin_lock / printk ...</text>
+    <text x="84" y="510" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096">~3000 个文件 · 上百万 LOC 沉淀</text>
+  </g>
+  <g id="arrow">
+    <path d="M 440,365 L 530,365" stroke="#C53030" stroke-width="3" fill="none" />
+    <polygon points="530,365 518,358 518,372" fill="#C53030" />
+    <text x="485" y="345" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#C53030" text-anchor="middle">直接搬</text>
+  </g>
+  <g id="card-2">
+    <path fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1" d="M552,190 H898 A12,12 0 0 1 910,202 V528 A12,12 0 0 1 898,540 H552 A12,12 0 0 1 540,528 V202 A12,12 0 0 1 552,190 Z" />
+    <path fill="#C53030" d="M552,190 H898 A12,12 0 0 1 910,202 V218 A12,12 0 0 1 898,230 H552 A12,12 0 0 1 540,218 V202 A12,12 0 0 1 552,190 Z" />
+    <rect x="540" y="216" width="370" height="14" fill="#C53030" />
+    <text x="564" y="218" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="20" font-weight="bold" fill="#F7FAFC">② 编译过 ≠ 跑得对</text>
+    <text x="564" y="266" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">• libsec _s 没用 → 安全 cr</text>
+    <text x="564" y="294" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">• Mux vs Spin 误用 → 锁睡眠</text>
+    <text x="564" y="322" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">• los_disk_read vs los_part_read</text>
+    <text x="564" y="350" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">• 错误码符号 (+errno vs -errno)</text>
+    <text x="564" y="378" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">• g_<tspan font-family="Consolas, &quot;Courier New&quot;, monospace">fsVops</tspan> 全 NULL → umount panic</text>
+    <text x="564" y="406" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">• Linux GPL 头 → BSD-3 树污染</text>
+    <text x="564" y="444" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">• FSMAP_ENTRY 漏注册</text>
+    <text x="564" y="510" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096">编译器抓不到的 7+ 类隐性 bug</text>
+  </g>
+  <g id="card-3">
+    <path fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1" d="M932,190 H1208 A12,12 0 0 1 1220,202 V528 A12,12 0 0 1 1208,540 H932 A12,12 0 0 1 920,528 V202 A12,12 0 0 1 932,190 Z" />
+    <path fill="#2C7A7B" d="M932,190 H1208 A12,12 0 0 1 1220,202 V218 A12,12 0 0 1 1208,230 H932 A12,12 0 0 1 920,218 V202 A12,12 0 0 1 932,190 Z" />
+    <rect x="920" y="216" width="300" height="14" fill="#2C7A7B" />
+    <text x="944" y="218" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="20" font-weight="bold" fill="#F7FAFC">③ spec-first 解</text>
+    <text x="944" y="266" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">先剥 Linux 味道</text>
+    <text x="944" y="294" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">写"做什么" (spec)</text>
+    <text x="944" y="332" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">再围绕 LiteOS-A 原语</text>
+    <text x="944" y="360" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">落"怎么做" (code)</text>
+    <text x="944" y="398" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#2C7A7B">审 spec / 审 code</text>
+    <text x="944" y="426" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#2C7A7B">分两步走</text>
+    <text x="944" y="510" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096">认知负担 ÷ 2</text>
+  </g>
+  <g id="footer">
+    <line x1="60" y1="670" x2="1220" y2="670" stroke="#CBD5E0" stroke-width="1" />
+    <text x="60" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096">Motivation</text>
+    <text x="1220" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096" text-anchor="end">02 / 22</text>
+  </g>
+</svg>

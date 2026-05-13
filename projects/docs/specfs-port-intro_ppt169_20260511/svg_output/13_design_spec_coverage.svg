@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#F7FAFC"/>
+    <rect x="0" y="0" width="1280" height="4" fill="#1A365D"/>
+  </g>
+  <g id="header">
+    <text x="60" y="62" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="32" font-weight="bold" fill="#1A365D">spec 覆盖规则 · 接口与窄工具才 spec</text>
+    <line x1="60" y1="86" x2="1220" y2="86" stroke="#CBD5E0" stroke-width="1"/>
+  </g>
+  <g id="takeaway">
+    <rect x="60" y="100" width="1160" height="56" rx="8" fill="#EDF2F7"/>
+    <text x="84" y="135" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">早期把所有函数都 spec → 6 个 mkdir 实现编排 helper 全废，spec 比 code 多 30% — 命题不成立。重新收口至 4 类。</text>
+  </g>
+  <g id="card-a">
+    <rect x="60" y="190" width="285" height="320" rx="12" fill="#FFFFFF" stroke="#2C7A7B" stroke-width="2"/>
+    <rect x="60" y="190" width="285" height="50" rx="12" fill="#2C7A7B"/>
+    <rect x="60" y="216" width="285" height="24" fill="#2C7A7B"/>
+    <text x="80" y="222" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F7FAFC">(a) VFS 回调</text>
+    <text x="80" y="270" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">挂在 VnodeOps / MountOps 表上</text>
+    <text x="80" y="294" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">的公开 API</text>
+    <text x="80" y="336" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">VfsExfatMount</text>
+    <text x="80" y="358" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">VfsExfatLookup</text>
+    <text x="80" y="380" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">VfsExfatRead</text>
+    <text x="80" y="402" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">VfsExfatUnlink</text>
+    <text x="80" y="424" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">VfsExfatMkdir</text>
+    <text x="80" y="476" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">strict — 必须 spec</text>
+    <text x="80" y="496" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">classifier: behavioral tier</text>
+  </g>
+  <g id="card-b">
+    <rect x="365" y="190" width="285" height="320" rx="12" fill="#FFFFFF" stroke="#2C7A7B" stroke-width="2"/>
+    <rect x="365" y="190" width="285" height="50" rx="12" fill="#2C7A7B"/>
+    <rect x="365" y="216" width="285" height="24" fill="#2C7A7B"/>
+    <text x="385" y="222" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F7FAFC">(b) Linux 公共头函数</text>
+    <text x="385" y="270" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">Linux <tspan font-family="Consolas, &quot;Courier New&quot;, monospace">exfat_fs.h</tspan> 公开</text>
+    <text x="385" y="294" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">的跨模块辅助</text>
+    <text x="385" y="336" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">exfat_alloc_cluster</text>
+    <text x="385" y="358" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">exfat_zeroed_cluster</text>
+    <text x="385" y="380" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">exfat_set_volume_dirty</text>
+    <text x="385" y="402" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">exfat_get_dentry_set</text>
+    <text x="385" y="424" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">exfat_validate_dentry_set</text>
+    <text x="385" y="476" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">strict — 必须 spec</text>
+    <text x="385" y="496" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">跨 stage 复用</text>
+  </g>
+  <g id="card-c">
+    <rect x="670" y="190" width="285" height="320" rx="12" fill="#FFFFFF" stroke="#2C7A7B" stroke-width="2"/>
+    <rect x="670" y="190" width="285" height="50" rx="12" fill="#2C7A7B"/>
+    <rect x="670" y="216" width="285" height="24" fill="#2C7A7B"/>
+    <text x="690" y="222" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F7FAFC">(c) 窄稳定工具</text>
+    <text x="690" y="270" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">单一职责 · ≤100 LOC</text>
+    <text x="690" y="294" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">公式或纯计算</text>
+    <text x="690" y="336" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">exfat_calc_num_entries</text>
+    <text x="690" y="358" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">exfat_inode_alloc</text>
+    <text x="690" y="380" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">exfat_chksum16</text>
+    <text x="690" y="402" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">exfat_to_upcase</text>
+    <text x="690" y="476" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">recommended — 多数情况 spec</text>
+    <text x="690" y="496" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">cmocka 覆盖最稳</text>
+  </g>
+  <g id="card-d">
+    <rect x="975" y="190" width="245" height="320" rx="12" fill="#FFFFFF" stroke="#C53030" stroke-width="2"/>
+    <rect x="975" y="190" width="245" height="50" rx="12" fill="#C53030"/>
+    <rect x="975" y="216" width="245" height="24" fill="#C53030"/>
+    <text x="995" y="222" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F7FAFC">不 spec</text>
+    <text x="995" y="270" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">实现编排器</text>
+    <text x="995" y="294" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">exfat_add_entry</text>
+    <text x="995" y="316" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">exfat_alloc_new_dir</text>
+    <text x="995" y="356" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">字段布局 helper</text>
+    <text x="995" y="380" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">exfat_init_dir_entry</text>
+    <text x="995" y="402" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">exfat_init_ext_entry</text>
+    <text x="995" y="442" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">内部回滚 / 循环</text>
+    <text x="995" y="476" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">这些归 commit msg + cmocka 覆盖</text>
+  </g>
+  <g id="rationale">
+    <rect x="60" y="530" width="1160" height="100" rx="8" fill="#EDF2F7"/>
+    <text x="84" y="558" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1A365D">为什么收口</text>
+    <text x="84" y="584" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#2D3748">实现编排器是高波动代码 · 把它们 spec 出来 = 锁死可塑性 · spec/code 比例失衡 = 论文生产力命题崩溃</text>
+    <text x="84" y="608" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#2D3748">classifier 自动判定（_classify_invariant in tools/specfs_eval/collect.py）· 收口后 spec/code LOC ≈ 1.6（论文 ~1.2）</text>
+  </g>
+  <g id="footer">
+    <line x1="60" y1="670" x2="1220" y2="670" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="60" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096">Design</text>
+    <text x="1220" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096" text-anchor="end">13 / 22</text>
+  </g>
+</svg>

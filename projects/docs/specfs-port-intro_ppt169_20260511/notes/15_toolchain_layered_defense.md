@@ -1,0 +1,1 @@
+分层防御拓扑详表。从最便宜的 LSP 到最贵的 QEMU 逐层 fail-fast。LSP compile retry 4 轮 失败回 Step 1;style audit retry 5 轮,LLM 自判失败也回 Step 1;kernel build retry 3 轮;cmocka 测试生成 retry 3 轮失败走 test_gen_refine;spec/code audit retry 3 轮按四类 finding 分发;cmocka 主机跑 retry 3 轮历史失败回 Step 1 本轮失败回 Step 3.1;QEMU smoke retry 3 轮失败回 Step 1;最后是用户终审,这个不可绕过,approve 才走 DAG 提交。整个拓扑的原则是"小钱拦小错,大钱兜大错"。

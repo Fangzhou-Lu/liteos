@@ -1,0 +1,1 @@
+进入设计部分。整体看是两个 HITL 闭环加 DAG 持久化。左边是 Loop spec,负责把 Linux 源转成 SYSSPEC 四段 spec,经过 SpecEval 和 spec_fine 兜底,最后由用户 approve。右边是 Loop code,负责把 spec 转成 LiteOS-A C,经过七层防御和最终用户审。两个闭环之间通过 DAG 节点串起来,每个节点维护 spec 层、code 层、invariants 数组、exports 数组、depends_on 列表。接下来五页详细看这些部件。

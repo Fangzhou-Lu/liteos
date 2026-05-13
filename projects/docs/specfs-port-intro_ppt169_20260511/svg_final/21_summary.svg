@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#1A365D" />
+    <rect x="0" y="714" width="1280" height="6" fill="#C53030" />
+  </g>
+  <g id="chapter-marker">
+    <text x="60" y="180" font-family="Georgia, &quot;Microsoft YaHei&quot;, serif" font-size="120" font-weight="bold" fill="#C53030">07</text>
+    <text x="60" y="220" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#CBD5E0">PART · SUMMARY</text>
+    <line x1="60" y1="248" x2="200" y2="248" stroke="#C53030" stroke-width="3" />
+  </g>
+  <g id="title">
+    <text x="60" y="320" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="40" font-weight="bold" fill="#F7FAFC">spec-first 让 LiteOS-A FS 移植</text>
+    <text x="60" y="368" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="40" font-weight="bold" fill="#C53030">可复用 · 可审 · 可优化</text>
+  </g>
+  <g id="point-1">
+    <circle cx="80" cy="450" r="6" fill="#C53030" />
+    <text x="100" y="456" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F7FAFC">SYSSPEC 四段 + Refine Prompt</text>
+    <text x="100" y="478" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#CBD5E0">剥离 Linux 假设，用真实 LiteOS-A 原语签名表达"做什么"与"怎么做"。</text>
+  </g>
+  <g id="point-2">
+    <circle cx="80" cy="510" r="6" fill="#C53030" />
+    <text x="100" y="516" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F7FAFC">Loop spec / Loop code 双闭环 + 七层防御</text>
+    <text x="100" y="538" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#CBD5E0">LSP / style / SpecEval / build / cmocka / QEMU / 用户终审 — 按 cost fail-fast。</text>
+  </g>
+  <g id="point-3">
+    <circle cx="80" cy="570" r="6" fill="#C53030" />
+    <text x="100" y="576" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F7FAFC">DAG · 跨 stage invariant 继承 + common.header 自动同步</text>
+    <text x="100" y="598" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#CBD5E0">不重复造轮子；祖先 spec 改 → 后代自动 dirty。</text>
+  </g>
+  <g id="point-4">
+    <circle cx="80" cy="630" r="6" fill="#2C7A7B" />
+    <text x="100" y="636" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F7FAFC">Loop C (v0.5.6) · 用 Linux 比对反向优化 prompt 本身</text>
+    <text x="100" y="658" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#CBD5E0">系统的"提示工程"代替零散的"调参"；测的是 prompt 引导能力 (fast_eval + .first)。</text>
+  </g>
+  <g id="roadmap">
+    <path fill="#2D3748" d="M712,430 H1208 A12,12 0 0 1 1220,442 V638 A12,12 0 0 1 1208,650 H712 A12,12 0 0 1 700,638 V442 A12,12 0 0 1 712,430 Z" />
+    <text x="720" y="464" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="20" font-weight="bold" fill="#F7FAFC">Roadmap</text>
+    <line x1="720" y1="476" x2="800" y2="476" stroke="#C53030" stroke-width="3" />
+    <text x="720" y="510" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#CBD5E0">短期</text>
+    <text x="780" y="510" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#F7FAFC">rmdir · rename · write path</text>
+    <text x="720" y="540" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#CBD5E0">中期</text>
+    <text x="780" y="540" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#F7FAFC">第二个 FS 验证迁移性 (ext2 / erofs?)</text>
+    <text x="720" y="570" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#CBD5E0">长期</text>
+    <text x="780" y="570" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#F7FAFC">语义近似去重 (embedding_dedup)</text>
+    <text x="780" y="592" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#F7FAFC">fast_eval batch harness</text>
+    <text x="780" y="614" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#F7FAFC">DAG dirty propagation 自动化</text>
+  </g>
+  <g id="footer">
+    <text x="60" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#A0AEC0">Summary</text>
+    <text x="1220" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#A0AEC0" text-anchor="end">21 / 22</text>
+  </g>
+</svg>

@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#F7FAFC"/>
+    <rect x="0" y="0" width="1280" height="4" fill="#1A365D"/>
+  </g>
+  <g id="header">
+    <text x="60" y="62" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="32" font-weight="bold" fill="#1A365D">DAG of stages · 跨阶段 invariant 继承</text>
+    <line x1="60" y1="86" x2="1220" y2="86" stroke="#CBD5E0" stroke-width="1"/>
+  </g>
+  <g id="takeaway">
+    <rect x="60" y="100" width="1160" height="56" rx="8" fill="#EDF2F7"/>
+    <text x="84" y="135" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">每节点 = (spec, code, invariants, exports, depends_on)；persisted 在 spec/&lt;m&gt;/.specfs.dag.json，与代码同源审。</text>
+  </g>
+  <g id="node-example">
+    <rect x="60" y="180" width="600" height="460" rx="12" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="80" y="210" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#2D3748">DAG 节点结构（unlink 真实样例）</text>
+    <rect x="80" y="226" width="560" height="386" rx="6" fill="#2D3748"/>
+    <text x="100" y="252" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">{ "id": "unlink-v1",</text>
+    <text x="100" y="272" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">  "stage_name": "unlink",</text>
+    <text x="100" y="292" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">  "spec": {</text>
+    <text x="100" y="312" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">    "files": ["spec/exfat/inode/exfat_unlink.spec"],</text>
+    <text x="100" y="332" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">    "git_sha": "&lt;oid&gt;",</text>
+    <text x="100" y="352" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">    "approved_at": "2026-05-08T..."</text>
+    <text x="100" y="372" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">  },</text>
+    <text x="100" y="392" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">  "code": {</text>
+    <text x="100" y="412" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">    "files": ["fs/exfat/exfat_inode.c"],</text>
+    <text x="100" y="432" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">    "validations_passed": {compile,style:true; others:false}</text>
+    <text x="100" y="452" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">  },</text>
+    <text x="100" y="472" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">  "invariants": [</text>
+    <text x="100" y="492" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">    {"id":"exfat-unlink-dentry-type-top-bit-cleared", ...},</text>
+    <text x="100" y="512" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">    {"id":"exfat-unlink-tombstone-prevents-reuse", ...},</text>
+    <text x="100" y="532" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">    {"id":"exfat-unlink-vol-dirty-bracketed", ...},</text>
+    <text x="100" y="552" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">    ...   (6 共)</text>
+    <text x="100" y="572" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">  ],</text>
+    <text x="100" y="592" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">  "depends_on": ["mount-v1"] }</text>
+  </g>
+  <g id="properties">
+    <rect x="680" y="180" width="540" height="220" rx="12" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="700" y="210" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#2D3748">三条 DAG 属性</text>
+    <text x="700" y="246" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2D3748">① <tspan font-weight="bold">拓扑序生成</tspan></text>
+    <text x="700" y="270" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">祖先 code 必须全 approved 才能开始本 stage spec</text>
+    <text x="700" y="304" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2D3748">② <tspan font-weight="bold">Invariant 自动继承</tspan></text>
+    <text x="700" y="328" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">collect_invariants(node_id) 沿 depends_on 递归回溯</text>
+    <text x="700" y="362" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2D3748">③ <tspan font-weight="bold">Dirty 传播</tspan></text>
+    <text x="700" y="386" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">祖先 spec 改 → 后代 spec.dirty=true (need re-approve)</text>
+  </g>
+  <g id="header-sync">
+    <rect x="680" y="420" width="540" height="220" rx="12" fill="#EDF2F7" stroke="#2C7A7B" stroke-width="2"/>
+    <text x="700" y="450" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#2C7A7B">common.header 自动同步</text>
+    <text x="700" y="486" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#2D3748">code_gen_approve 触发：</text>
+    <text x="700" y="512" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#2D3748">→ extract.collect_exports(fs/&lt;m&gt;/*.c)</text>
+    <text x="700" y="536" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#2D3748">→ 追加 extern 声明到 spec/&lt;m&gt;/common.header</text>
+    <text x="700" y="562" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#2D3748">→ 后代 stage 的 prompt 自动继承 → 看得到新符号</text>
+    <text x="700" y="606" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">marker 块单例（v0.3.4.2 起去重）· dedup_common_header 工具修复历史</text>
+  </g>
+  <g id="footer">
+    <line x1="60" y1="670" x2="1220" y2="670" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="60" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096">Design</text>
+    <text x="1220" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096" text-anchor="end">12 / 22</text>
+  </g>
+</svg>

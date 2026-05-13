@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#F7FAFC" />
+    <rect x="0" y="0" width="1280" height="4" fill="#1A365D" />
+  </g>
+  <g id="header">
+    <text x="60" y="62" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="32" font-weight="bold" fill="#1A365D">Loop code · spec → C + 七层防御</text>
+    <line x1="60" y1="86" x2="1220" y2="86" stroke="#CBD5E0" stroke-width="1" />
+  </g>
+  <g id="takeaway">
+    <path fill="#EDF2F7" d="M68,100 H1212 A8,8 0 0 1 1220,108 V148 A8,8 0 0 1 1212,156 H68 A8,8 0 0 1 60,148 V108 A8,8 0 0 1 68,100 Z" />
+    <text x="84" y="135" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">每步独立 retry 预算 · 失败按 source 标签注入 [Modification suggestions] · 用户终审是唯一不可绕过的闸门。</text>
+  </g>
+  <g id="step-1">
+    <path fill="#1A365D" d="M68,190 H432 A8,8 0 0 1 440,198 V262 A8,8 0 0 1 432,270 H68 A8,8 0 0 1 60,262 V198 A8,8 0 0 1 68,190 Z" />
+    <text x="80" y="222" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F7FAFC">Step 1 · codegen</text>
+    <text x="80" y="246" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#CBD5E0">prompts/codegen.md + LITEOS_DIGEST + 祖先 invariants + frozen contract</text>
+  </g>
+  <g id="step-2-group">
+    <text x="60" y="305" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#2D3748">Step 2 · 静态检查 + 内核 build (任一失败 → Step 1)</text>
+    <path fill="#FFFFFF" stroke="#1A365D" stroke-width="1" d="M68,320 H332 A8,8 0 0 1 340,328 V412 A8,8 0 0 1 332,420 H68 A8,8 0 0 1 60,412 V328 A8,8 0 0 1 68,320 Z" />
+    <rect x="60" y="320" width="6" height="100" fill="#1A365D" />
+    <text x="80" y="348" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" font-weight="bold" fill="#2D3748">2.1 LSP compile</text>
+    <text x="80" y="372" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">clangd via OMC LSP</text>
+    <text x="80" y="392" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">P1.3 去掉 gcc 兜底</text>
+    <text x="80" y="412" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">retry 4</text>
+    <path fill="#FFFFFF" stroke="#1A365D" stroke-width="1" d="M368,320 H632 A8,8 0 0 1 640,328 V412 A8,8 0 0 1 632,420 H368 A8,8 0 0 1 360,412 V328 A8,8 0 0 1 368,320 Z" />
+    <rect x="360" y="320" width="6" height="100" fill="#1A365D" />
+    <text x="380" y="348" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" font-weight="bold" fill="#2D3748">2.2 style audit</text>
+    <text x="380" y="372" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">LLM 自判 vs style_rules.md</text>
+    <text x="380" y="392" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">6 维：命名/libsec/锁/...</text>
+    <text x="380" y="412" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">retry 5</text>
+    <path fill="#FFFFFF" stroke="#1A365D" stroke-width="1" d="M668,320 H932 A8,8 0 0 1 940,328 V412 A8,8 0 0 1 932,420 H668 A8,8 0 0 1 660,412 V328 A8,8 0 0 1 668,320 Z" />
+    <rect x="660" y="320" width="6" height="100" fill="#1A365D" />
+    <text x="680" y="348" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" font-weight="bold" fill="#2D3748">2.3 kernel build</text>
+    <text x="680" y="372" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">run_build_kernel</text>
+    <text x="680" y="392" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">捕 undefined ref / 类型错</text>
+    <text x="680" y="412" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">retry 3</text>
+  </g>
+  <g id="step-3-4">
+    <path fill="#FFFFFF" stroke="#2C7A7B" stroke-width="2" d="M968,320 H1212 A8,8 0 0 1 1220,328 V412 A8,8 0 0 1 1212,420 H968 A8,8 0 0 1 960,412 V328 A8,8 0 0 1 968,320 Z" />
+    <text x="980" y="348" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" font-weight="bold" fill="#2C7A7B">Step 3 · cmocka 测试生成</text>
+    <text x="980" y="372" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">unittest_gen.md prompt</text>
+    <text x="980" y="392" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">每 Case + 可测 Invariant</text>
+    <text x="980" y="412" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">retry 3 (默认 ON)</text>
+  </g>
+  <g id="step-4">
+    <path fill="#FFFFFF" stroke="#2C7A7B" stroke-width="2" d="M68,450 H432 A8,8 0 0 1 440,458 V542 A8,8 0 0 1 432,550 H68 A8,8 0 0 1 60,542 V458 A8,8 0 0 1 68,450 Z" />
+    <text x="80" y="478" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" font-weight="bold" fill="#2C7A7B">Step 4 · spec/code audit (merged)</text>
+    <text x="80" y="502" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">prompts/speceval.md + heterogeneous_audit.md (Linux 等价审)</text>
+    <text x="80" y="524" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">findings: codegen_drift / test_gap / spec_under_specified / prompt_gap</text>
+    <text x="80" y="544" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">retry 3 · 路由：drift→Step 1 / spec→SpecFine / test→Step 3.1 / prompt→archive</text>
+  </g>
+  <g id="step-5">
+    <path fill="#FFFFFF" stroke="#2C7A7B" stroke-width="2" d="M468,450 H832 A8,8 0 0 1 840,458 V542 A8,8 0 0 1 832,550 H468 A8,8 0 0 1 460,542 V458 A8,8 0 0 1 468,450 Z" />
+    <text x="480" y="478" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" font-weight="bold" fill="#2C7A7B">Step 5 · 运行时验证</text>
+    <text x="480" y="502" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">5.1 cmocka exec (主机 wave；覆盖 Step 3 + 历史)</text>
+    <text x="480" y="524" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">5.2 QEMU smoke (run_qemu_smoke)</text>
+    <text x="480" y="544" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">retry 3 · --no-build 可跳过整段</text>
+  </g>
+  <g id="step-6">
+    <path fill="#2C7A7B" d="M868,450 H1212 A8,8 0 0 1 1220,458 V542 A8,8 0 0 1 1212,550 H868 A8,8 0 0 1 860,542 V458 A8,8 0 0 1 868,450 Z" />
+    <text x="880" y="478" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" font-weight="bold" fill="#F7FAFC">Step 6 · HITL 用户终审</text>
+    <text x="880" y="502" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#CBD5E0">code + test 一起审 · 不可绕过</text>
+    <text x="880" y="524" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#CBD5E0">approve → DAG code 层提交 + common.header 同步</text>
+    <text x="880" y="544" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#CBD5E0">reject → 重生 / 部分修改 → 部分 step</text>
+  </g>
+  <g id="arrows">
+    <path d="M 250,270 L 250,320" stroke="#1A365D" stroke-width="2" fill="none" />
+    <polygon points="250,320 244,308 256,308" fill="#1A365D" />
+    <path d="M 800,420 L 800,450" stroke="#2C7A7B" stroke-width="2" fill="none" />
+    <polygon points="800,450 794,440 806,440" fill="#2C7A7B" />
+  </g>
+  <g id="footer">
+    <line x1="60" y1="670" x2="1220" y2="670" stroke="#CBD5E0" stroke-width="1" />
+    <text x="60" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096">Design</text>
+    <text x="1220" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096" text-anchor="end">11 / 22</text>
+  </g>
+</svg>

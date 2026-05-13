@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#F7FAFC"/>
+    <rect x="0" y="0" width="1280" height="6" fill="#1A365D"/>
+    <rect x="0" y="714" width="1280" height="6" fill="#1A365D"/>
+  </g>
+  <g id="decoration">
+    <line x1="160" y1="220" x2="1120" y2="220" stroke="#CBD5E0" stroke-width="1"/>
+    <line x1="160" y1="500" x2="1120" y2="500" stroke="#CBD5E0" stroke-width="1"/>
+    <rect x="160" y="248" width="60" height="4" fill="#C53030"/>
+  </g>
+  <g id="title-block">
+    <text x="160" y="310" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="60" font-weight="bold" fill="#1A365D">specfs-port</text>
+    <text x="160" y="370" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="24" fill="#4A5568">基于 SYSSPEC 的 Linux → LiteOS-A 文件系统 spec-first 移植工作流</text>
+    <text x="160" y="410" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="20" fill="#718096">HITL 闸门 · 七层防御 · DAG 多阶段继承 · Loop C 反向 prompt 优化</text>
+  </g>
+  <g id="meta">
+    <text x="160" y="550" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#2D3748">项目内部技术介绍</text>
+    <text x="160" y="580" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#4A5568">v0.5.6 · feature/spec-port · gitee + github 双远端</text>
+    <text x="160" y="610" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#4A5568">2026-05-11</text>
+  </g>
+  <g id="footer">
+    <text x="160" y="690" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096">specfs-port · OpenHarmony LiteOS-A</text>
+    <text x="1120" y="690" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096" text-anchor="end">01 / 22</text>
+  </g>
+</svg>

@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#F7FAFC"/>
+    <rect x="0" y="0" width="1280" height="4" fill="#1A365D"/>
+  </g>
+  <g id="header">
+    <text x="60" y="62" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="32" font-weight="bold" fill="#1A365D">Loop spec · Linux 源 → SYSSPEC spec</text>
+    <line x1="60" y1="86" x2="1220" y2="86" stroke="#CBD5E0" stroke-width="1"/>
+  </g>
+  <g id="takeaway">
+    <rect x="60" y="100" width="1160" height="56" rx="8" fill="#EDF2F7"/>
+    <text x="84" y="135" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">6 步 · ambiguity 必须先 AskUserQuestion · SpecEval 兜底 · spec_fine 上限 3 轮（用户硬约束）。</text>
+  </g>
+  <g id="step-1">
+    <rect x="60" y="200" width="180" height="120" rx="10" fill="#FFFFFF" stroke="#1A365D" stroke-width="2"/>
+    <circle cx="90" cy="230" r="16" fill="#1A365D"/>
+    <text x="90" y="236" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#F7FAFC" text-anchor="middle">1</text>
+    <text x="116" y="236" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#2D3748">摄取 Linux 源</text>
+    <text x="78" y="266" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="12" fill="#4A5568">spec_gen_start</text>
+    <text x="78" y="284" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">读 Linux TU + 祖先</text>
+    <text x="78" y="302" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">invariants → 拼 prompt</text>
+  </g>
+  <g id="step-2">
+    <rect x="270" y="200" width="180" height="120" rx="10" fill="#FFFFFF" stroke="#C53030" stroke-width="2"/>
+    <circle cx="300" cy="230" r="16" fill="#C53030"/>
+    <text x="300" y="236" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#F7FAFC" text-anchor="middle">2</text>
+    <text x="326" y="236" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#C53030">消歧（如有）</text>
+    <text x="288" y="266" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="12" fill="#4A5568">AskUserQuestion</text>
+    <text x="288" y="284" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">2-4 选项 · 必须先解</text>
+    <text x="288" y="302" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">才能进生成</text>
+  </g>
+  <g id="step-3">
+    <rect x="480" y="200" width="180" height="120" rx="10" fill="#FFFFFF" stroke="#1A365D" stroke-width="2"/>
+    <circle cx="510" cy="230" r="16" fill="#1A365D"/>
+    <text x="510" y="236" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#F7FAFC" text-anchor="middle">3</text>
+    <text x="536" y="236" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#2D3748">生成 spec</text>
+    <text x="498" y="266" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="12" fill="#4A5568">spec_gen_submit</text>
+    <text x="498" y="284" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">LLM 出四段 spec</text>
+    <text x="498" y="302" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">+ 可能 Refine Prompt</text>
+  </g>
+  <g id="step-4">
+    <rect x="690" y="200" width="180" height="120" rx="10" fill="#FFFFFF" stroke="#1A365D" stroke-width="2"/>
+    <circle cx="720" cy="230" r="16" fill="#1A365D"/>
+    <text x="720" y="236" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#F7FAFC" text-anchor="middle">4</text>
+    <text x="746" y="236" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#2D3748">SpecEval 自审</text>
+    <text x="708" y="266" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">Layer 3 (论文 §4.5)</text>
+    <text x="708" y="284" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">空 case / 重复 id /</text>
+    <text x="708" y="302" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">违反 spec 覆盖规则</text>
+  </g>
+  <g id="step-5">
+    <rect x="900" y="200" width="180" height="120" rx="10" fill="#FFFFFF" stroke="#1A365D" stroke-width="2"/>
+    <circle cx="930" cy="230" r="16" fill="#1A365D"/>
+    <text x="930" y="236" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#F7FAFC" text-anchor="middle">5</text>
+    <text x="956" y="236" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#2D3748">spec_fine</text>
+    <text x="918" y="266" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">SpecAssistant 精化</text>
+    <text x="918" y="284" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">硬上限 3 轮</text>
+    <text x="918" y="302" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">超出 → HITL 介入</text>
+  </g>
+  <g id="step-6">
+    <rect x="1110" y="200" width="110" height="120" rx="10" fill="#2C7A7B"/>
+    <circle cx="1140" cy="230" r="16" fill="#F7FAFC"/>
+    <text x="1140" y="236" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#2C7A7B" text-anchor="middle">6</text>
+    <text x="1140" y="262" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#F7FAFC" text-anchor="middle">approve</text>
+    <text x="1140" y="286" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#F7FAFC" text-anchor="middle">HITL 终审</text>
+    <text x="1140" y="306" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#F7FAFC" text-anchor="middle">+ DAG 提交</text>
+  </g>
+  <g id="arrows">
+    <path d="M 240,260 L 270,260" stroke="#1A365D" stroke-width="2" fill="none"/>
+    <polygon points="270,260 260,254 260,266" fill="#1A365D"/>
+    <path d="M 450,260 L 480,260" stroke="#1A365D" stroke-width="2" fill="none"/>
+    <polygon points="480,260 470,254 470,266" fill="#1A365D"/>
+    <path d="M 660,260 L 690,260" stroke="#1A365D" stroke-width="2" fill="none"/>
+    <polygon points="690,260 680,254 680,266" fill="#1A365D"/>
+    <path d="M 870,260 L 900,260" stroke="#1A365D" stroke-width="2" fill="none"/>
+    <polygon points="900,260 890,254 890,266" fill="#1A365D"/>
+    <path d="M 1080,260 L 1110,260" stroke="#2C7A7B" stroke-width="2" fill="none"/>
+    <polygon points="1110,260 1100,254 1100,266" fill="#2C7A7B"/>
+  </g>
+  <g id="feedback-arrows">
+    <path d="M 990,320 Q 990,400 780,400 Q 570,400 570,320" stroke="#C53030" stroke-width="2" fill="none" stroke-dasharray="6,4"/>
+    <polygon points="570,320 564,332 576,332" fill="#C53030"/>
+    <text x="780" y="395" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#C53030" text-anchor="middle">spec_fine 反馈 → 重新生成</text>
+  </g>
+  <g id="contracts">
+    <rect x="60" y="430" width="1160" height="200" rx="12" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="80" y="464" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#2D3748">硬约束</text>
+    <text x="80" y="496" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2D3748">① <tspan font-weight="bold" fill="#C53030">Ask-first</tspan> · 4 类必问：歧义 / 缺失符号 / 与祖先 invariant 冲突 / 超出 stage scope</text>
+    <text x="80" y="524" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2D3748">② <tspan font-weight="bold" fill="#C53030">[RELY] 真实签名</tspan> · 必须给具体 C 声明 (e.g. LOS_MuxLock(LosMux *, UINT32 timeout)) · 禁泛指</text>
+    <text x="80" y="552" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2D3748">③ <tspan font-weight="bold" fill="#C53030">[GUARANTEE] 调用约定</tspan> · 函数签名上方必须有 /* Calling convention: ... */ 注释块</text>
+    <text x="80" y="580" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2D3748">④ <tspan font-weight="bold" fill="#C53030">Invariant id 全局唯一</tspan> · 跨 stage 不能重；后代继承不变 (dag_extract_invariants)</text>
+    <text x="80" y="608" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2D3748">⑤ <tspan font-weight="bold" fill="#C53030">spec_fine ≤ 3</tspan> · 项目内 feedback_specfine_cap_3 · 超出反映 spec 设计问题，需 HITL 介入</text>
+  </g>
+  <g id="footer">
+    <line x1="60" y1="670" x2="1220" y2="670" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="60" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096">Design</text>
+    <text x="1220" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096" text-anchor="end">10 / 22</text>
+  </g>
+</svg>

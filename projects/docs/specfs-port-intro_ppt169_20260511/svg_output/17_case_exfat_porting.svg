@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#F7FAFC"/>
+    <rect x="0" y="0" width="1280" height="4" fill="#1A365D"/>
+  </g>
+  <g id="header">
+    <text x="60" y="62" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="32" font-weight="bold" fill="#1A365D">案例 · exFAT 移植 9 stage / 1600+ LOC</text>
+    <line x1="60" y1="86" x2="1220" y2="86" stroke="#CBD5E0" stroke-width="1"/>
+  </g>
+  <g id="takeaway">
+    <rect x="60" y="100" width="1160" height="56" rx="8" fill="#EDF2F7"/>
+    <text x="84" y="135" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">真实跑通 9 stage · QEMU 端到端验证 mount + readdir + read · spec/code 比例 ~1.6 印证 SpecFS 生产力命题。</text>
+  </g>
+  <g id="stages-table">
+    <rect x="60" y="180" width="700" height="450" rx="12" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="80" y="210" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#2D3748">已落地 stage 表</text>
+    <rect x="80" y="226" width="200" height="32" fill="#1A365D"/>
+    <text x="96" y="248" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#F7FAFC">stage</text>
+    <rect x="280" y="226" width="160" height="32" fill="#1A365D"/>
+    <text x="296" y="248" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#F7FAFC">spec LOC</text>
+    <rect x="440" y="226" width="160" height="32" fill="#1A365D"/>
+    <text x="456" y="248" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#F7FAFC">code LOC</text>
+    <rect x="600" y="226" width="160" height="32" fill="#1A365D"/>
+    <text x="616" y="248" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#F7FAFC">spec / code</text>
+    <g id="row-mount">
+      <rect x="80" y="258" width="680" height="30" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+      <text x="96" y="278" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">mount</text>
+      <text x="296" y="278" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">312</text>
+      <text x="456" y="278" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">180</text>
+      <text x="616" y="278" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">1.73</text>
+    </g>
+    <g id="row-umount">
+      <rect x="80" y="288" width="680" height="30" fill="#EDF2F7" stroke="#CBD5E0" stroke-width="1"/>
+      <text x="96" y="308" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">umount</text>
+      <text x="296" y="308" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">198</text>
+      <text x="456" y="308" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">112</text>
+      <text x="616" y="308" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">1.77</text>
+    </g>
+    <g id="row-lookup">
+      <rect x="80" y="318" width="680" height="30" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+      <text x="96" y="338" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">lookup</text>
+      <text x="296" y="338" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">256</text>
+      <text x="456" y="338" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">178</text>
+      <text x="616" y="338" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">1.44</text>
+    </g>
+    <g id="row-open_close">
+      <rect x="80" y="348" width="680" height="30" fill="#EDF2F7" stroke="#CBD5E0" stroke-width="1"/>
+      <text x="96" y="368" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">open_close</text>
+      <text x="296" y="368" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">182</text>
+      <text x="456" y="368" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">120</text>
+      <text x="616" y="368" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">1.52</text>
+    </g>
+    <g id="row-read">
+      <rect x="80" y="378" width="680" height="30" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+      <text x="96" y="398" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">read</text>
+      <text x="296" y="398" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">274</text>
+      <text x="456" y="398" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">155</text>
+      <text x="616" y="398" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">1.77</text>
+    </g>
+    <g id="row-getattr">
+      <rect x="80" y="408" width="680" height="30" fill="#EDF2F7" stroke="#CBD5E0" stroke-width="1"/>
+      <text x="96" y="428" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">getattr</text>
+      <text x="296" y="428" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">142</text>
+      <text x="456" y="428" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">94</text>
+      <text x="616" y="428" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">1.51</text>
+    </g>
+    <g id="row-mkdir">
+      <rect x="80" y="438" width="680" height="30" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+      <text x="96" y="458" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">mkdir</text>
+      <text x="296" y="458" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">288</text>
+      <text x="456" y="458" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">196</text>
+      <text x="616" y="458" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">1.47</text>
+    </g>
+    <g id="row-create">
+      <rect x="80" y="468" width="680" height="30" fill="#EDF2F7" stroke="#CBD5E0" stroke-width="1"/>
+      <text x="96" y="488" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">create</text>
+      <text x="296" y="488" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">210</text>
+      <text x="456" y="488" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">140</text>
+      <text x="616" y="488" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">1.50</text>
+    </g>
+    <g id="row-unlink">
+      <rect x="80" y="498" width="680" height="30" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+      <text x="96" y="518" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#C53030">unlink (v0.5.6)</text>
+      <text x="296" y="518" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">252</text>
+      <text x="456" y="518" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">115</text>
+      <text x="616" y="518" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2D3748">2.19</text>
+    </g>
+    <g id="row-total">
+      <rect x="80" y="528" width="680" height="36" fill="#1A365D"/>
+      <text x="96" y="552" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#F7FAFC">合计 (9 stage)</text>
+      <text x="296" y="552" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="14" font-weight="bold" fill="#F7FAFC">2114</text>
+      <text x="456" y="552" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="14" font-weight="bold" fill="#F7FAFC">1290</text>
+      <text x="616" y="552" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="14" font-weight="bold" fill="#F7FAFC">1.64</text>
+    </g>
+    <text x="80" y="600" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">spec/code &gt; 1 → SpecFS 论文生产力命题（"spec 比 code 短"）在本项目部分成立；</text>
+    <text x="80" y="620" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">注：spec 含 Invariants + System Algorithm + Refine Prompt 三段额外结构（论文只对 L3 强制）</text>
+  </g>
+  <g id="qemu-card">
+    <rect x="780" y="180" width="440" height="450" rx="12" fill="#FFFFFF" stroke="#2C7A7B" stroke-width="2"/>
+    <text x="800" y="210" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#2C7A7B">QEMU 端到端验证</text>
+    <rect x="800" y="226" width="400" height="380" rx="6" fill="#2D3748"/>
+    <text x="820" y="252" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">$ qemu-system-arm \</text>
+    <text x="820" y="272" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">  -M virt -cpu cortex-a7 \</text>
+    <text x="820" y="292" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">  -bios OHOS_Image.bin \</text>
+    <text x="820" y="312" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">  -drive file=smallmmc.img \</text>
+    <text x="820" y="332" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">  -nographic</text>
+    <text x="820" y="362" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#F7FAFC">OHOS:/$ mount -t exfat \</text>
+    <text x="820" y="382" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#F7FAFC">         /dev/mmcblk0p3 /mnt/exfat</text>
+    <text x="820" y="402" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2C7A7B">[OK] exfat mount ok</text>
+    <text x="820" y="432" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#F7FAFC">OHOS:/$ ls /mnt/exfat/etc</text>
+    <text x="820" y="452" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2C7A7B">hostname  hosts  os-release</text>
+    <text x="820" y="482" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#F7FAFC">OHOS:/$ cat /mnt/exfat/etc/hosts</text>
+    <text x="820" y="502" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2C7A7B">127.0.0.1 localhost</text>
+    <text x="820" y="532" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#F7FAFC">OHOS:/$ umount /mnt/exfat</text>
+    <text x="820" y="552" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2C7A7B">[OK] clean umount</text>
+    <text x="820" y="582" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#A0AEC0">─ no kernel panic ─</text>
+  </g>
+  <g id="footer">
+    <line x1="60" y1="670" x2="1220" y2="670" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="60" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096">Case Study</text>
+    <text x="1220" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096" text-anchor="end">17 / 22</text>
+  </g>
+</svg>

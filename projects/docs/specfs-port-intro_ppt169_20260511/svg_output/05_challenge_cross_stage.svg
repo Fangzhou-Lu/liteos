@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#F7FAFC"/>
+    <rect x="0" y="0" width="1280" height="4" fill="#1A365D"/>
+  </g>
+  <g id="header">
+    <text x="60" y="62" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="32" font-weight="bold" fill="#1A365D">Challenge II · 跨阶段依赖 (Cross-stage Dependency)</text>
+    <line x1="60" y1="86" x2="1220" y2="86" stroke="#CBD5E0" stroke-width="1"/>
+  </g>
+  <g id="takeaway">
+    <rect x="60" y="100" width="1160" height="56" rx="8" fill="#EDF2F7"/>
+    <text x="84" y="135" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">一次只 spec 一个 op 不够：DAG 决定可移植顺序 + 祖先 invariant 自动继承到后代，任一祖先 spec 变 → 后代 dirty。</text>
+  </g>
+  <g id="dag-area">
+    <rect x="60" y="180" width="700" height="470" rx="12" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="80" y="210" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#2D3748">exFAT 已落地 9 stage DAG</text>
+    <g id="node-mount">
+      <rect x="330" y="240" width="160" height="60" rx="8" fill="#1A365D"/>
+      <text x="410" y="266" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F7FAFC" text-anchor="middle">mount</text>
+      <text x="410" y="288" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="12" fill="#CBD5E0" text-anchor="middle">root · 7 invariants</text>
+    </g>
+    <line x1="370" y1="300" x2="200" y2="350" stroke="#1A365D" stroke-width="2"/>
+    <line x1="410" y1="300" x2="410" y2="350" stroke="#1A365D" stroke-width="2"/>
+    <line x1="450" y1="300" x2="620" y2="350" stroke="#1A365D" stroke-width="2"/>
+    <g id="node-lookup">
+      <rect x="120" y="350" width="160" height="60" rx="8" fill="#2C7A7B"/>
+      <text x="200" y="376" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F7FAFC" text-anchor="middle">lookup</text>
+      <text x="200" y="398" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="12" fill="#CBD5E0" text-anchor="middle">+ mount inv</text>
+    </g>
+    <g id="node-readdir">
+      <rect x="330" y="350" width="160" height="60" rx="8" fill="#2C7A7B"/>
+      <text x="410" y="376" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F7FAFC" text-anchor="middle">readdir</text>
+      <text x="410" y="398" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="12" fill="#CBD5E0" text-anchor="middle">+ mount inv</text>
+    </g>
+    <g id="node-open">
+      <rect x="540" y="350" width="160" height="60" rx="8" fill="#2C7A7B"/>
+      <text x="620" y="376" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F7FAFC" text-anchor="middle">open_close</text>
+      <text x="620" y="398" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="12" fill="#CBD5E0" text-anchor="middle">+ mount inv</text>
+    </g>
+    <line x1="200" y1="410" x2="200" y2="450" stroke="#2C7A7B" stroke-width="2"/>
+    <line x1="620" y1="410" x2="620" y2="450" stroke="#2C7A7B" stroke-width="2"/>
+    <line x1="240" y1="410" x2="380" y2="450" stroke="#2C7A7B" stroke-width="2"/>
+    <line x1="580" y1="410" x2="440" y2="450" stroke="#2C7A7B" stroke-width="2"/>
+    <g id="node-getattr">
+      <rect x="120" y="450" width="160" height="50" rx="8" fill="#2C7A7B"/>
+      <text x="200" y="482" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#F7FAFC" text-anchor="middle">getattr</text>
+    </g>
+    <g id="node-read">
+      <rect x="330" y="450" width="160" height="50" rx="8" fill="#2C7A7B"/>
+      <text x="410" y="482" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#F7FAFC" text-anchor="middle">read</text>
+    </g>
+    <g id="node-mkdir">
+      <rect x="540" y="450" width="160" height="50" rx="8" fill="#2C7A7B"/>
+      <text x="620" y="482" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#F7FAFC" text-anchor="middle">mkdir</text>
+    </g>
+    <line x1="200" y1="500" x2="200" y2="540" stroke="#2C7A7B" stroke-width="2"/>
+    <line x1="410" y1="500" x2="410" y2="540" stroke="#2C7A7B" stroke-width="2"/>
+    <line x1="620" y1="500" x2="620" y2="540" stroke="#2C7A7B" stroke-width="2"/>
+    <g id="node-create">
+      <rect x="120" y="540" width="160" height="50" rx="8" fill="#2C7A7B"/>
+      <text x="200" y="572" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#F7FAFC" text-anchor="middle">create</text>
+    </g>
+    <g id="node-umount">
+      <rect x="330" y="540" width="160" height="50" rx="8" fill="#2C7A7B"/>
+      <text x="410" y="572" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#F7FAFC" text-anchor="middle">umount</text>
+    </g>
+    <g id="node-unlink">
+      <rect x="540" y="540" width="160" height="50" rx="8" fill="#C53030"/>
+      <text x="620" y="572" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#F7FAFC" text-anchor="middle">unlink (new)</text>
+    </g>
+    <text x="80" y="630" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#718096">深蓝=root · 青绿=已通过 · 砖红=新加</text>
+  </g>
+  <g id="rules">
+    <rect x="780" y="180" width="440" height="470" rx="12" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="800" y="210" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" font-weight="bold" fill="#2D3748">DAG 节点结构</text>
+    <rect x="800" y="226" width="400" height="40" fill="#EDF2F7"/>
+    <text x="816" y="252" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#4A5568">(spec, code, invariants, exports, depends_on)</text>
+    <text x="800" y="296" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#2D3748">三条硬约束</text>
+    <text x="800" y="324" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2D3748">① 拓扑顺序：祖先 code 全 approved</text>
+    <text x="800" y="346" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2D3748">　 才能开始本 stage spec</text>
+    <text x="800" y="378" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2D3748">② Invariant 自动继承</text>
+    <text x="800" y="400" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2D3748">　 dag_extract_invariants(node_id)</text>
+    <text x="800" y="432" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2D3748">③ 祖先 spec 修订 → 后代 dirty 标记</text>
+    <text x="800" y="454" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2D3748">　 (need re-approval)</text>
+    <rect x="800" y="490" width="400" height="140" rx="8" fill="#EDF2F7"/>
+    <text x="820" y="518" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1A365D">common.header 自动同步</text>
+    <text x="820" y="544" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">code_gen_approve 时自动从</text>
+    <text x="820" y="566" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">fs/&lt;m&gt;/*.c 抽 public exports</text>
+    <text x="820" y="588" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">追加 extern 声明 → 后代</text>
+    <text x="820" y="610" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">stage 直接看到</text>
+  </g>
+  <g id="footer">
+    <line x1="60" y1="670" x2="1220" y2="670" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="60" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096">Challenges</text>
+    <text x="1220" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096" text-anchor="end">05 / 22</text>
+  </g>
+</svg>

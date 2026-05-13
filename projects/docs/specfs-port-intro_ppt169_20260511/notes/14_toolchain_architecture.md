@@ -1,0 +1,1 @@
+工具链架构三层。最上是用户层,通过三个 slash command 进入:不带参数的 specfs-port 看 DAG 状态,specfs-port-spec 进 Loop A,specfs-port-code 进 Loop B。中间是 LLM agent 层 由 Claude Code 实例当 agent,自动读 skills 方法论,调 MCP 工具,通过 AskUserQuestion 跟用户交互。最下面是 MCP server 加 prompts。server 提供 30 多个工具,涵盖 session 生命周期、Loop spec Loop code 主路径、分层防御、Loop C 反向优化。prompts 分两类:默认模板默认加载,on-demand fragment 按需 fetch,避免一上来就把所有规则塞进上下文。

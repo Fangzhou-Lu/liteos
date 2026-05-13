@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#F7FAFC"/>
+    <rect x="0" y="0" width="1280" height="4" fill="#1A365D"/>
+  </g>
+  <g id="header">
+    <text x="60" y="62" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="32" font-weight="bold" fill="#1A365D">Challenge III · LLM 不可信 — 三类典型幻觉</text>
+    <line x1="60" y1="86" x2="1220" y2="86" stroke="#CBD5E0" stroke-width="1"/>
+  </g>
+  <g id="takeaway">
+    <rect x="60" y="100" width="1160" height="56" rx="8" fill="#EDF2F7"/>
+    <text x="84" y="135" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">即使 spec 写得严谨，LLM 仍可能逐项偏离。三类幻觉在 v0.5.6 之前的所有 stage 真实出现过 — 七层防御按类拦截。</text>
+  </g>
+  <g id="card-1">
+    <rect x="60" y="190" width="380" height="440" rx="12" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <rect x="60" y="190" width="380" height="50" rx="12" fill="#C53030"/>
+    <rect x="60" y="216" width="380" height="24" fill="#C53030"/>
+    <text x="84" y="222" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="20" font-weight="bold" fill="#F7FAFC">① 函数签名漂移</text>
+    <text x="84" y="268" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096">spec 写 LiteOS-A 风，code 出 Linux 风</text>
+    <rect x="84" y="288" width="332" height="60" rx="6" fill="#EDF2F7"/>
+    <text x="100" y="313" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#C53030">int VfsMount(struct super_block *sb,</text>
+    <text x="100" y="335" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#C53030">              void *data, int silent)</text>
+    <text x="84" y="380" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096">spec 实际要求</text>
+    <rect x="84" y="392" width="332" height="60" rx="6" fill="#EDF2F7"/>
+    <text x="100" y="417" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2C7A7B">int VfsExfatMount(struct Mount *m,</text>
+    <text x="100" y="439" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2C7A7B">                  struct Vnode *blk, const void *data)</text>
+    <text x="84" y="492" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#1A365D">拦截层</text>
+    <text x="84" y="514" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#2D3748">Step 2.1 LSP clangd</text>
+    <text x="84" y="536" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#2D3748">+ Step 4 SpecEval (spec↔code)</text>
+    <text x="84" y="580" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">检测：FSMAP_ENTRY 注册的</text>
+    <text x="84" y="602" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">MountOps 字段类型不匹配</text>
+  </g>
+  <g id="card-2">
+    <rect x="450" y="190" width="380" height="440" rx="12" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <rect x="450" y="190" width="380" height="50" rx="12" fill="#C53030"/>
+    <rect x="450" y="216" width="380" height="24" fill="#C53030"/>
+    <text x="474" y="222" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="20" font-weight="bold" fill="#F7FAFC">② 幻觉 helper</text>
+    <text x="474" y="268" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096">编出 [RELY] 中不存在的辅助</text>
+    <rect x="474" y="288" width="332" height="60" rx="6" fill="#EDF2F7"/>
+    <text x="490" y="313" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#C53030">exfat_lookup_path_by_name(...)</text>
+    <text x="490" y="335" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#C53030">// 不在 [RELY]，不在 common.header</text>
+    <text x="474" y="380" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096">spec [RELY] 实际只给</text>
+    <rect x="474" y="392" width="332" height="60" rx="6" fill="#EDF2F7"/>
+    <text x="490" y="417" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2C7A7B">extern int exfat_get_dentry(</text>
+    <text x="490" y="439" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2C7A7B">  sb, dir, entry, bh, sector);</text>
+    <text x="474" y="492" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#1A365D">拦截层</text>
+    <text x="474" y="514" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#2D3748">Step 2.3 kernel build</text>
+    <text x="474" y="536" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#2D3748">+ Step 4 SpecEval (hallucinated helpers)</text>
+    <text x="474" y="580" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">检测：undefined reference</text>
+    <text x="474" y="602" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">+ [RELY] 名称对比</text>
+  </g>
+  <g id="card-3">
+    <rect x="840" y="190" width="380" height="440" rx="12" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <rect x="840" y="190" width="380" height="50" rx="12" fill="#C53030"/>
+    <rect x="840" y="216" width="380" height="24" fill="#C53030"/>
+    <text x="864" y="222" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="20" font-weight="bold" fill="#F7FAFC">③ 风格污染</text>
+    <text x="864" y="268" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096">strcpy / memcpy / printf 直出</text>
+    <rect x="864" y="288" width="332" height="60" rx="6" fill="#EDF2F7"/>
+    <text x="880" y="313" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#C53030">strncpy(buf, name, len);</text>
+    <text x="880" y="335" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#C53030">printf("mount failed\n");</text>
+    <text x="864" y="380" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#718096">华为安全编码 + 内核约束</text>
+    <rect x="864" y="392" width="332" height="60" rx="6" fill="#EDF2F7"/>
+    <text x="880" y="417" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2C7A7B">strncpy_s(buf, sz, name, len);</text>
+    <text x="880" y="439" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#2C7A7B">PRINT_ERR("mount failed\n");</text>
+    <text x="864" y="492" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" font-weight="bold" fill="#1A365D">拦截层</text>
+    <text x="864" y="514" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#2D3748">Step 2.2 style audit</text>
+    <text x="864" y="536" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#2D3748">(LLM self-judge vs style_rules.md)</text>
+    <text x="864" y="580" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">检测 6 维度：命名 / libsec /</text>
+    <text x="864" y="602" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#4A5568">锁 / 错误路径 / 布局 / 复杂度</text>
+  </g>
+  <g id="footer">
+    <line x1="60" y1="670" x2="1220" y2="670" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="60" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096">Challenges</text>
+    <text x="1220" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096" text-anchor="end">06 / 22</text>
+  </g>
+</svg>

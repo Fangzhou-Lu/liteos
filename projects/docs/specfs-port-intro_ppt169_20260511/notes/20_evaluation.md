@@ -1,0 +1,1 @@
+评估三个角度。第一是生产力,9 stage 加起来 spec / code 比例 1.64,论文基线 1.2,本项目稍高原因前面讲过,但命题方向成立。第二是测试,Wave A 49 个 cmocka testpoint Wave B 6 个 LTP case,加上 plugin server 自身 194 个测试全过,覆盖 prompt assembly MCP .first 快照 fast_eval 模式各方向。第三是 Loop C 反馈,unlink baseline 跑出 8 个 gap 累积 6 条推荐,apply 后两个 prompt 模板各自 +50% 和 +66% 体量,主要 gap 类是 name-cache 驱逐缺失、parent mtime 刷新缺失、post-tombstone chain reset 缺失。

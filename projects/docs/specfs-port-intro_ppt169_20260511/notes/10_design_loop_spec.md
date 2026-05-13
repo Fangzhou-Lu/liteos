@@ -1,0 +1,1 @@
+Loop spec 总共六步。第一步 spec_gen_start,server 读 Linux TU 加祖先 invariants 拼出 prompt;第二步消歧,有歧义必须先 AskUserQuestion,不许略过;第三步 spec_gen_submit,LLM 输出四段 spec 可能附 Refine Prompt;第四步 SpecEval 自审,检空 case、重复 id、违反覆盖规则;第五步 spec_fine 由 SpecAssistant 精化,硬上限 3 轮,超出强制 HITL;第六步用户终审加 DAG 提交。下面那框五条硬约束尤其要点出:[RELY] 必须给具体 C 声明不能泛指,[GUARANTEE] 上方必须有 Calling convention 注释块,Invariant id 全局唯一,spec_fine 严格 ≤3 轮。

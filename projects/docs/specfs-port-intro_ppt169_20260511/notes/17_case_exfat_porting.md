@@ -1,0 +1,1 @@
+进入案例。exFAT 是我们的第一个验证目标,已经落地 9 个 stage 共 1600 多行代码。表里逐行展示 spec LOC、code LOC 和比例:mount umount lookup open_close read getattr mkdir create unlink。整体 spec 2114 行 code 1290 行 比例 1.64,比论文 AtomFS 的 1.2 稍高,原因是我们的 spec 多了 Invariants 跨 stage 继承部分、Refine Prompt 二阶段锁状态部分、System Algorithm 项目级强制部分。最右边那块是 QEMU 端到端验证 真的能 mount 真的能 ls cat umount 无 panic。

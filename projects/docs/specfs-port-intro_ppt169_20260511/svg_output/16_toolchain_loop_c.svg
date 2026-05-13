@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#F7FAFC"/>
+    <rect x="0" y="0" width="1280" height="4" fill="#1A365D"/>
+  </g>
+  <g id="header">
+    <text x="60" y="62" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="32" font-weight="bold" fill="#1A365D">Loop C · 反向优化 prompt 模板 <tspan font-size="20" fill="#C53030">[v0.5.6 P1.6 Wave 2]</tspan></text>
+    <line x1="60" y1="86" x2="1220" y2="86" stroke="#CBD5E0" stroke-width="1"/>
+  </g>
+  <g id="takeaway">
+    <rect x="60" y="100" width="1160" height="56" rx="8" fill="#EDF2F7"/>
+    <text x="84" y="135" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#2D3748">优化对象是 <tspan font-weight="bold" fill="#C53030">prompt 模板</tspan>，不是当前 stage 产物。测的是 prompt 引导能力，不是 LLM 修复能力（首次单次产物 + fast_eval 模式 = 隔离）。</text>
+  </g>
+  <g id="left-flow">
+    <text x="60" y="186" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="20" font-weight="bold" fill="#1A365D">Step A · 比对累积</text>
+    <rect x="60" y="200" width="580" height="430" rx="12" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <g id="block-stage">
+      <rect x="80" y="220" width="540" height="60" rx="6" fill="#EDF2F7"/>
+      <text x="350" y="244" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#2D3748" text-anchor="middle">完成的 stage</text>
+      <text x="350" y="266" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#4A5568" text-anchor="middle">spec/&lt;m&gt;/.../&lt;op&gt;.spec.first  +  fs/&lt;m&gt;/&lt;op&gt;.c.first</text>
+    </g>
+    <path d="M 350,283 L 350,303" stroke="#1A365D" stroke-width="2" fill="none"/>
+    <polygon points="350,303 344,293 356,293" fill="#1A365D"/>
+    <g id="block-compare">
+      <rect x="80" y="305" width="540" height="60" rx="6" fill="#EDF2F7"/>
+      <text x="350" y="328" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#2D3748" text-anchor="middle">linux_compare_start</text>
+      <text x="350" y="352" font-family="Consolas, &quot;Courier New&quot;, monospace" font-size="13" fill="#4A5568" text-anchor="middle">vs /Users/kissa/Codebase/linux/fs/&lt;m&gt;/&lt;src&gt;.c</text>
+    </g>
+    <path d="M 350,368 L 350,388" stroke="#1A365D" stroke-width="2" fill="none"/>
+    <polygon points="350,388 344,378 356,378" fill="#1A365D"/>
+    <g id="block-submit">
+      <rect x="80" y="390" width="540" height="60" rx="6" fill="#EDF2F7"/>
+      <text x="350" y="413" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#2D3748" text-anchor="middle">linux_compare_submit</text>
+      <text x="350" y="437" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568" text-anchor="middle">JSON: spec_gaps · code_gaps · 推荐 (root_cause-tagged)</text>
+    </g>
+    <path d="M 350,453 L 350,473" stroke="#1A365D" stroke-width="2" fill="none"/>
+    <polygon points="350,473 344,463 356,463" fill="#1A365D"/>
+    <g id="block-doc">
+      <rect x="80" y="475" width="540" height="60" rx="6" fill="#2C7A7B"/>
+      <text x="350" y="498" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#F7FAFC" text-anchor="middle">docs/&lt;m&gt;_prompt_feedback.md</text>
+      <text x="350" y="522" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#CBD5E0" text-anchor="middle">累积反馈 · HITL 浏览入口</text>
+    </g>
+    <text x="80" y="572" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" font-weight="bold" fill="#C53030">关键 · submit 不动 sess.failures</text>
+    <text x="80" y="592" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">→ 不触发 code_gen_refine</text>
+    <text x="80" y="612" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">→ Loop C 反馈只流向 prompt 模板</text>
+  </g>
+  <g id="right-flow">
+    <text x="660" y="186" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="20" font-weight="bold" fill="#1A365D">Step B · 反向改 prompt</text>
+    <rect x="660" y="200" width="560" height="430" rx="12" fill="#FFFFFF" stroke="#CBD5E0" stroke-width="1"/>
+    <g id="block-propose">
+      <rect x="680" y="220" width="520" height="60" rx="6" fill="#EDF2F7"/>
+      <text x="940" y="244" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#2D3748" text-anchor="middle">prompt_optimize_propose</text>
+      <text x="940" y="266" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568" text-anchor="middle">读累积推荐 → 元提示要求 LLM 加性改写</text>
+    </g>
+    <path d="M 940,283 L 940,303" stroke="#1A365D" stroke-width="2" fill="none"/>
+    <polygon points="940,303 934,293 946,293" fill="#1A365D"/>
+    <g id="block-agent">
+      <rect x="680" y="305" width="520" height="60" rx="6" fill="#EDF2F7"/>
+      <text x="940" y="328" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#2D3748" text-anchor="middle">Fresh agent 改写</text>
+      <text x="940" y="352" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568" text-anchor="middle">隔离上下文 · 不读其他 prompts/* · 不读 docs/*</text>
+    </g>
+    <path d="M 940,368 L 940,388" stroke="#1A365D" stroke-width="2" fill="none"/>
+    <polygon points="940,388 934,378 946,378" fill="#1A365D"/>
+    <g id="block-apply">
+      <rect x="680" y="390" width="520" height="60" rx="6" fill="#EDF2F7"/>
+      <text x="940" y="413" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#2D3748" text-anchor="middle">prompt_optimize_apply</text>
+      <text x="940" y="437" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568" text-anchor="middle">备份 .bak.&lt;ts&gt; · 写入新版 · 失效模板缓存</text>
+    </g>
+    <path d="M 940,453 L 940,473" stroke="#2C7A7B" stroke-width="2" fill="none"/>
+    <polygon points="940,473 934,463 946,463" fill="#2C7A7B"/>
+    <g id="block-active">
+      <rect x="680" y="475" width="520" height="60" rx="6" fill="#2C7A7B"/>
+      <text x="940" y="498" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#F7FAFC" text-anchor="middle">下一轮 spec/code 生成生效</text>
+      <text x="940" y="522" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#CBD5E0" text-anchor="middle">linux_to_spec.md · codegen.md · 任一 fragment</text>
+    </g>
+    <text x="680" y="572" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" font-weight="bold" fill="#C53030">fast_eval 模式 · 单次单次单次</text>
+    <text x="680" y="592" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">session_start(mode="fast_eval") → speceval/style/test/build 全关</text>
+    <text x="680" y="612" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#4A5568">refine/fine/inject_diagnostics 拒绝 → 隔离干扰</text>
+  </g>
+  <g id="footer">
+    <line x1="60" y1="670" x2="1220" y2="670" stroke="#CBD5E0" stroke-width="1"/>
+    <text x="60" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096">Toolchain</text>
+    <text x="1220" y="694" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#718096" text-anchor="end">16 / 22</text>
+  </g>
+</svg>
