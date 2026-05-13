@@ -37,7 +37,10 @@ LITEOS_LIBS_TARGET = libs
 KCONFIG_CMDS := $(notdir $(wildcard $(dir $(shell which menuconfig))*config))
 
 ohos_kernel ?= liteos_a
-$(foreach line,$(shell hb env | sed 's/\[OHOS INFO\]/ohos/g;s/ /_/g;s/:_/=/g' || true),$(eval $(line)))
+# Newer `hb env` prints package-check banners before the key/value section.
+# Only import the stable environment keys, otherwise banner text gets fed into
+# `$(eval ...)` and triggers `missing separator`.
+$(foreach line,$(shell hb env 2>/dev/null | sed -n 's/^\[OHOS INFO\]  \(root path\|board\|kernel\|product\|product path\|device path\|device company\): /ohos_\1=/p' | sed 's/ /_/g' || true),$(eval $(line)))
 ifneq ($(ohos_kernel),liteos_a)
 $(error The selected product ($(ohos_product)) is not a liteos_a kernel type product)
 endif
@@ -177,7 +180,7 @@ else
 	$(HIDE)cp -fp $$($(GPP) $(LITEOS_CXXFLAGS) -print-file-name=libstdc++.so.6) $(OUT)/musl
 endif
 	$(HIDE)$(LITEOS_SCRIPTPATH)/make_rootfs/rootfsdir.sh $(OUT) $(ROOTFS_DIR)
-	$(HIDE)shopt -s nullglob && $(STRIP) $(ROOTFS_DIR)/bin/* $(ROOTFS_DIR)/lib/*
+	$(HIDE)find $(ROOTFS_DIR)/bin $(ROOTFS_DIR)/lib -maxdepth 1 -type f -exec $(STRIP) {} +
 ifneq ($(VERSION),)
 	$(HIDE)$(LITEOS_SCRIPTPATH)/make_rootfs/releaseinfo.sh "$(VERSION)" $(ROOTFS_DIR)
 endif
