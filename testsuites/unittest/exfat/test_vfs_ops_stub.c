@@ -44,7 +44,9 @@
  * `exfat-vfs-stub-null-trap` evolved into "any field still NULL traps to
  * -ENOSYS"; we assert the currently-wired slots are non-NULL and call out
  * the slots that are still legitimately NULL (Setattr / Chattr / Link / ...)
- * as v1 limitations.
+ * as v1 limitations. mmap plus ReadPage/WritePage are wired so mapped
+ * file IO faults and dirty-page flushes go through normal exFAT IO paths
+ * instead of -ENOSYS or NULL callbacks.
  *
  * `exfat-vfs-stub-loscfg-gated` is a build-time invariant (the cmocka
  * harness sets -DLOSCFG_FS_EXFAT explicitly; we assert the macro is defined
@@ -124,6 +126,9 @@ static void test_vops_wired_slots_non_null(void **state)
     assert_non_null((const void *)g_exfatVops.Rename);
     assert_non_null((const void *)g_exfatVops.Truncate);
     assert_non_null((const void *)g_exfatVops.Truncate64);
+    assert_non_null((const void *)g_exfatVops.ReadPage);
+    assert_non_null((const void *)g_exfatVops.WritePage);
+    assert_non_null((const void *)g_exfatVops.Chattr);
 }
 
 static void test_fops_wired_slots_non_null(void **state)
@@ -134,23 +139,20 @@ static void test_fops_wired_slots_non_null(void **state)
     assert_non_null((const void *)g_exfatFops.read);
     assert_non_null((const void *)g_exfatFops.write);
     assert_non_null((const void *)g_exfatFops.seek);
+    assert_non_null((const void *)g_exfatFops.mmap);
 }
 
-/* Slots still NULL in v1 — Setattr / Chattr / Link / Symlink / Readlink /
- * ReadPage / WritePage / Fscheck. Leaving them NULL is intentional; VFS
- * returns -ENOSYS to syscalls that hit them. Asserting this is the literal
- * realisation of the original -null-trap- invariant for the un-refined
- * slots. */
+/* Slots still NULL in v1 — Setattr / Link / Symlink / Readlink / Fscheck.
+ * Leaving them NULL is intentional; VFS returns -ENOSYS to syscalls that hit
+ * them. Asserting this is the literal realisation of the original -null-trap-
+ * invariant for the un-refined slots. */
 static void test_vops_unwired_slots_still_null(void **state)
 {
     (void)state;
     assert_null((const void *)g_exfatVops.Setattr);
-    assert_null((const void *)g_exfatVops.Chattr);
     assert_null((const void *)g_exfatVops.Link);
     assert_null((const void *)g_exfatVops.Symlink);
     assert_null((const void *)g_exfatVops.Readlink);
-    assert_null((const void *)g_exfatVops.ReadPage);
-    assert_null((const void *)g_exfatVops.WritePage);
     assert_null((const void *)g_exfatVops.Fscheck);
 }
 
@@ -164,6 +166,9 @@ extern int VfsExfatMkdir(struct Vnode *, const char *, mode_t, struct Vnode **);
 extern int VfsExfatUnlink(struct Vnode *, struct Vnode *, const char *);
 extern int VfsExfatRmdir(struct Vnode *, struct Vnode *, const char *);
 extern int VfsExfatRename(struct Vnode *, struct Vnode *, const char *, const char *);
+extern ssize_t VfsExfatReadPage(struct Vnode *, char *, off_t);
+extern ssize_t VfsExfatWritePage(struct Vnode *, char *, off_t, size_t);
+extern int     VfsExfatChattr(struct Vnode *, struct IATTR *);
 
 static void test_vops_slot_identity_match(void **state)
 {
@@ -173,8 +178,11 @@ static void test_vops_slot_identity_match(void **state)
     assert_ptr_equal((const void *)g_exfatVops.Create,  (const void *)VfsExfatCreate);
     assert_ptr_equal((const void *)g_exfatVops.Mkdir,   (const void *)VfsExfatMkdir);
     assert_ptr_equal((const void *)g_exfatVops.Unlink,  (const void *)VfsExfatUnlink);
-    assert_ptr_equal((const void *)g_exfatVops.Rmdir,   (const void *)VfsExfatRmdir);
-    assert_ptr_equal((const void *)g_exfatVops.Rename,  (const void *)VfsExfatRename);
+    assert_ptr_equal((const void *)g_exfatVops.Rmdir,    (const void *)VfsExfatRmdir);
+    assert_ptr_equal((const void *)g_exfatVops.Rename,    (const void *)VfsExfatRename);
+    assert_ptr_equal((const void *)g_exfatVops.ReadPage,  (const void *)VfsExfatReadPage);
+    assert_ptr_equal((const void *)g_exfatVops.WritePage, (const void *)VfsExfatWritePage);
+    assert_ptr_equal((const void *)g_exfatVops.Chattr,    (const void *)VfsExfatChattr);
 }
 
 const struct CMUnitTest test_vfs_ops_stub_tests[] = {

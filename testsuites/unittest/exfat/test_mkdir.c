@@ -574,7 +574,7 @@ static void test_add_entry_file_success(void **state)
     assert_int_equal((unsigned int)info.size, 0u);
     assert_int_equal((unsigned int)info.num_subdirs, 0u);
     assert_int_equal((unsigned int)info.type, TYPE_FILE);
-    assert_int_equal((unsigned int)info.flags, ALLOC_NO_FAT_CHAIN);
+    assert_int_equal((unsigned int)info.flags, ALLOC_FAT_CHAIN);
 }
 
 static void test_add_entry_enospc_no_dir_cluster(void **state)

@@ -188,7 +188,6 @@ static void getattr_st_cleared(void **state)
     struct Vnode vp;
     struct stat st;
 
-    /* Pre-poison the stat buffer. */
     memset(&st, 0xFF, sizeof(st));
 
     make_ei(&ei, TYPE_FILE, 0);
@@ -197,10 +196,117 @@ static void getattr_st_cleared(void **state)
     make_vnode_full(&vp, VNODE_TYPE_REG, &mnt, &ei, 0644);
 
     assert_int_equal(VfsExfatGetattr(&vp, &st), 0);
-    /* Invariant exfat-vfsops-getattr-no-timestamps: timestamps zeroed. */
+    /* Invariant exfat-vfsops-getattr-from-inode: zero ei -> zero st times. */
     assert_int_equal((int)st.st_atime, 0);
     assert_int_equal((int)st.st_mtime, 0);
     assert_int_equal((int)st.st_ctime, 0);
+}
+
+static void getattr_timestamps_from_ei(void **state)
+{
+    (void)state;
+    exfat_inode_info ei;
+    exfat_sb_info sbi;
+    struct Mount mnt;
+    struct Vnode vp;
+    struct stat st;
+
+    make_ei(&ei, TYPE_FILE, 0);
+    ei.atime_sec = 1700000001ull;
+    ei.mtime_sec = 1700000002ull;
+    ei.ctime_sec = 1700000003ull;
+    make_sbi(&sbi, 512, 0);
+    make_mount(&mnt, &sbi);
+    make_vnode_full(&vp, VNODE_TYPE_REG, &mnt, &ei, 0644);
+
+    assert_int_equal(VfsExfatGetattr(&vp, &st), 0);
+    /* Invariant exfat-vfsops-getattr-from-inode (Wave 4 fix). */
+    assert_int_equal((int)st.st_atime, 1700000001);
+    assert_int_equal((int)st.st_mtime, 1700000002);
+    assert_int_equal((int)st.st_ctime, 1700000003);
+}
+
+#define CHG_MODE 1u
+#define CHG_UID  2u
+#define CHG_GID  4u
+
+extern int VfsExfatChattr(struct Vnode *vnode, struct IATTR *attr);
+
+static void chattr_chown_noop_match_succeeds(void **state)
+{
+    (void)state;
+    exfat_inode_info ei;
+    exfat_sb_info sbi;
+    struct Mount mnt;
+    struct Vnode vp;
+    struct IATTR ia;
+
+    make_ei(&ei, TYPE_FILE, 0);
+    make_sbi(&sbi, 512, 0);
+    make_mount(&mnt, &sbi);
+    make_vnode_full(&vp, VNODE_TYPE_REG, &mnt, &ei, 0644);
+    vp.uid = 1000;
+    vp.gid = 1000;
+
+    memset(&ia, 0, sizeof(ia));
+    ia.attr_chg_valid = CHG_UID | CHG_GID;
+    ia.attr_chg_uid = 1000;
+    ia.attr_chg_gid = 1000;
+    /* Invariant exfat-chattr-uid-gid-eperm-on-mismatch: matching values are
+     * no-op success (Linux-aligned, Wave 4 fix). */
+    assert_int_equal(VfsExfatChattr(&vp, &ia), 0);
+    assert_int_equal((int)vp.uid, 1000);
+    assert_int_equal((int)vp.gid, 1000);
+}
+
+static void chattr_chown_uid_mismatch_eperm(void **state)
+{
+    (void)state;
+    exfat_inode_info ei;
+    exfat_sb_info sbi;
+    struct Mount mnt;
+    struct Vnode vp;
+    struct IATTR ia;
+
+    make_ei(&ei, TYPE_FILE, 0);
+    make_sbi(&sbi, 512, 0);
+    make_mount(&mnt, &sbi);
+    make_vnode_full(&vp, VNODE_TYPE_REG, &mnt, &ei, 0644);
+    vp.uid = 1000;
+    vp.gid = 1000;
+
+    memset(&ia, 0, sizeof(ia));
+    ia.attr_chg_valid = CHG_UID;
+    ia.attr_chg_uid = 2000;
+    assert_int_equal(VfsExfatChattr(&vp, &ia), -EPERM);
+    /* Mutation atomicity: vp untouched on EPERM. */
+    assert_int_equal((int)vp.uid, 1000);
+}
+
+static void chattr_chown_gid_mismatch_eperm(void **state)
+{
+    (void)state;
+    exfat_inode_info ei;
+    exfat_sb_info sbi;
+    struct Mount mnt;
+    struct Vnode vp;
+    struct IATTR ia;
+
+    make_ei(&ei, TYPE_FILE, 0);
+    make_sbi(&sbi, 512, 0);
+    make_mount(&mnt, &sbi);
+    make_vnode_full(&vp, VNODE_TYPE_REG, &mnt, &ei, 0644);
+    vp.uid = 1000;
+    vp.gid = 1000;
+    vp.mode = 0644 | S_IFREG;
+
+    memset(&ia, 0, sizeof(ia));
+    ia.attr_chg_valid = CHG_GID | CHG_MODE;
+    ia.attr_chg_gid = 2000;
+    ia.attr_chg_mode = 0755;
+    assert_int_equal(VfsExfatChattr(&vp, &ia), -EPERM);
+    /* Mutation atomicity: mode also untouched even though CHG_MODE was set. */
+    assert_int_equal((int)(vp.mode & 0777), 0644);
 }
 
 static void getattr_size_from_ei(void **state)
@@ -395,6 +501,10 @@ const struct CMUnitTest test_getattr_seek_tests[] = {
     cmocka_unit_test(getattr_st_cleared),
     cmocka_unit_test(getattr_size_from_ei),
     cmocka_unit_test(getattr_blksize_cluster),
+    cmocka_unit_test(getattr_timestamps_from_ei),
+    cmocka_unit_test(chattr_chown_noop_match_succeeds),
+    cmocka_unit_test(chattr_chown_uid_mismatch_eperm),
+    cmocka_unit_test(chattr_chown_gid_mismatch_eperm),
     /* Seek */
     cmocka_unit_test(seek_null_filep),
     cmocka_unit_test(seek_set_negative),

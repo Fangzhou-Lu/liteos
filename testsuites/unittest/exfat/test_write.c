@@ -50,7 +50,7 @@
  * Cases (from spec [SPECIFICATION]):
  *   Case 1 ZeroLen          → write_zero_len_fast_path
  *   Case 2 非常规 vnode      → write_dir_type_rejected
- *   Case 3 BeyondEOF        → write_beyond_eof_returns_zero
+ *   Case 3 EmptyExtend      → write_beyond_eof_returns_zero
  *   Case 4 Success          → write_single_cluster_no_chain,
  *                             write_multi_cluster_no_chain,
  *                             write_fat_chained_three_clusters,
@@ -102,6 +102,8 @@ ssize_t VfsExfatRead(struct file *filep, char *buf, size_t len);
 /* ---- global synthetic image -------------------------------------------- */
 
 static uint8_t g_write_image[WRITE_TEST_IMAGE_SIZE];
+static uint8_t g_write_boot[WRITE_TEST_BLOCKSIZE];
+static uint8_t g_write_amap[WRITE_TEST_BLOCKSIZE];
 
 static void put_le32(uint8_t *buf, size_t off, uint32_t val)
 {
@@ -114,6 +116,8 @@ static void put_le32(uint8_t *buf, size_t off, uint32_t val)
 static void build_write_image(void)
 {
     memset(g_write_image, 0, sizeof(g_write_image));
+    memset(g_write_boot, 0, sizeof(g_write_boot));
+    memset(g_write_amap, 0, sizeof(g_write_amap));
 
     /* FAT chain 2→3→4→EOF (sector 0). */
     put_le32(g_write_image, WRITE_TEST_FAT_OFFSET * WRITE_TEST_BLOCKSIZE + 2u * 4u, 3u);
@@ -141,6 +145,16 @@ static void make_sbi(exfat_sb_info *sbi)
     sbi->fat_offset         = WRITE_TEST_FAT_OFFSET;
     sbi->fat_length         = WRITE_TEST_FAT_LENGTH;
     sbi->num_clusters       = WRITE_TEST_NUM_CLUSTERS;
+    sbi->map_clu            = 2u;
+    sbi->map_sectors        = 1u;
+    sbi->vol_amap           = g_write_amap;
+    sbi->used_clusters      = 0u;
+    sbi->clu_srch_ptr       = EXFAT_FIRST_CLUSTER;
+    sbi->s_maxbytes         = (uint64_t)(WRITE_TEST_NUM_CLUSTERS - EXFAT_RESERVED_CLUSTERS) *
+                              WRITE_TEST_CLUSTER_SIZE;
+    sbi->boot_buf           = g_write_boot;
+    sbi->vol_flags          = 0u;
+    sbi->vol_flags_persistent = 0u;
     sbi->part_id            = 0;
 }
 
@@ -152,6 +166,8 @@ static void make_ei(exfat_inode_info *ei, uint32_t start_clu,
     ei->start_clu = start_clu;
     ei->flags     = flags;
     ei->size      = size;
+    ei->valid_size = size;
+    ei->i_size_ondisk = size;
 }
 
 static void make_mount(struct Mount *mnt, void *data)
@@ -308,7 +324,7 @@ static void write_dir_type_rejected(void **state)
     assert_int_equal((int)mock_disk_write_count(), 0);
 }
 
-/* Case 3 / Invariant exfat-write-no-extend: f_pos>=ei->size → 0, no IO. */
+/* Case 3: empty file write allocates storage and advances f_pos. */
 static void write_beyond_eof_returns_zero(void **state)
 {
     (void)state;
@@ -321,23 +337,18 @@ static void write_beyond_eof_returns_zero(void **state)
 
     memset(buf, 0x77, sizeof(buf));
     make_sbi(&sbi);
-    make_ei(&ei, 2u, ALLOC_NO_FAT_CHAIN, 256u);
+    make_ei(&ei, EXFAT_EOF_CLUSTER, ALLOC_FAT_CHAIN, 0u);
     make_mount(&mnt, &sbi);
     make_vnode(&vp, &mnt, &ei);
-    make_filep(&f, &vp, 256); /* exactly EOF */
+    make_filep(&f, &vp, 0);
 
     ssize_t ret = VfsExfatWrite(&f, buf, 16u);
-    assert_int_equal((int)ret, 0);
-    assert_int_equal((int)f.f_pos, 256);
-
-    /* Beyond EOF too. */
-    f.f_pos = 1024;
-    ret = VfsExfatWrite(&f, buf, 16u);
-    assert_int_equal((int)ret, 0);
-    assert_int_equal((int)f.f_pos, 1024);
-
-    /* No part_write either path. */
-    assert_int_equal((int)mock_disk_write_count(), 0);
+    assert_int_equal((int)ret, 16);
+    assert_int_equal((int)f.f_pos, 16);
+    assert_int_equal((unsigned long long)ei.size, 16u);
+    assert_int_equal((unsigned long long)ei.valid_size, 16u);
+    assert_int_not_equal((unsigned int)ei.start_clu, EXFAT_EOF_CLUSTER);
+    assert_true(mock_disk_write_count() > 0);
 }
 
 /* Case 4 happy: ALLOC_NO_FAT_CHAIN, single-cluster overwrite (512 bytes). */
@@ -416,7 +427,7 @@ static void write_fat_chained_three_clusters(void **state)
     assert_true(mock_disk_write_count() == 3);
 }
 
-/* Case 4 / Invariant exfat-write-clamp-by-size: len>remaining → short write. */
+/* Case 4: len beyond current EOF extends the file and writes the full request. */
 static void write_clamp_by_size(void **state)
 {
     (void)state;
@@ -429,19 +440,18 @@ static void write_clamp_by_size(void **state)
 
     memset(buf, 0x44, sizeof(buf));
     make_sbi(&sbi);
-    /* File is 100 bytes; f_pos=60 → 40 bytes remain. */
-    make_ei(&ei, 2u, ALLOC_NO_FAT_CHAIN, 100u);
+    /* File is 100 bytes; f_pos=60 and len=200 extends to 260. */
+    make_ei(&ei, 2u, ALLOC_FAT_CHAIN, 100u);
     make_mount(&mnt, &sbi);
     make_vnode(&vp, &mnt, &ei);
     make_filep(&f, &vp, 60);
 
-    /* Request 200, must clamp to 40. */
     ssize_t ret = VfsExfatWrite(&f, buf, 200u);
-    assert_int_equal((int)ret, 40);
-    assert_int_equal((int)f.f_pos, 100);
-    /* Single-cluster RMW. */
-    assert_int_equal((int)mock_disk_read_count(), 1);
-    assert_int_equal((int)mock_disk_write_count(), 1);
+    assert_int_equal((int)ret, 200);
+    assert_int_equal((int)f.f_pos, 260);
+    assert_int_equal((unsigned long long)ei.size, 260u);
+    assert_int_equal((unsigned long long)ei.valid_size, 260u);
+    assert_true(mock_disk_write_count() > 0);
 }
 
 /*
@@ -581,8 +591,8 @@ static void write_first_part_write_fail_returns_eio(void **state)
 }
 
 /*
- * Invariant exfat-write-no-mutate-ei-on-success:
- * On a successful write, ei->size / start_clu / flags are unchanged.
+ * Invariant exfat-write-overwrite-preserves-allocation:
+ * On an in-place successful write, ei->size / start_clu / flags are unchanged.
  */
 static void write_no_mutate_ei_on_success(void **state)
 {
@@ -610,12 +620,12 @@ static void write_no_mutate_ei_on_success(void **state)
     ssize_t ret = VfsExfatWrite(&f, buf, 512u);
     assert_int_equal((int)ret, 512);
 
-    /* All ei metadata fields untouched. */
+    /* Allocation identity is untouched; valid_size reflects written bytes. */
     assert_true(ei.size == size_before);
     assert_true(ei.start_clu == start_clu_before);
     assert_true(ei.flags == flags_before);
     assert_true(ei.type == type_before);
-    assert_true(ei.valid_size == 0u);  /* Wave A: never set */
+    assert_true(ei.valid_size == 512u);
 }
 
 /* ---- suite registration ------------------------------------------------ */

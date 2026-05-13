@@ -67,7 +67,29 @@ struct Vnode {
  * so the slots only need to be addressable for the static initialiser to
  * type-check. */
 struct fs_dirent_s;
-struct IATTR;
+
+/* Mirror of fs/vfs/include/vnode.h::struct IATTR. The kernel header defines
+ * full CHG_* flag set and per-field attr_chg_* members; cmocka tests only
+ * need them addressable for VfsExfatChattr's field-mask plumbing to
+ * compile against the host stub. */
+#define CHG_MODE   1u
+#define CHG_UID    2u
+#define CHG_GID    4u
+#define CHG_SIZE   8u
+#define CHG_ATIME  16u
+#define CHG_MTIME  32u
+#define CHG_CTIME  64u
+struct IATTR {
+    unsigned int attr_chg_valid;
+    unsigned int attr_chg_flags;
+    unsigned     attr_chg_mode;
+    unsigned     attr_chg_uid;
+    unsigned     attr_chg_gid;
+    unsigned     attr_chg_size;
+    unsigned     attr_chg_atime;
+    unsigned     attr_chg_mtime;
+    unsigned     attr_chg_ctime;
+};
 struct VnodeOps {
     int (*Create)(struct Vnode *parent, const char *name, int mode, struct Vnode **vnode);
     int (*Lookup)(struct Vnode *parent, const char *name, int len, struct Vnode **vnode);
