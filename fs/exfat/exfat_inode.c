@@ -589,6 +589,9 @@ int VfsExfatGetattr(struct Vnode *vp, struct stat *st)
     exfat_sb_info *sbi;
     exfat_inode_info *ei;
     uint64_t snap_size;
+    uint64_t snap_atime;
+    uint64_t snap_mtime;
+    uint64_t snap_ctime;
     errno_t serr;
 
     if (vp == NULL || vp->originMount == NULL || vp->data == NULL || st == NULL) {
@@ -600,9 +603,14 @@ int VfsExfatGetattr(struct Vnode *vp, struct stat *st)
         return -EINVAL;
     }
 
-    /* Invariant exfat-vfsops-getattr-uses-inode-lock. */
+    /* Invariant exfat-vfsops-getattr-uses-inode-lock: snapshot ei fields
+     * (size + timestamps) under inode_lock to avoid torn reads vs concurrent
+     * chattr / write paths. */
     (VOID)LOS_MuxLock(&ei->inode_lock, LOS_WAIT_FOREVER);
-    snap_size = ei->size;
+    snap_size  = ei->size;
+    snap_atime = ei->atime_sec;
+    snap_mtime = ei->mtime_sec;
+    snap_ctime = ei->ctime_sec;
     (VOID)LOS_MuxUnlock(&ei->inode_lock);
 
     /* Invariant exfat-vfsops-getattr-clears-st. */
@@ -622,9 +630,12 @@ int VfsExfatGetattr(struct Vnode *vp, struct stat *st)
     st->st_blocks  = (snap_size > 0) ?                 /* exfat-vfsops-getattr-blocks-512 */
         (blkcnt_t)((snap_size + EXFAT_STAT_BLOCK_SIZE - 1u) / EXFAT_STAT_BLOCK_SIZE) : 0;
 
-    /* Invariant exfat-vfsops-getattr-no-timestamps: leave atime/mtime/ctime
-     * zeroed by memset_s above. Wave B will populate after dentry timestamp
-     * parsing lands in ei. */
+    /* Invariant exfat-vfsops-getattr-from-inode: surface ei->*time_sec instead
+     * of zeroing (Wave 4 fix). LTP safe_touch's stat→cotimes→utimes round-trip
+     * depends on non-zero baseline timestamps. */
+    st->st_atime = (time_t)snap_atime;
+    st->st_mtime = (time_t)snap_mtime;
+    st->st_ctime = (time_t)snap_ctime;
 
     return 0;
 }
@@ -1219,13 +1230,14 @@ int exfat_add_entry(exfat_sb_info *sbi, struct Vnode *parent_vp,
     info->dir         = p_dir;
     info->entry       = dentry_idx;
     info->type        = type;
-    info->flags       = (uint8_t)ALLOC_NO_FAT_CHAIN;
     if (type == TYPE_DIR) {
+        info->flags       = (uint8_t)ALLOC_NO_FAT_CHAIN;
         info->attr        = (uint16_t)ATTR_SUBDIR;
         info->start_clu   = start_clu;
         info->size        = clu_size;
         info->num_subdirs = EXFAT_MIN_SUBDIR;
     } else {
+        info->flags       = (uint8_t)ALLOC_FAT_CHAIN;
         info->attr        = (uint16_t)ATTR_ARCHIVE;
         info->start_clu   = EXFAT_EOF_CLUSTER;
         info->size        = 0u;
@@ -1329,28 +1341,30 @@ int VfsExfatMkdir(struct Vnode *parent_vp, const char *name,
         return -ENOMEM;   /* Case 3 */
     }
 
-    new_ei->dir           = info.dir;
+    /* For a directory inode the in-memory fields must mirror what
+     * VfsExfatLookup would have produced if the FS were re-mounted: dir is
+     * the PARENT chain (where this dentry-set lives on disk); start_clu is
+     * THIS directory's own first data cluster; flags are this directory's
+     * own ALLOC_NO_FAT_CHAIN flag (single-cluster freshly-allocated dir).
+     *
+     * Earlier revisions called exfat_inode_init_dir_chain(new_ei,
+     * info.start_clu) here, which clobbered new_ei->dir.dir with the new
+     * directory's own cluster — that broke VfsExfatRmdir / VfsExfatUnlink /
+     * VfsExfatRename / exfat_sync_parent_dir_metadata, all of which use
+     * target_ei->dir to locate the dentry-set inside the parent and then
+     * fail with -EIO (sector read out of the wrong cluster). */
+    new_ei->dir           = info.dir;            /* parent chain */
     new_ei->entry         = info.entry;
-    new_ei->type          = info.type;
+    new_ei->type          = info.type;           /* TYPE_DIR */
     new_ei->attr          = info.attr;
-    new_ei->start_clu     = info.start_clu;
-    new_ei->flags         = info.flags;
+    new_ei->start_clu     = info.start_clu;      /* this dir's own cluster */
+    new_ei->flags         = info.flags;          /* ALLOC_NO_FAT_CHAIN */
     new_ei->size          = info.size;
     new_ei->valid_size    = info.size;
     new_ei->i_size_ondisk = info.size;
     new_ei->num_subdirs   = info.num_subdirs;
     new_ei->i_pos         = ((uint64_t)info.start_clu << 32) |
                             (uint32_t)info.entry;
-
-    /* init_dir_chain rewires dir/start_clu/type/flags from the new cluster;
-     * call after the manual copy so its values win (matches lookup pattern),
-     * then restore fields it does not cover. */
-    exfat_inode_init_dir_chain(new_ei, info.start_clu);
-    new_ei->size          = info.size;
-    new_ei->valid_size    = info.size;
-    new_ei->i_size_ondisk = info.size;
-    new_ei->attr          = info.attr;
-    new_ei->num_subdirs   = info.num_subdirs;
 
     err = VnodeAlloc(&g_exfatVops, &new_vp);
     if (err != 0) {
@@ -2752,3 +2766,93 @@ int exfat_sync_parent_dir_metadata(exfat_sb_info *sbi,
 
     return 0;   /* Case 1 */
 }
+
+/* ----- merged from exfat_chattr.c ----- */
+
+/* ---------------------------------------------------------------------------
+ * VfsExfatChattr — VnodeOps.Chattr callback
+ *   (spec/exfat/interface/exfat_chattr.spec).
+ *
+ * exFAT on-disk dentry carries no POSIX mode/uid/gid bits (mount-time
+ * fmask/dmask/fs_uid/fs_gid determine them). This callback updates the
+ * in-memory mirror only; no IO, no disk mutation. Mirror of Linux
+ * fs/exfat/file.c::exfat_setattr behaviour for the no-disk-state portion.
+ *
+ * Invariants enforced (8): -no-io / -no-locks / -mode-preserves-type /
+ *   -mode-perm-mask / -no-disk-mutation / -no-spinlock-callsite /
+ *   -size-ignored-here / -best-effort-ctime.
+ * --------------------------------------------------------------------------- */
+int VfsExfatChattr(struct Vnode *vnode, struct IATTR *attr)
+{
+    exfat_inode_info *ei;
+    unsigned int      valid;
+    int               touched = 0;
+
+    /* Phase 1: argument validation. */
+    if (vnode == NULL || attr == NULL) {
+        return -EINVAL;
+    }
+    if (vnode->data == NULL || vnode->originMount == NULL) {
+        return -EINVAL;
+    }
+
+    ei    = (exfat_inode_info *)vnode->data;
+    valid = attr->attr_chg_valid;
+
+    /* Phase 2: UID/GID mismatch gate (invariant exfat-chattr-uid-gid-eperm-
+     * on-mismatch). Linux exfat_setattr rejects chown with -EPERM unless the
+     * requested uid/gid matches sbi->options.fs_uid/fs_gid (here represented
+     * by vp->uid / vp->gid, initialized at mount). No-op chown succeeds —
+     * Wave 4 baseline confirms this is what LTP framework relies on. */
+    if ((valid & CHG_UID) != 0u && (uint)attr->attr_chg_uid != vnode->uid) {
+        return -EPERM;
+    }
+    if ((valid & CHG_GID) != 0u && (uint)attr->attr_chg_gid != vnode->gid) {
+        return -EPERM;
+    }
+
+    /* Phase 3: apply CHG_MODE / CHG_UID / CHG_GID (in-memory).
+     * Invariant exfat-chattr-mode-preserves-type / -mode-perm-mask:
+     *   - keep vnode->mode S_IFMT bits intact (type never changes);
+     *   - only the low 9 permission bits land in vnode->mode (sticky / setuid
+     *     / setgid silently dropped — exFAT has no on-disk slot for them).
+     * CHG_UID/CHG_GID identity writes here are guaranteed no-ops by Phase 2. */
+    if ((valid & CHG_MODE) != 0u) {
+        mode_t new_perm = (mode_t)(attr->attr_chg_mode & 0777u);
+        vnode->mode = (vnode->mode & (mode_t)S_IFMT) | new_perm;
+        touched = 1;
+    }
+    if ((valid & CHG_UID) != 0u) {
+        vnode->uid = (uint)attr->attr_chg_uid;
+        touched = 1;
+    }
+    if ((valid & CHG_GID) != 0u) {
+        vnode->gid = (uint)attr->attr_chg_gid;
+        touched = 1;
+    }
+
+    /* Phase 4: apply CHG_{ATIME, MTIME, CTIME} (in-memory ei).
+     * Spec invariant exfat-chattr-best-effort-ctime: when the caller did not
+     * explicitly request CHG_CTIME but any other field was touched, advance
+     * ctime via exfat_inode_touch_ctime (mirrors Linux setattr_copy). */
+    if ((valid & CHG_ATIME) != 0u) {
+        ei->atime_sec = (uint64_t)attr->attr_chg_atime;
+        touched = 1;
+    }
+    if ((valid & CHG_MTIME) != 0u) {
+        ei->mtime_sec = (uint64_t)attr->attr_chg_mtime;
+        touched = 1;
+    }
+    if ((valid & CHG_CTIME) != 0u) {
+        ei->ctime_sec = (uint64_t)attr->attr_chg_ctime;
+    } else if (touched != 0) {
+        exfat_inode_touch_ctime(ei);
+    }
+
+    /* CHG_SIZE intentionally ignored — size changes go through vop->Truncate.
+     * Other unrecognised bits are silently tolerated (spec Case 3). */
+
+    /* Phase 5: success. */
+    return 0;
+}
+

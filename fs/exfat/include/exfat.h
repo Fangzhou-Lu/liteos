@@ -447,6 +447,8 @@ int VfsExfatRewinddir(struct Vnode *vp, struct fs_dirent_s *idir);
  * spec/exfat/interface/exfat_read.spec.
  */
 ssize_t VfsExfatRead(struct file *filep, char *buf, size_t len);
+ssize_t VfsExfatReadPage(struct Vnode *vnode, char *buffer, off_t pos);
+ssize_t VfsExfatWritePage(struct Vnode *vnode, char *buffer, off_t pos, size_t buflen);
 
 /* ---- VFS Write callback — fs/exfat/exfat_write.c (Wave B Stage 1) ----
  * file_operations_vfs.write handler. In-place overwrite only; clamped to
@@ -512,6 +514,12 @@ int  VfsExfatRename(struct Vnode *src, struct Vnode *dstParent,
                     const char *srcName, const char *dstName);
 int  exfat_sync_parent_dir_metadata(exfat_sb_info *sbi,
                                     exfat_inode_info *parent_ei);
+
+/* chattr stage exports — VnodeOps.Chattr callback. In-memory only;
+ * exFAT on-disk dentry has no POSIX mode/uid/gid slots.
+ * Spec: spec/exfat/interface/exfat_chattr.spec. */
+struct IATTR;
+int  VfsExfatChattr(struct Vnode *vnode, struct IATTR *attr);
 
 /* ---- inode_metadata_model — fs/exfat/exfat_inode.c (Wave B Stage 5)
  * Pure / lock-free / IO-free metadata helpers. Caller holds ei->inode_lock

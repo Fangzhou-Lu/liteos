@@ -27,6 +27,7 @@
  */
 
 #include "exfat.h"
+#include "los_vm_filemap.h"
 
 /*
  * exFAT VFS operations tables — Linux-style static initialization.
@@ -48,6 +49,8 @@
  */
 struct VnodeOps g_exfatVops = {
     .Lookup     = VfsExfatLookup,
+    .ReadPage   = VfsExfatReadPage,
+    .WritePage  = VfsExfatWritePage,
     .Reclaim    = VfsExfatReclaim,
     .Create     = VfsExfatCreate,
     .Opendir    = VfsExfatOpendir,
@@ -61,6 +64,7 @@ struct VnodeOps g_exfatVops = {
     .Rename     = VfsExfatRename,
     .Truncate   = VfsExfatTruncate,
     .Truncate64 = VfsExfatTruncate64,
+    .Chattr     = VfsExfatChattr,
 };
 
 /*
@@ -76,4 +80,5 @@ struct file_operations_vfs g_exfatFops = {
     .read  = VfsExfatRead,
     .write = VfsExfatWrite,
     .seek  = VfsExfatSeek,
+    .mmap  = OsVfsFileMmap,
 };

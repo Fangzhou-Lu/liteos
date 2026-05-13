@@ -972,6 +972,36 @@ UNLOCK:
     return (ssize_t)err;
 }
 
+ssize_t VfsExfatReadPage(struct Vnode *vnode, char *buffer, off_t pos)
+{
+    struct file page_file;
+
+    if (vnode == NULL || buffer == NULL || pos < 0) {
+        return -EINVAL;
+    }
+
+    (VOID)memset_s(&page_file, sizeof(page_file), 0, sizeof(page_file));
+    page_file.f_vnode = vnode;
+    page_file.f_pos = (loff_t)pos;
+    page_file.ops = &g_exfatFops;
+    return VfsExfatRead(&page_file, buffer, 4096u);
+}
+
+ssize_t VfsExfatWritePage(struct Vnode *vnode, char *buffer, off_t pos, size_t buflen)
+{
+    struct file page_file;
+
+    if (vnode == NULL || buffer == NULL || pos < 0) {
+        return -EINVAL;
+    }
+
+    (VOID)memset_s(&page_file, sizeof(page_file), 0, sizeof(page_file));
+    page_file.f_vnode = vnode;
+    page_file.f_pos = (loff_t)pos;
+    page_file.ops = &g_exfatFops;
+    return VfsExfatWrite(&page_file, buffer, buflen);
+}
+
 /* ----- merged from exfat_write.c ----- */
 
 extern UINT8 *m_aucSysMem0;
@@ -1054,6 +1084,8 @@ ssize_t VfsExfatWrite(struct file *filep, const char *buf, size_t len)
     exfat_inode_info *ei;
     uint8_t *cluster_buf = NULL;
     uint64_t cur_off;
+    uint64_t old_size;
+    uint64_t end_pos;
     uint64_t to_write;
     size_t   written = 0;
     int      ret;
@@ -1083,17 +1115,36 @@ ssize_t VfsExfatWrite(struct file *filep, const char *buf, size_t len)
 
     (VOID)LOS_MuxLock(&ei->inode_lock, LOS_WAIT_FOREVER);
 
-    /* Invariant exfat-write-no-extend: do not extend past ei->size in B1. */
-    if ((uint64_t)filep->f_pos >= ei->size) {
-        (VOID)LOS_MuxUnlock(&ei->inode_lock);
-        return 0;
+    if (filep->f_pos < 0) {
+        err = -EINVAL;
+        goto UNLOCK;
+    }
+    old_size = ei->size;
+    if ((uint64_t)filep->f_pos > UINT64_MAX - (uint64_t)len) {
+        err = -EFBIG;
+        goto UNLOCK;
+    }
+    end_pos = (uint64_t)filep->f_pos + (uint64_t)len;
+    if (sbi->s_maxbytes != 0u && end_pos > sbi->s_maxbytes) {
+        err = -EFBIG;
+        goto UNLOCK;
     }
 
-    /* Invariant exfat-write-clamp-by-size. */
-    to_write = ei->size - (uint64_t)filep->f_pos;
-    if (to_write > (uint64_t)len) {
-        to_write = (uint64_t)len;
+    if (end_pos > ei->size && ei->size == 0u && ei->i_size_ondisk == 0u &&
+        ei->flags != ALLOC_FAT_CHAIN &&
+        (ei->start_clu == EXFAT_EOF_CLUSTER || ei->start_clu == EXFAT_FREE_CLUSTER)) {
+        ei->flags = ALLOC_FAT_CHAIN;
     }
+
+    if (end_pos > ei->size) {
+        ret = exfat_truncate_extend(sbi, ei, end_pos);
+        if (ret != 0) {
+            err = ret;
+            goto UNLOCK;
+        }
+    }
+
+    to_write = (uint64_t)len;
 
     cluster_buf = (uint8_t *)LOS_MemAlloc(m_aucSysMem0, sbi->cluster_size);
     if (cluster_buf == NULL) {
@@ -1124,14 +1175,21 @@ ssize_t VfsExfatWrite(struct file *filep, const char *buf, size_t len)
         sect    = exfat_clu_to_sector(sbi, cur_clu);
         nr_sect = sbi->cluster_size >> sbi->blocksize_bits;
 
-        /* RMW step 1: read existing cluster. Invariant
-         * exfat-write-rmw-read-failure-aborts. */
-        ret = los_part_read(sbi->part_id, cluster_buf, sect, nr_sect, TRUE);
-        if (ret != 0) {
-            PRINT_ERR("[%s] los_part_read failed clu=%u sect=%llu: %d\n",
-                      __func__, cur_clu, sect, ret);
-            err = -EIO;
-            goto IO_ERR;
+        if (cur_off >= old_size) {
+            ret = memset_s(cluster_buf, sbi->cluster_size, 0, sbi->cluster_size);
+            if (ret != EOK) {
+                PRINT_ERR("[%s] memset_s failed: %d\n", __func__, ret);
+                err = -EIO;
+                goto IO_ERR;
+            }
+        } else {
+            ret = los_part_read(sbi->part_id, cluster_buf, sect, nr_sect, TRUE);
+            if (ret != 0) {
+                PRINT_ERR("[%s] los_part_read failed clu=%u sect=%llu: %d\n",
+                          __func__, cur_clu, sect, ret);
+                err = -EIO;
+                goto IO_ERR;
+            }
         }
 
         remain = (size_t)(to_write - (uint64_t)written);
@@ -1165,6 +1223,9 @@ ssize_t VfsExfatWrite(struct file *filep, const char *buf, size_t len)
 
     (void)LOS_MemFree(m_aucSysMem0, cluster_buf);
     filep->f_pos += (loff_t)written;
+    if ((uint64_t)filep->f_pos > ei->valid_size) {
+        ei->valid_size = (uint64_t)filep->f_pos;
+    }
     (VOID)LOS_MuxUnlock(&ei->inode_lock);
     return (ssize_t)written;
 
@@ -1173,6 +1234,9 @@ IO_ERR:
     /* Invariant exfat-write-short-write-on-mid-failure. */
     if (written > 0) {
         filep->f_pos += (loff_t)written;
+        if ((uint64_t)filep->f_pos > ei->valid_size) {
+            ei->valid_size = (uint64_t)filep->f_pos;
+        }
         (VOID)LOS_MuxUnlock(&ei->inode_lock);
         return (ssize_t)written;
     }
@@ -1218,7 +1282,7 @@ int exfat_truncate_extend(exfat_sb_info *sbi, exfat_inode_info *ei,
     if (sbi->cluster_size == 0u) {
         return -EINVAL;
     }
-    if (new_size > sbi->s_maxbytes) {
+    if (sbi->s_maxbytes != 0u && new_size > sbi->s_maxbytes) {
         return -EFBIG;
     }
 
