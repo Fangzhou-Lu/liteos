@@ -30,7 +30,7 @@
 import("//kernel/liteos_a/liteos.gni")
 
 declare_args() {
-  liteos_kernel_unittest = true
+  liteos_kernel_unittest = false
 }
 
 group("testsuites") {

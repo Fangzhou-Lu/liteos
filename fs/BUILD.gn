@@ -34,7 +34,6 @@ group("fs") {
     "exfat",
     "fat",
     "fat/virpart",
-    "jffs2",
     "nfs",
     "patchfs",
     "proc",

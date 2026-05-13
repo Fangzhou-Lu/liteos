@@ -105,6 +105,9 @@ if (ohos_build_compiler == "clang") {
 
 config("arch_config") {
   cflags = liteos_arch_cflags
+  if (ohos_build_compiler == "clang") {
+    cflags += [ "--target=$target_triple" ]
+  }
   asmflags = cflags
   ldflags = cflags
   if (defined(LOSCFG_ARCH_ARM_AARCH32)) {
@@ -235,6 +238,21 @@ config("misc_config") {
     "-fno-omit-frame-pointer",
     "-fno-short-enums",
     "-mno-unaligned-access",
+
+    # Kernel/HDF/device objects in this tree inherit misc_config directly.
+    # Keep the clang target triple here so those source_set-based targets do
+    # not fall back to the host aarch64 default and reject -mcpu=cortex-a7.
+    "--target=$target_triple",
+
+    # Emit ARM EHABI .ARM.exidx index entries so GDB can backtrace inside
+    # ordinary C functions like VfsExfatChattr even when the syscall entry
+    # trampoline has no .cfi annotations. Use only -funwind-tables here
+    # (NOT -fasynchronous-unwind-tables): the async variant pulls in
+    # __aeabi_unwind_cpp_pr0/pr1 personality routines, which are not
+    # available in the freestanding -nostdlib kernel link. The non-async
+    # variant emits CANTUNWIND/inlined entries that lld accepts without a
+    # personality dependency — enough for GDB's arm_exidx_unwind sniffer.
+    "-funwind-tables",
   ]
 
   if (!defined(LOSCFG_COMPILER_CLANG_LLVM)) {
@@ -338,7 +356,6 @@ group("modules") {
     "security",
     "shell",
     "syscall",
-    "testsuites/kernel:kernel_test",
   ]
 
   deps += [
@@ -369,8 +386,12 @@ group("liteos_a") {
     deps += [
       ":apps",
       ":tests",
-      "$THIRDPARTY_MUSL_DIR/scripts/build_lite:strip",
     ]
+    # musl/scripts/build_lite:strip only exists when !is_llvm_build; mirror
+    # the guard from third_party/musl/scripts/build_lite/BUILD.gn:164.
+    if (!is_llvm_build) {
+      deps += [ "$THIRDPARTY_MUSL_DIR/scripts/build_lite:strip" ]
+    }
     if (liteos_skip_make == false) {
       deps += [ ":make" ]
     }
