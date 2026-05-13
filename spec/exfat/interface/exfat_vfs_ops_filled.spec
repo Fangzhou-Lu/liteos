@@ -149,9 +149,13 @@ extern off_t VfsExfatSeek(struct file *filep, off_t offset, int whence);
   - `st->st_blksize` = sbi->cluster_size。
   - `st->st_blocks`  = `ei->size ? ((ei->size + 511) / 512) : 0`
                        （POSIX 512 字节单位，与 Linux 标准一致）。
-  - `st->st_atime` / `st_mtime` / `st_ctime` = 0（Wave A 无 timestamp；
-                       `__st_atim32.tv_sec` / `__st_mtim32.tv_sec` 等结构体
-                       兼容字段同样清零）。
+  - `st->st_atime` = `(time_t)ei->atime_sec`（已由 chattr / inode_load_metadata
+                       维护；初始为 mount 时间戳）。
+  - `st->st_mtime` = `(time_t)ei->mtime_sec`。
+  - `st->st_ctime` = `(time_t)ei->ctime_sec`。
+  - 若结构体含 `__st_atim32.tv_sec` / `__st_mtim32.tv_sec` / `__st_ctim32.tv_sec`
+                       兼容字段，同步填同值；`tv_nsec` 字段填 0（exFAT dentry 仅
+                       秒精度 + 10ms increment，Linux 也 truncate atime 到 2s）。
 - 返回 0。
 
 **Post-Condition (Getattr Case 2: 入参非法)**：
@@ -196,11 +200,16 @@ attr）的原子快照——避免与并发的 Wave B 写路径（truncate/appen
 入口先 `memset_s(st, sizeof(*st), 0, sizeof(*st))` 清零，避免内核栈/堆 leak
 进 user space（POSIX struct stat 含若干 padding 与未填字段）。
 
-**Invariant** (id=exfat-vfsops-getattr-no-timestamps)：
-Wave A 把 st_atime / st_mtime / st_ctime / __st_atim32 / __st_mtim32 /
-__st_ctim32 一并写 0。Wave B 解析 dentry CrtTime/MtimeOff/AccessTime 字段
-后通过 spec evolve 加 timestamp 字段到 ei，再扩展本路径。当前不引入虚假的
-"挂载时间"或 build epoch。
+**Invariant** (id=exfat-vfsops-getattr-from-inode)：
+`st->st_atime / st_mtime / st_ctime` 直接取自 `ei->atime_sec / mtime_sec /
+ctime_sec`（在快照锁下读取）。Linux `exfat_getattr` 通过 `generic_fillattr`
+读 `inode->i_atime / i_mtime / i_ctime` 同语义。这是 Wave 4 三向 baseline
+对比指出的 LiteOS-A 修复点之一 —— LTP `safe_touch` 内部
+`stat() → cotimes[0] = sb.st_atime → utimes(path, cotimes)` 需要 stat 返回
+非 0 时间戳才能形成正确的回写序列；之前 invariant `-no-timestamps` 把
+时间戳全清零是导致 utimes 后续诊断混乱的根因之一。
+Wave A 的 ei->{a,m,c}time_sec 初值由 mount 时 inode_load_metadata 从 dentry
+解码或由 mount-time `exfat_now_seconds()` 填入；本路径只读不写。
 
 **Invariant** (id=exfat-vfsops-getattr-blksize-cluster)：
 `st->st_blksize = sbi->cluster_size`，与 Linux exfat_getattr 一致——这是 IO

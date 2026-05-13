@@ -7515,6 +7515,60 @@
         "test_array_name": "test_parent_metadata_sync_tests",
         "dirty": false
       }
+    },
+    {
+      "id": "readpage",
+      "stage_name": "readpage",
+      "depends_on": [],
+      "code": {},
+      "spec": {
+        "files": [
+          "spec/exfat/interface/exfat_readpage.spec"
+        ],
+        "git_sha": "152f3de9578da557162d91cf25d72deb86c7d982",
+        "linux_source_ref": "/Users/kissa/Codebase/linux/fs/exfat/inode.c",
+        "approved_at": "2026-05-12T02:45:47Z",
+        "approval_iterations": 0,
+        "user_clarifications": [],
+        "dirty": false
+      },
+      "invariants": []
+    },
+    {
+      "id": "writepage",
+      "stage_name": "writepage",
+      "depends_on": [],
+      "code": {},
+      "spec": {
+        "files": [
+          "spec/exfat/interface/exfat_writepage.spec"
+        ],
+        "git_sha": "3811aa1b756391884c54efe72e7864744688a74f",
+        "linux_source_ref": "/Users/kissa/Codebase/linux/fs/exfat/inode.c",
+        "approved_at": "2026-05-12T02:46:34Z",
+        "approval_iterations": 0,
+        "user_clarifications": [],
+        "dirty": false
+      },
+      "invariants": []
+    },
+    {
+      "id": "chattr",
+      "stage_name": "chattr",
+      "depends_on": [],
+      "code": {},
+      "spec": {
+        "files": [
+          "spec/exfat/interface/exfat_chattr.spec"
+        ],
+        "git_sha": "946f43d2597ea8fa540a4d8c22c04efea4b2648c",
+        "linux_source_ref": "/Users/kissa/Codebase/linux/fs/exfat/file.c",
+        "approved_at": "2026-05-12T03:38:22Z",
+        "approval_iterations": 0,
+        "user_clarifications": [],
+        "dirty": false
+      },
+      "invariants": []
     }
   ]
 }
